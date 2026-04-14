@@ -1,22 +1,189 @@
 [project]
-name = "splatkit"
+name = "splatkit-dev-environment"
 version = "0.1.0"
-description = "Core contracts and optional utilities for modular Gaussian splatting."
+description = "Dev environment for splatkit."
+readme = "README.md"
+authors = [
+    { name = "Florian Barthel, Paul Schlack" }
+]
 requires-python = ">=3.11"
 dependencies = [
     "beartype>=0.22.9",
+    "diff-gaussian-rasterization>=0.0.0",
     "jaxtyping>=0.3.9",
-    "torch>=2.11.0",
-]
-
-[project.optional-dependencies]
-viewer = [
     "marimo-3dv>=0.1.1",
+    "numpy>=2.4.4",
+    "ruff>=0.15.10",
+    "splatkit",
+    "splatkit-backends>=0.1.0",
+    "torch>=2.11.0",
+    "ty>=0.0.29",
 ]
 
-[build-system]
-requires = ["uv_build>=0.9.3,<0.10.0"]
-build-backend = "uv_build"
+[tool.uv]
+package = false
 
-[tool.uv.build-backend]
-module-name = "splatkit"
+
+[tool.uv.sources]
+# Keep installable package sources pointed at local checkouts to avoid stale
+# wheel state in notebooks and integration tests.
+marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
+splatkit = { path = "packages/splatkit", editable = true }
+splatkit-backends = { path = "packages/splatkit-backends", editable = true }
+diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
+
+
+# --- Formatting ---
+
+[tool.ruff]
+line-length = 80
+exclude = ['third_party/*']
+
+
+[tool.ruff.lint] # Mostly just copied over from mojo
+ignore = [
+  "ANN002",     # TODO: Missing type annotation for *args
+  "ANN003",     # TODO: Missing type annotation for **kwargs
+  "ANN204",     # TODO: Missing return type annotation for special method
+  "ANN401",     # TODO: Dynamically typed expressions (typing.Any) are disallowed in `**kwargs`
+  "B008",       # Do not perform function call in argument defaults
+  "B017",       # Do not assert blind exception: `Exception`
+  "B028",       # No explicit `stacklevel` keyword argument found
+  "D105",       # undocumented-magic-method
+  "D107",       # Missing docstring in __init__ (constructor args go in class docstring)
+  "E402",       # TODO: import top of file
+  "E722",       # bare except
+  "E731",       # TODO: Don't assign lambda
+  "E741",       # TODO: Ambiguous variable name
+  "F403",       # glob imports
+  "F405",       # TODO: glob imports undefined
+  "F821",       # TODO: Undefined names, means script is invalid
+  "F841",       # TODO: unused variables
+  "FURB122",    # Questionable readability improvement
+  "RUF005",     # Consider iterable unpacking instead of concatenation
+  "RUF010",     # Use explicit conversion flag
+  "RUF012",     # Mutable class attributes should be annotated with `typing.ClassVar`
+  "RUF015",     # Prefer `next(iter(iterable))` over single element slice
+  "SIM102",     # Collapsible if
+  "SIM105",     # Suppressible exception
+  "SIM108",     # Use ternary operator
+  "SIM114",     # Combine arms with or
+  "SIM115",     # Use context manager for opening files
+  "SIM117",     # Merge with statements
+  "SIM300",     # YODA conditions
+  "SIM905",     # Use a list literal instead of str.split
+  "F722",       # Unexpected token in forward annotation, clashes with jaxtyping
+]
+extend-select = [
+  "ANN",        # Require function type annotations
+  "B",          # Bugbear lints
+  "D",          # Pydocstyle lints
+  "FURB",       # Refurb lints for modernization
+  "I",          # Import sorting lints
+  "RUF",        # Ruff specific lints
+  "SIM",        # Simplify lints
+  "T10",        # Checks for the presence of debugger calls and imports.
+  "UP",         # Type annotations should not use Union, Optional, etc
+  "ISC",        # Good use of string concatenation
+  "SIM",        # Common simplification rules
+  "TID",        # Some good import practices
+  "PTH",        # Use pathlib instead of os.path
+  "NPY",        # Some numpy-specific things
+
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN", "D"]
+"notebooks/*" = [
+    "ANN",        # Require function type annotations doesn't work well with marimos def _()
+    "B018",       # Useless expresions can be nice for output visualization in marimo
+    "F401",       # Unused imports from marimo
+    "RUF059",     # Unused unpacked variable
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "backend: tests backend-specific behavior",
+    "cuda: tests that require CUDA",
+    "integration: tests that execute a real backend",
+]
+
+
+
+
+# --- pixi specific ---
+
+[tool.pixi.pypi-dependencies]
+marimo_3dv = { path = "third_party/marimo-3dv" , editable = true }
+splatkit = { path = "packages/splatkit" , editable = true }
+splatkit_backends = { path = "packages/splatkit-backends" , editable = true }
+diff_gaussian_rasterization = { path = "third_party/diff-gaussian-rasterization" , editable = true }
+
+
+# NOTE: pixi is only used for managing the cuda version. Everything else is managed by uv/pypi.
+[tool.pixi.workspace]
+channels = ["nvidia", "conda-forge"]
+platforms = ["linux-64"]
+
+
+
+[tool.pixi.system-requirements]
+libc   = { family = "glibc", version = "2.34" } # needed for slangpy
+
+
+# --- CUDA version features ---
+# --> CUDA 12.8
+[tool.pixi.feature.cu128.system-requirements]
+cuda = "12.8"
+
+[tool.pixi.feature.cu128.dependencies]
+cuda-toolkit = ">=12.9.1,<13"
+cuda-nvcc = ">=12.9.86,<13"
+cuda-version = ">=12.9,<13"
+
+[tool.pixi.feature.cu128.activation.env]
+CUDA_HOME = "$CONDA_PREFIX"
+CUDA_PATH = "$CONDA_PREFIX"
+
+[tool.pixi.feature.cu128.pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu128"]
+index-strategy = "unsafe-best-match"
+
+# --> CUDA 13.0
+[tool.pixi.feature.cu130.system-requirements]
+cuda = "13.0"
+
+[tool.pixi.feature.cu130.dependencies]
+cuda-version = ">=13.2,<14"
+cuda-toolkit = ">=12.6.2,<13"
+cuda-nvcc = ">=13.2.51,<14"
+
+[tool.pixi.feature.cu130.activation.env]
+CUDA_HOME = "$CONDA_PREFIX"
+CUDA_PATH = "$CONDA_PREFIX"
+
+[tool.pixi.feature.cu130.pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu130"]
+index-strategy = "unsafe-best-match"
+
+
+# --- Environments ---
+[tool.pixi.environments]
+default = ["cu128"]
+cu128 = ["cu128"]
+cu130 = ["cu130"]
+
+
+# --- Pixi Dependencies ---
+[tool.pixi.dependencies]
+cmake = ">=4.2.3,<5"
+openblas = ">=0.3.31,<0.4"
+clang-format = ">=22.1.0,<23"
+python = ">=3.10,<3.14" # cupy does not support 3.14 yet
+ninja = ">=1.13.2,<2"
+gcc_linux-64 = ">=13.4.0,<16"
+libgl-devel = ">=1.7.0,<2"
+libegl-devel = ">=1.7.0,<2"
