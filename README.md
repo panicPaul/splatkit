@@ -2,6 +2,10 @@
 
 Minimal, backend-agnostic Gaussian splatting contracts and runtime helpers.
 
+Related project: the end-to-end workspace, notebooks, and integration examples
+live in
+[`Awesome_3DGS_Renderer`](https://github.com/Florian-Barthel/Awesome_3DGS_Renderer).
+
 ## What It Contains
 - `splatkit.core`: canonical scene/camera contracts, output capability protocols, backend registry, and the generic `render(...)` wrapper
 - optional extras over time for reusable tooling that should remain separate from the minimal core dependency set
