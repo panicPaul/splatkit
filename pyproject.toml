@@ -1,0 +1,22 @@
+[project]
+name = "splatkit"
+version = "0.1.0"
+description = "Core contracts and optional utilities for modular Gaussian splatting."
+requires-python = ">=3.11"
+dependencies = [
+    "beartype>=0.22.9",
+    "jaxtyping>=0.3.9",
+    "torch>=2.11.0",
+]
+
+[project.optional-dependencies]
+viewer = [
+    "marimo-3dv>=0.1.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.3,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "splatkit"
