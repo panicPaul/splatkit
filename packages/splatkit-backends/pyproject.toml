@@ -1,6 +1,6 @@
 [project]
 name = "splatkit-backends"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Official backend adapters for splatkit."
 requires-python = ">=3.11"
 dependencies = [
@@ -14,10 +14,74 @@ dependencies = [
 gsplat = [
     "gsplat>=1.5.3",
 ]
+fastergs = [
+    "FasterGSCudaBackend",
+]
+inria = [
+    "diff-gaussian-rasterization>=0.0.0",
+]
+svraster = [
+    "new-svraster-cuda>=0.0.0",
+]
+all = [
+    "gsplat>=1.5.3",
+    "FasterGSCudaBackend",
+    "diff-gaussian-rasterization>=0.0.0",
+    "new-svraster-cuda>=0.0.0",
+]
+cu128 = [
+    "torch>=2.11.0",
+]
+cu130 = [
+    "torch>=2.11.0",
+]
 
 [build-system]
-requires = ["uv_build>=0.9.3,<0.10.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27.0", "hatch-vcs>=0.5.0"]
+build-backend = "hatchling.build"
 
-[tool.uv.build-backend]
-module-name = "splatkit_backends"
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cu128" },
+        { extra = "cu130" },
+    ],
+]
+no-build-isolation-package = [
+    "diff-gaussian-rasterization",
+    "FasterGSCudaBackend",
+    "new-svraster-cuda",
+]
+
+[tool.uv.sources]
+splatkit = { path = "../splatkit", editable = true }
+diff-gaussian-rasterization = { path = "../../third_party/diff-gaussian-rasterization", editable = true }
+FasterGSCudaBackend = { path = "../../third_party/faster-gaussian-splatting/FasterGSCudaBackend", editable = true }
+new-svraster-cuda = { path = "../../third_party/sv_raster/backends/new_cuda", editable = true }
+torch = [
+    { index = "pytorch-cu128", extra = "cu128" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.1.0a0"
+
+[tool.hatch.version.raw-options]
+version_scheme = "no-guess-dev"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/splatkit_backends/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/splatkit_backends"]

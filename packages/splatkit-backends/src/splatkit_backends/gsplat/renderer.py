@@ -14,7 +14,7 @@ from splatkit.core.capabilities import (
 )
 from splatkit.core.contracts import (
     CameraState,
-    GaussianScene,
+    GaussianScene3D,
     RenderOptions,
     RenderOutput,
 )
@@ -76,7 +76,7 @@ class GsplatRenderOptions(RenderOptions):
 
 @beartype
 def _build_rasterization_kwargs(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     options: GsplatRenderOptions,
 ) -> dict[str, Any]:
@@ -113,7 +113,7 @@ def _build_rasterization_kwargs(
 
 @beartype
 def _render_rgb(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     options: GsplatRenderOptions,
 ) -> GsplatAlphaRenderOutput:
@@ -147,7 +147,7 @@ def _extract_2d_projections(
 
 @beartype
 def _render_rgb_with_2d_projections(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     options: GsplatRenderOptions,
 ) -> GsplatAlphaProjectionRenderOutput:
@@ -169,7 +169,7 @@ def _render_rgb_with_2d_projections(
 
 @beartype
 def _render_rgb_plus_depth(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     options: GsplatRenderOptions,
 ) -> GsplatRenderOutput:
@@ -192,7 +192,7 @@ def _render_rgb_plus_depth(
 
 @beartype
 def _render_rgb_plus_depth_with_2d_projections(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     options: GsplatRenderOptions,
 ) -> GsplatProjectionRenderOutput:
@@ -220,7 +220,7 @@ def _render_rgb_plus_depth_with_2d_projections(
 
 @overload
 def render_gsplat(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     *,
     return_alpha: Literal[True] = True,
@@ -232,7 +232,7 @@ def render_gsplat(
 
 @overload
 def render_gsplat(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     *,
     return_alpha: Literal[True] = True,
@@ -244,7 +244,7 @@ def render_gsplat(
 
 @overload
 def render_gsplat(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     *,
     return_alpha: Literal[True] = True,
@@ -256,7 +256,7 @@ def render_gsplat(
 
 @overload
 def render_gsplat(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     *,
     return_alpha: Literal[True] = True,
@@ -268,7 +268,7 @@ def render_gsplat(
 
 @beartype
 def render_gsplat(
-    scene: GaussianScene,
+    scene: GaussianScene3D,
     camera: CameraState,
     *,
     return_alpha: bool = True,
@@ -326,5 +326,6 @@ def register() -> None:
     register_backend(
         name="gsplat",
         default_options=GsplatRenderOptions(),
+        accepted_scene_types=(GaussianScene3D,),
         supported_outputs=_SUPPORTED_OUTPUTS,
     )(render_gsplat)

@@ -1,50 +1,296 @@
-# splatkit Monorepo
+# splatkit
 
-Monorepo for `splatkit`, the core contracts and official backend adapters for
-modular Gaussian splatting.
+Monorepo for a modular Gaussian splatting stack centered around a minimal core,
+typed backend interfaces, and fast research iteration.
 
-## Layout
+## What This Repository Is For
+
+This repository exists to make experimentation with Gaussian splatting faster,
+more reproducible, and easier to hack on.
+
+It is not meant to be:
+- another monolithic backend
+- a direct competitor to polished specialized tools like `gsplat` as a pure
+  rasterization backend
+- a direct competitor to end-user-focused products like Lichtfeld Studio
+
+It is meant to:
+- provide a very small `splatkit` core with minimal dependencies
+- make it easy to switch between different backends behind a shared interface
+- keep code strongly typed, declarative, and functional where appropriate
+- use a trait/capability system so backend outputs stay precisely type-hinted
+- grow toward optional modules for training loops, dataloading, densification,
+  and related research workflows
+- integrate deeply with `marimo` for rapid prototyping without giving up normal
+  Python script execution
+- make everything as pip-installable as possible, with `uv` as the default
+  workflow and optional Pixi support for easier full-environment setup
+
+A major motivation is that it is still surprisingly hard to compare different
+3DGS implementations fairly. Differences often come not just from the
+rasterizer, but from densification, dataloading, evaluation, scene
+normalization, and other surrounding decisions. This repository aims to make
+those pieces easier to share and compare without forcing them into one monolith.
+
+## Design Philosophy
+
+- Minimal core: `splatkit` should stay small, dependency-light, and focused on
+  contracts, traits, registries, and shared abstractions.
+- Backends as plugins: backend implementations should live outside the core and
+  be swappable without changing user code.
+- Strong typing first: data contracts, backend options, and output capabilities
+  should be explicit and well-typed.
+- Declarative APIs: scene state, camera state, render options, and future
+  training components should be represented as clean data objects rather than
+  implicit mutable state.
+- Functional where appropriate: operations should prefer explicit inputs and
+  outputs over hidden side effects.
+- Reproducible and hackable: installation and execution should be easy to
+  reproduce locally, while still being simple to modify during experiments.
+- Notebook and script parity: research code should feel great to prototype in a
+  notebook and then run as a normal Python script with the CLI tooling you are
+  used to.
+- Opt-in utilities: training loops, dataloading, densification, evaluation,
+  scene normalization, and related helpers should be available when useful, but
+  they should stay optional rather than becoming mandatory framework baggage.
+- Config-driven ergonomics: `pydantic`, `tyro`, and related tools should make
+  serializable configs, CLIs, and generated UI controls line up cleanly.
+
+## Roadmap Direction
+
+- `splatkit`: the stripped-down core package for contracts, traits,
+  registration, and shared optional modules over time.
+- `splatkit-backends`: a separate package containing wrappers for commonly used
+  backend implementations.
+- `marimo-3dv`: today a separate third-party package in this repo, eventually
+  intended to become part of the broader splatkit ecosystem as the notebook/UI
+  layer.
+- `faster-gaussian-splatting`: included as a third-party reference
+  implementation and planned wrapper target.
+- `sv_raster`: included as a third-party reference implementation from the
+  wider splatting ecosystem; currently tracked for its `backends/new_cuda`
+  path rather than as a clean `splatkit` contract match.
+- FasterGS backend: planned both as a wrapper around the third-party reference
+  implementation and as a more stripped-down modular variant aimed at rapid
+  prototyping and interchangeable parts.
+
+The long-term direction is not just rendering. The same design should extend to
+training loops, dataloading, densification, evaluation, and other research
+infrastructure without collapsing into a single rigid framework.
+
+If you only want to try a shiny new rasterizer backend and do not care about
+the rest of the stack, that should be fine too. The optional pieces are meant
+to help comparison and experimentation, not to force adoption of everything at
+once.
+
+## Repository Layout
 
 ```text
 packages/
-  splatkit/                Core package and shared contracts
-  splatkit-backends/       Official backend adapters
+  splatkit/                Minimal core contracts and shared abstractions
+  splatkit-backends/       Official backend adapters and wrappers
 third_party/
-  marimo-3dv/              Viewer dependency
-  diff-gaussian-rasterization/  Upstream Inria rasterizer
-patches/
-  diff-gaussian-rasterization/  Local third-party patches
+  marimo-3dv/              Viewer and marimo utility layer
+  diff-gaussian-rasterization/  Forked Inria rasterizer
+  faster-gaussian-splatting/    FasterGS reference implementation
+  sv_raster/               SV Raster reference repo; see backends/new_cuda
 tests/                     Cross-package tests
 notebooks/                 Monorepo-level examples
-scripts/                   Bootstrap and verification helpers
 ```
 
 ## Install
 
-For local development from the monorepo root:
+Initialize submodules first:
 
 ```bash
-uv sync
-./scripts/bootstrap.sh
+git clone <repo-url>
+cd splatkit
+git submodule update --init --recursive
 ```
 
-This workspace keeps local editable sources pointed at:
+For local development from the monorepo root with the default `torch` build:
+
+```bash
+git submodule update --init --recursive
+uv sync
+```
+
+To try a CUDA-specific PyTorch wheel through `uv`, select an extra:
+
+```bash
+git submodule update --init --recursive
+uv sync --extra cu128
+```
+
+or:
+
+```bash
+git submodule update --init --recursive
+uv sync --extra cu130
+```
+
+Notes:
+- plain `uv sync` uses the default `torch` dependency
+- `cu128` and `cu130` are mutually exclusive
+- the CUDA extras only affect Python package resolution, especially the PyTorch
+  wheel index
+- if you need a managed CUDA toolkit / compiler environment, Pixi remains the
+  fallback path
+
+Optional Pixi setup is intended to make full environment setup easier when pure
+`uv` is not enough due to CUDA or toolchain mismatches.
+
+## Package Roles
+
+- `splatkit`: backend-agnostic contracts, capabilities, type-driven traits,
+  registration, and shared runtime helpers, with opt-in extras like
+  `viewer`, `training`, `eval`, and `all`; the viewer stack remains separate
+  from `all` for now
+- `splatkit-backends`: wrappers around commonly used implementations such as
+  `gsplat` and the local Inria path, with per-backend extras plus `all`
+- `marimo-3dv`: utilities for `marimo`, desktop viewers, and auto-generated GUI
+  options that work well with serializable configs
+
+Typical package install paths:
+
+```bash
+pip install splatkit
+pip install "splatkit[viewer]"
+pip install "splatkit[all]"
+pip install "splatkit-backends[gsplat]"
+pip install "splatkit-backends[inria]"
+pip install "splatkit-backends[all]"
+```
+
+## Versioning
+
+`packages/splatkit` and `packages/splatkit-backends` now derive their published
+versions from Git tags via `hatch-vcs`.
+
+- tagged commits build stable versions like `0.1.0`
+- commits after a tag build unique dev versions tied to that tagged line
+- before the first tag, builds fall back to `0.1.0a0`
+
+Recommended release flow:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Recommended pinning flow for colleagues:
+
+```bash
+pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit"
+pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-backends"
+```
+
+Both packages also expose their installed version at runtime via
+`splatkit.__version__` and `splatkit_backends.__version__`.
+
+For local monorepo development, `uv` keeps these sources editable:
 
 - `packages/splatkit`
 - `packages/splatkit-backends`
 - `third_party/marimo-3dv`
 - `third_party/diff-gaussian-rasterization`
+- `third_party/faster-gaussian-splatting/FasterGSCudaBackend`
 
-## Packages
+The workspace root is a development environment package. It depends on
+`splatkit[all]`, `splatkit-backends[all]`, `marimo`, `marimo-3dv`, `torch`,
+`ruff`, and `ty`, rather than depending on individual backend wheels directly.
 
-- `splatkit`: backend-agnostic contracts, capabilities, registry, and generic
-  render wrapper
-- `splatkit-backends`: official adapters such as `gsplat` and `inria`
+Development note: we tried making `packages/*` true `uv` workspace members, but
+`uv` currently rejects that setup because the package-local `cu128` / `cu130`
+PyTorch source configuration is resolved as conflicting indexes during
+workspace-wide locking. For now, prefer changing into the target package
+directory and running `uv add ...` there when adding package-specific
+dependencies.
 
-Typical install paths:
+For native backend rebuilds after changing CUDA / C++ sources, reinstall the
+backend package explicitly:
 
 ```bash
-pip install splatkit
-pip install "splatkit-backends[gsplat]"
-pip install "splatkit-backends[inria]"
+uv pip install --reinstall third_party/sv_raster/backends/new_cuda
+uv pip install --reinstall third_party/faster-gaussian-splatting/FasterGSCudaBackend
+uv pip install --reinstall third_party/diff-gaussian-rasterization
 ```
+
+For Tyro-based CLI script completion, install shell completion files for all
+detected executable Tyro scripts with:
+
+```bash
+./scripts/install_tab_completion.py --shell zsh
+./scripts/install_tab_completion.py --shell bash
+```
+
+To install completion for one specific script instead:
+
+```bash
+./scripts/install_tab_completion.py --shell zsh --script scripts/reinstall.py
+```
+
+For zsh, ensure `~/.zfunc` is on `fpath` and run
+`autoload -Uz compinit && compinit`. Bash completion support for local scripts is
+more limited and expects the script to be invoked directly as a command.
+
+## Troubleshooting
+
+### Orphaned Marimo Viewer Processes
+
+If a `marimo` notebook is killed improperly, it may leave behind orphaned
+Python worker processes that still hold GPU memory. This is a known issue.
+
+For now, if you notice that this happened, use the cleanup script from the
+repository root:
+
+```bash
+uv run python scripts/cleanup_stale_gpu_workers.py
+uv run python scripts/cleanup_stale_gpu_workers.py --execute
+```
+
+The first command is a dry run. The second sends `SIGTERM` to stale
+repository-owned multiprocessing workers.
+
+## Goals
+
+- Build a minimal, stable core for splatting experiments rather than a
+  monolithic end-to-end framework.
+- Make backend switching easy and explicit.
+- Keep backend-specific capabilities type-safe through shared traits.
+- Make research code pleasant to prototype in a notebook and then run as a
+  normal Python script with the CLI usage you are used to.
+- Make installation simple enough that local experiments are easy to reproduce.
+- Keep the system open to future training and data pipeline modules without
+  bloating the core package.
+
+## Progress
+
+| Goal | Subgoals | Status |
+| --- | --- | --- |
+| Core contracts and traits | Typed scene/camera contracts, capability traits, backend registry, shared render surface across `inria` and `gsplat` | Done |
+| Viewer workflow | Viewer works well in `marimo`, plus an experimental desktop viewer that reuses marimo-defined GUI elements | In progress |
+| Notebook to script workflow | Define custom GUI elements in a notebook, then run the notebook as a Python file for a more interactive local viewer flow | In progress |
+| Backend wrappers | Current wrappers for `inria` and `gsplat`, with `3dGUT` and `FasterGS` planned as additional third-party wrappers | In progress |
+| Hackable backend implementations | Stripped-down, modular variant of `FasterGS` aimed at rapid experimentation and easier modification while minimizing perfomance cost | Planned |
+| Training and data pipeline | Dataloading, training scripts, training utilities, and evaluation scripts | Not started |
+| Densification framework | Hackable densification design that stays flexible without becoming overly verbose | Not started |
+
+## Non-Goals
+
+- Being the best standalone rasterizer implementation. Check out `gsplat` or `Lichtfeld Studio` for that.
+- Replacing polished backend-specific projects
+- Optimizing primarily for end-user product UX over research flexibility
+- Hiding backend differences so aggressively that important semantics disappear
+
+The goal is a nicer interface over heterogeneous tools, not pretending those
+tools are all the same.
+
+## Project Hygiene
+
+- Reproducible installs are already a baseline requirement here rather than a
+  roadmap item.
+- The main workflow is `uv`, with optional CUDA wheel selection and optional
+  Pixi fallback when Python-only environment management is not enough.
+- Local development is intended to stay editable, scriptable, and easy to
+  reproduce across machines.

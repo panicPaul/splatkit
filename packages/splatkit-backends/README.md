@@ -4,15 +4,18 @@ Official backend adapters for `splatkit`.
 
 ## What It Contains
 - `splatkit_backends.gsplat`: gsplat adapter and backend-specific options/output types
-- `splatkit_backends.inria`: adapter shim for the patched GraphDeco/Inria rasterizer
+- `splatkit_backends.inria`: adapter shim for the forked GraphDeco/Inria rasterizer
 - additional official backends can be added as subpackages over time
 
 These official adapters are examples and conveniences, not privileged integrations.
 `splatkit` is designed so you can write and register your own backend packages without depending on this repository.
 
-Current extra:
+Current extras:
 - `gsplat`: installs the `gsplat` runtime dependency
-- `inria`: installs the patched `diff-gaussian-rasterization` runtime dependency
+- `fastergs`: installs the local `faster-gaussian-splatting` runtime dependency
+- `inria`: installs the local `diff-gaussian-rasterization` runtime dependency
+- `svraster`: installs the local `new_svraster_cuda` runtime dependency
+- `all`: installs all officially supported backend runtime dependencies
 
 ## Install
 Base package:
@@ -27,10 +30,28 @@ With the gsplat backend dependency:
 pip install "splatkit-backends[gsplat]"
 ```
 
+With the FasterGS backend dependency:
+
+```bash
+pip install "splatkit-backends[fastergs]"
+```
+
 With the Inria backend dependency:
 
 ```bash
 pip install "splatkit-backends[inria]"
+```
+
+With the SV Raster backend dependency:
+
+```bash
+pip install "splatkit-backends[svraster]"
+```
+
+With all current backend dependencies:
+
+```bash
+pip install "splatkit-backends[all]"
 ```
 
 `splatkit` is a required dependency of this package.
@@ -71,6 +92,7 @@ def register() -> None:
     register_backend(
         name="my-backend",
         default_options=MyBackendOptions(),
+        accepted_scene_types=(sk.GaussianScene3D,),
         supported_outputs=frozenset({"alpha", "depth"}),
     )(render_my_backend)
 ```
@@ -100,6 +122,7 @@ src/splatkit_backends/
   __init__.py
   gsplat/
   inria/
+  svraster/
 ```
 
 In the monorepo, this package lives under `packages/splatkit-backends`.

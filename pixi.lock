@@ -319,7 +319,9 @@ environments:
       - pypi: ./packages/splatkit
       - pypi: ./packages/splatkit-backends
       - pypi: ./third_party/diff-gaussian-rasterization
+      - pypi: ./third_party/faster-gaussian-splatting/FasterGSCudaBackend
       - pypi: ./third_party/marimo-3dv
+      - pypi: ./third_party/sv_raster/backends/new_cuda
   cu130:
     channels:
     - url: https://conda.anaconda.org/nvidia/
@@ -665,7 +667,9 @@ environments:
       - pypi: ./packages/splatkit
       - pypi: ./packages/splatkit-backends
       - pypi: ./third_party/diff-gaussian-rasterization
+      - pypi: ./third_party/faster-gaussian-splatting/FasterGSCudaBackend
       - pypi: ./third_party/marimo-3dv
+      - pypi: ./third_party/sv_raster/backends/new_cuda
   default:
     channels:
     - url: https://conda.anaconda.org/nvidia/
@@ -985,7 +989,9 @@ environments:
       - pypi: ./packages/splatkit
       - pypi: ./packages/splatkit-backends
       - pypi: ./third_party/diff-gaussian-rasterization
+      - pypi: ./third_party/faster-gaussian-splatting/FasterGSCudaBackend
       - pypi: ./third_party/marimo-3dv
+      - pypi: ./third_party/sv_raster/backends/new_cuda
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
@@ -2539,10 +2545,11 @@ packages:
 - pypi: ./third_party/diff-gaussian-rasterization
   name: diff-gaussian-rasterization
   version: 0.0.0
-  sha256: d37a764ef57df61183ba1fa76e1183fb975cdd99279140224da88b7d00da45c1
+  sha256: e784675296398c62a5e7af30c7aba134d3bfff9d485333004c59227ac496c6ad
   requires_dist:
   - torch
-  - splatkit ; extra == 'splatkit'
+  - torch ; extra == 'cu128'
+  - torch ; extra == 'cu130'
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/33/6b/e0547afaf41bf2c42e52430072fa5658766e3d65bd4b03a563d1b6336f57/distlib-0.4.0-py2.py3-none-any.whl
   name: distlib
@@ -2596,6 +2603,10 @@ packages:
   purls: []
   size: 146195
   timestamp: 1774719191740
+- pypi: ./third_party/faster-gaussian-splatting/FasterGSCudaBackend
+  name: fastergscudabackend
+  version: 0.0.0
+  sha256: f2c5569a3d9c82a48222908380ad142bb1689d44bcad1b1b63f015308730e775
 - pypi: https://files.pythonhosted.org/packages/a4/a5/842ae8f0c08b61d6484b52f99a03510a3a72d23141942d216ebe81fefbce/filelock-3.25.2-py3-none-any.whl
   name: filelock
   version: 3.25.2
@@ -4524,7 +4535,7 @@ packages:
 - pypi: ./third_party/marimo-3dv
   name: marimo-3dv
   version: 0.1.1
-  sha256: 4727ed3ddb9976f04aa0c26074938501e632c95f1f7f4c29dd29a02bb3989e58
+  sha256: 59826b17d1fb9b3ec6167196b75ceee95f206450800a0c8c659b34c5b64b94fe
   requires_dist:
   - anywidget>=0.10.0
   - auto-mix-prep>=0.2.0
@@ -4550,6 +4561,8 @@ packages:
   - pip>=26.0.1
   - gsplat>=1.5.3
   - pyside6>=6.11.0
+  - torch>=2.11.0 ; extra == 'cu128'
+  - torch>=2.11.0 ; extra == 'cu130'
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/de/1f/77fa3081e4f66ca3576c896ae5d31c3002ac6607f9747d2e3aa49227e464/markdown-3.10.2-py3-none-any.whl
   name: markdown
@@ -4745,6 +4758,10 @@ packages:
   - pytest-mpl ; extra == 'test-extras'
   - pytest-randomly ; extra == 'test-extras'
   requires_python: '>=3.11,!=3.14.1'
+- pypi: ./third_party/sv_raster/backends/new_cuda
+  name: new-svraster-cuda
+  version: 0.0.0
+  sha256: 2a836f8ff61abb40d8a8e8458683a5a1e57a2117720e7ed47f75e63a12293c34
 - pypi: https://files.pythonhosted.org/packages/ed/de/0e6edf44d6a04dabd0318a519125ed0415ce437ad5a1ec9b9be03d9048cf/ninja-1.13.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
   name: ninja
   version: 1.13.0
@@ -5666,24 +5683,38 @@ packages:
   requires_python: '>=2.7,!=3.0.*,!=3.1.*,!=3.2.*'
 - pypi: ./packages/splatkit
   name: splatkit
-  version: 0.1.0
-  sha256: fa42b4e2501f5f58ab1e61acba9d6d3cd4e4a5592d84a2e5a43f132846603ba6
+  version: 0.1.0a0
+  sha256: fb2d5113be95bc54ac51103d37299a6f98a120ab24870352eba62eb0e173fbbd
   requires_dist:
   - beartype>=0.22.9
   - jaxtyping>=0.3.9
+  - numpy>=2.3.5
+  - plyfile>=1.1.3
+  - pyyaml>=6.0.3
   - torch>=2.11.0
-  - marimo-3dv>=0.1.1 ; extra == 'viewer'
+  - torch>=2.11.0 ; extra == 'cu128'
+  - torch>=2.11.0 ; extra == 'cu130'
+  - marimo-3dv @ file:///home/schlack/Repositories/splatkit/third_party/marimo-3dv ; extra == 'viewer'
   requires_python: '>=3.11'
 - pypi: ./packages/splatkit-backends
   name: splatkit-backends
-  version: 0.1.0
-  sha256: 30c19884856e8eb6a220fd1cfd4c2d4c183f75a5df244765f9270d2a70abb59e
+  version: 0.1.0a0
+  sha256: cdb5a81f4fbbbf4415d82fdc5301415c9360def7bd5f637913f64f9c45d31290
   requires_dist:
   - beartype>=0.22.9
   - jaxtyping>=0.3.9
-  - splatkit
+  - splatkit @ file:///home/schlack/Repositories/splatkit/packages/splatkit
   - torch>=2.11.0
+  - diff-gaussian-rasterization @ file:///home/schlack/Repositories/splatkit/third_party/diff-gaussian-rasterization ; extra == 'all'
+  - fastergscudabackend @ file:///home/schlack/Repositories/splatkit/third_party/faster-gaussian-splatting/FasterGSCudaBackend ; extra == 'all'
+  - gsplat>=1.5.3 ; extra == 'all'
+  - new-svraster-cuda @ file:///home/schlack/Repositories/splatkit/third_party/sv_raster/backends/new_cuda ; extra == 'all'
+  - torch>=2.11.0 ; extra == 'cu128'
+  - torch>=2.11.0 ; extra == 'cu130'
+  - fastergscudabackend @ file:///home/schlack/Repositories/splatkit/third_party/faster-gaussian-splatting/FasterGSCudaBackend ; extra == 'fastergs'
   - gsplat>=1.5.3 ; extra == 'gsplat'
+  - diff-gaussian-rasterization @ file:///home/schlack/Repositories/splatkit/third_party/diff-gaussian-rasterization ; extra == 'inria'
+  - new-svraster-cuda @ file:///home/schlack/Repositories/splatkit/third_party/sv_raster/backends/new_cuda ; extra == 'svraster'
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/d7/a5/2a1c72741acd5383ff320496ba7d449407491f1513a7dba72ed053e7142e/splines-0.3.3-py3-none-any.whl
   name: splines

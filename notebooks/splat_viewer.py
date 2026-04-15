@@ -6,11 +6,15 @@ __generated_with = "0.23.1"
 app = marimo.App(width="medium")
 
 with app.setup:
+    import ctypes
+    import signal
+    import sys
     from typing import Literal
 
     import marimo as mo
     import numpy as np
     import splatkit as sk
+    import splatkit_backends.fastergs as sk_fastergs
     import splatkit_backends.gsplat as sk_gsplat
     import torch
     from marimo_3dv import (
@@ -20,9 +24,9 @@ with app.setup:
         Viewer,
         ViewerState,
         apply_viewer_pipeline_config,
+        cleanup_before_splat_reload,
         form_gui,
         gs_backend_bundle,
-        load_splat_scene_from_config,
         pick_splat_load_config,
         splat_load_form,
         viewer_pipeline_controls_gui,
@@ -30,14 +34,25 @@ with app.setup:
     from pydantic import BaseModel
     from splatkit_backends.inria import register as register_inria
 
+    sk_fastergs.register()
     sk_gsplat.register()
     register_inria()
+
+    def _install_linux_parent_death_signal() -> None:
+        if sys.platform != "linux":
+            return
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        pr_set_pdeathsig = 1
+        libc.prctl(pr_set_pdeathsig, signal.SIGTERM, 0, 0, 0)
+
+    _install_linux_parent_death_signal()
 
 
 @app.cell
 def _():
     class BackendConfig(BaseModel):
-        backend: Literal["gsplat", "inria"] = "gsplat"
+        backend: Literal["gsplat", "inria", "fastergs"] = "gsplat"
 
     backend_form = form_gui(
         BackendConfig,
@@ -86,6 +101,29 @@ def _():
 
 @app.cell
 def _():
+    def load_gaussian_scene(path):
+        backend_scene = sk.load_gaussian_ply(path)
+        if torch.cuda.is_available():
+            backend_scene = backend_scene.to(torch.device("cuda"))
+        if backend_scene.feature.ndim != 3:
+            raise ValueError(
+                "Gaussian viewer expects SH coefficients with shape "
+                "(num_splats, num_bases, 3)."
+            )
+        return SplatScene(
+            center_positions=backend_scene.center_position,
+            log_half_extents=backend_scene.log_scales,
+            quaternion_orientation=backend_scene.quaternion_orientation,
+            spherical_harmonics=backend_scene.feature,
+            opacity_logits=backend_scene.logit_opacity[:, None],
+            sh_degree=backend_scene.sh_degree,
+        )
+
+    return (load_gaussian_scene,)
+
+
+@app.cell
+def _(load_gaussian_scene):
     viewer_state = ViewerState(camera_convention="opencv")
     return (viewer_state,)
 
@@ -98,12 +136,21 @@ def _():
 
 
 @app.cell
-def _(load_form, viewer_state):
+def _(load_form, load_gaussian_scene, viewer_state):
     if mo.running_in_notebook():
-        scene = load_splat_scene_from_config(load_form.value, viewer_state)
+        cleanup_before_splat_reload(
+            viewer_state,
+            close_existing_viewer=True,
+            empty_cuda_cache=True,
+        )
+        scene = load_gaussian_scene(load_form.value.ply_path)
     else:
         load_config = pick_splat_load_config()
-        scene = load_splat_scene_from_config(load_config, viewer_state)
+        scene = (
+            None
+            if load_config is None
+            else load_gaussian_scene(load_config.ply_path)
+        )
     return (scene,)
 
 
@@ -121,7 +168,7 @@ def rasterize_scene(
     camera: CameraState,
     scene: SplatScene | None,
     *,
-    backend: Literal["gsplat", "inria"] = "gsplat",
+    backend: Literal["gsplat", "inria", "fastergs"] = "gsplat",
 ) -> RenderResult:
     """Render a splat scene through splatkit."""
     if scene is None:
@@ -138,7 +185,7 @@ def rasterize_scene(
         ).to(dtype=torch.float32)[None],
         camera_convention="opencv",
     )
-    backend_scene = sk.GaussianScene(
+    backend_scene = sk.GaussianScene3D(
         center_position=scene.center_positions,
         log_scales=scene.log_half_extents,
         quaternion_orientation=scene.quaternion_orientation,

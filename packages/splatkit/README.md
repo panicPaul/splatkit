@@ -1,13 +1,17 @@
 # splatkit
 
-Minimal, backend-agnostic Gaussian splatting contracts and runtime helpers.
+Minimal, backend-agnostic scene contracts, scene I/O, and runtime helpers.
 
 ## What It Contains
 - `splatkit.core`: canonical scene/camera contracts, output capability protocols, backend registry, and the generic `render(...)` wrapper
+- `splatkit.io`: scene-only load/save helpers for 3DGS PLY and SV Raster checkpoints
 - optional extras over time for reusable tooling that should remain separate from the minimal core dependency set
 
-Current extra:
+Current extras:
 - `viewer`: installs the viewer dependency stack via `marimo-3dv`
+- `training`: reserved for future training utilities
+- `eval`: reserved for future evaluation utilities
+- `all`: installs the non-viewer optional utility stacks; `viewer` remains separate for now
 
 ## Install
 Base package:
@@ -22,13 +26,19 @@ With viewer dependencies:
 pip install "splatkit[viewer]"
 ```
 
+With all current optional utilities:
+
+```bash
+pip install "splatkit[all]"
+```
+
 ## Usage
 Construct shared contract values and render through a registered backend:
 
 ```python
 import splatkit as sk
 
-scene = sk.GaussianScene(...)
+scene = sk.GaussianScene3D(...)
 camera = sk.CameraState(...)
 
 output = sk.render(scene, camera, backend="gsplat")
@@ -79,6 +89,7 @@ def register() -> None:
     sk.register_backend(
         name="my-backend",
         default_options=MyBackendOptions(),
+        accepted_scene_types=(sk.GaussianScene3D,),
         supported_outputs=frozenset({"alpha"}),
     )(render_my_backend)
 ```

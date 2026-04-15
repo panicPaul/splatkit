@@ -8,29 +8,53 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "beartype>=0.22.9",
-    "diff-gaussian-rasterization>=0.0.0",
-    "jaxtyping>=0.3.9",
+    "splatkit[all]",
+    "splatkit-backends[all]",
     "marimo-3dv>=0.1.1",
-    "numpy>=2.4.4",
-    "ruff>=0.15.10",
-    "splatkit",
-    "splatkit-backends>=0.1.0",
+
+    "marimo>=0.22.4",
     "torch>=2.11.0",
+    "ruff>=0.15.10",
     "ty>=0.0.29",
 ]
 
+[project.optional-dependencies]
+cu128 = ["torch>=2.11.0"]
+cu130 = ["torch>=2.11.0"]
+
 [tool.uv]
 package = false
-
+conflicts = [
+    [
+        { extra = "cu128" },
+        { extra = "cu130" },
+    ],
+]
+no-build-isolation-package = [
+    "diff-gaussian-rasterization",
+    "FasterGSCudaBackend",
+    "new-svraster-cuda",
+]
 
 [tool.uv.sources]
-# Keep installable package sources pointed at local checkouts to avoid stale
-# wheel state in notebooks and integration tests.
 marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
 splatkit = { path = "packages/splatkit", editable = true }
 splatkit-backends = { path = "packages/splatkit-backends", editable = true }
-diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
+new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
+torch = [
+    { index = "pytorch-cu128", extra = "cu128" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 
 # --- Formatting ---
@@ -116,13 +140,6 @@ markers = [
 
 # --- pixi specific ---
 
-[tool.pixi.pypi-dependencies]
-marimo_3dv = { path = "third_party/marimo-3dv" , editable = true }
-splatkit = { path = "packages/splatkit" , editable = true }
-splatkit_backends = { path = "packages/splatkit-backends" , editable = true }
-diff_gaussian_rasterization = { path = "third_party/diff-gaussian-rasterization" , editable = true }
-
-
 # NOTE: pixi is only used for managing the cuda version. Everything else is managed by uv/pypi.
 [tool.pixi.workspace]
 channels = ["nvidia", "conda-forge"]
@@ -177,6 +194,21 @@ cu128 = ["cu128"]
 cu130 = ["cu130"]
 
 
+[tool.pixi.pypi-dependencies]
+splatkit-backends = { path = "packages/splatkit-backends", editable = true }
+marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
+diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
+"FasterGSCudaBackend" = { path = "third_party/faster-gaussian-splatting/FasterGSCudaBackend", editable = true }
+new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
+
+[tool.pixi.pypi-options]
+no-build-isolation = [
+    "diff-gaussian-rasterization",
+    "FasterGSCudaBackend",
+    "new-svraster-cuda",
+]
+
+
 # --- Pixi Dependencies ---
 [tool.pixi.dependencies]
 cmake = ">=4.2.3,<5"
@@ -187,3 +219,8 @@ ninja = ">=1.13.2,<2"
 gcc_linux-64 = ">=13.4.0,<16"
 libgl-devel = ">=1.7.0,<2"
 libegl-devel = ">=1.7.0,<2"
+
+[tool.pixi.tasks]
+rebuild_svraster = "uv pip install --no-cache --no-build-isolation --reinstall third_party/sv_raster/backends/new_cuda"
+rebuild_fastergs = "uv pip install --no-cache --no-build-isolation --reinstall third_party/faster-gaussian-splatting/FasterGSCudaBackend"
+rebuild_inria = "uv pip install --no-cache --no-build-isolation --reinstall third_party/diff-gaussian-rasterization"

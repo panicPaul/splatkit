@@ -1,5 +1,7 @@
 """Backend registry and generic render wrapper."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, overload
@@ -18,10 +20,10 @@ from splatkit.core.capabilities import (
 from splatkit.core.contracts import (
     BackendName,
     CameraState,
-    GaussianScene,
     OutputName,
     RenderOptions,
     RenderOutput,
+    Scene,
 )
 
 
@@ -32,6 +34,7 @@ class RegisteredBackend:
     name: BackendName
     render_fn: Callable[..., RenderOutput]
     default_options: RenderOptions
+    accepted_scene_types: tuple[type[Scene], ...]
     supported_outputs: frozenset[OutputName] = frozenset()
 
 
@@ -42,6 +45,7 @@ def register_backend(
     *,
     name: BackendName,
     default_options: RenderOptions,
+    accepted_scene_types: tuple[type[Scene], ...],
     supported_outputs: frozenset[OutputName] = frozenset(),
 ) -> Callable[[Callable[..., RenderOutput]], Callable[..., RenderOutput]]:
     """Register a backend render function as a decorator."""
@@ -53,6 +57,7 @@ def register_backend(
             name=name,
             render_fn=render_fn,
             default_options=default_options,
+            accepted_scene_types=accepted_scene_types,
             supported_outputs=supported_outputs,
         )
         return render_fn
@@ -62,7 +67,7 @@ def register_backend(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -75,7 +80,7 @@ def render(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -88,7 +93,7 @@ def render(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -101,7 +106,7 @@ def render(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -114,7 +119,7 @@ def render(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -127,7 +132,7 @@ def render(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -140,7 +145,7 @@ def render(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -153,7 +158,7 @@ def render(
 
 @overload
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -166,7 +171,7 @@ def render(
 
 @beartype
 def render(
-    scene: GaussianScene,
+    scene: Scene,
     camera: CameraState,
     *,
     backend: BackendName,
@@ -175,20 +180,21 @@ def render(
     return_2d_projections: bool = False,
     options: RenderOptions | None = None,
 ) -> RenderOutput:
-    """Render through a named backend.
-
-    `return_alpha`, `return_depth`, and `return_2d_projections` primarily exist
-    to help type checkers narrow the return type from literal keyword
-    arguments. They should be understood as static capability requests on the
-    generic wrapper, not as the core semantic model for backend outputs. When
-    they are runtime booleans rather than literals, the static return type
-    falls back to the base `RenderOutput`.
-    """
+    """Render through a named backend."""
     registered_backend = BACKEND_REGISTRY.get(backend)
     if registered_backend is None:
         available = ", ".join(sorted(BACKEND_REGISTRY)) or "<none>"
         raise ValueError(
             f"Unknown backend {backend!r}. Available backends: {available}."
+        )
+    if not isinstance(scene, registered_backend.accepted_scene_types):
+        accepted_names = ", ".join(
+            scene_type.__name__
+            for scene_type in registered_backend.accepted_scene_types
+        )
+        raise ValueError(
+            f"Backend {backend!r} does not accept scene type "
+            f"{type(scene).__name__}. Accepted scene types: {accepted_names}."
         )
 
     requested_outputs: frozenset[OutputName] = frozenset(

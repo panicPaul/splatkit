@@ -1,6 +1,6 @@
 """Inria backend package for splatkit."""
 
-from diff_gaussian_rasterization.wrapper import (
+from .renderer import (
     InriaDepthRenderOutput,
     InriaRenderOptions,
     InriaRenderOutput,

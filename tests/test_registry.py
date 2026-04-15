@@ -30,6 +30,7 @@ def test_render_rejects_unsupported_output_request(
         name=original.name,
         render_fn=original.render_fn,
         default_options=original.default_options,
+        accepted_scene_types=original.accepted_scene_types,
         supported_outputs=frozenset({"alpha"}),
     )
     try:
@@ -49,6 +50,13 @@ def test_render_rejects_unsupported_output_request(
 def test_render_beartype_rejects_wrong_scene(cpu_camera) -> None:
     with pytest.raises(BeartypeCallHintParamViolation):
         render(cast(Any, "not-a-scene"), cpu_camera, backend="gsplat")
+
+
+def test_render_rejects_incompatible_scene_type(
+    cpu_sparse_voxel_scene, cpu_camera
+) -> None:
+    with pytest.raises(ValueError, match="does not accept scene type"):
+        render(cpu_sparse_voxel_scene, cpu_camera, backend="gsplat")
 
 
 def test_render_gsplat_beartype_rejects_wrong_options(

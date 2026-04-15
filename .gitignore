@@ -2,7 +2,12 @@
 __pycache__/
 *.py[codz]
 *$py.class
-.ply
+*.ply
+
+tmp
+
+# we only track the uv.lock file at the root of the repository
+packages/*/uv.lock
 
 # C extensions
 *.so

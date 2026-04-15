@@ -4,8 +4,15 @@ from beartype.roar import BeartypeCallHintParamViolation
 from splatkit.core import (
     CameraState,
     GaussianScene,
+    GaussianScene2D,
+    GaussianScene3D,
+    SparseVoxelScene,
     camera_params_to_intrinsics,
     intrinsics_to_camera_params,
+)
+from splatkit.core.sparse_voxel import (
+    svraster_build_grid_points_link,
+    svraster_octpath_to_ijk,
 )
 
 
@@ -33,13 +40,23 @@ def test_camera_state_to_moves_all_tensors(cpu_camera: CameraState) -> None:
     assert moved.cam_to_world.device.type == "cpu"
 
 
-def test_gaussian_scene_to_moves_all_tensors(cpu_scene: GaussianScene) -> None:
+def test_gaussian_scene_to_moves_all_tensors(cpu_scene: GaussianScene3D) -> None:
     moved = cpu_scene.to(torch.device("cpu"))
     assert moved.center_position.device.type == "cpu"
     assert moved.log_scales.device.type == "cpu"
     assert moved.quaternion_orientation.device.type == "cpu"
     assert moved.logit_opacity.device.type == "cpu"
     assert moved.feature.device.type == "cpu"
+
+
+def test_sparse_voxel_scene_to_moves_all_tensors(
+    cpu_sparse_voxel_scene: SparseVoxelScene,
+) -> None:
+    moved = cpu_sparse_voxel_scene.to(torch.device("cpu"))
+    assert moved.scene_center.device.type == "cpu"
+    assert moved.scene_extent.device.type == "cpu"
+    assert moved.octpath.device.type == "cpu"
+    assert moved.geo_grid_pts.device.type == "cpu"
 
 
 def test_camera_state_construction_validates_tensor_shape() -> None:
@@ -54,7 +71,7 @@ def test_camera_state_construction_validates_tensor_shape() -> None:
 
 def test_gaussian_scene_construction_validates_feature_shape() -> None:
     with pytest.raises(BeartypeCallHintParamViolation):
-        GaussianScene(
+        GaussianScene3D(
             center_position=torch.zeros((3, 3), dtype=torch.float32),
             log_scales=torch.zeros((3, 3), dtype=torch.float32),
             quaternion_orientation=torch.zeros((3, 3), dtype=torch.float32),
@@ -62,3 +79,62 @@ def test_gaussian_scene_construction_validates_feature_shape() -> None:
             feature=torch.zeros((3, 16), dtype=torch.float32),
             sh_degree=0,
         )
+
+
+def test_gaussian_scene_2d_validates_scale_dimensionality() -> None:
+    with pytest.raises(ValueError, match="expected 2"):
+        GaussianScene2D(
+            center_position=torch.zeros((3, 3), dtype=torch.float32),
+            log_scales=torch.zeros((3, 3), dtype=torch.float32),
+            quaternion_orientation=torch.zeros((3, 4), dtype=torch.float32),
+            logit_opacity=torch.zeros((3,), dtype=torch.float32),
+            feature=torch.zeros((3, 1, 3), dtype=torch.float32),
+            sh_degree=0,
+        )
+
+
+@pytest.mark.cuda
+def test_svraster_helpers_match_new_cuda_backend_on_cuda() -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for SV Raster helper parity test.")
+
+    new_svraster_cuda = pytest.importorskip("new_svraster_cuda")
+    octree_utils = pytest.importorskip("sv_raster.new.utils.octree_utils")
+
+    ijk = torch.tensor(
+        [
+            [0, 0, 0],
+            [1, 2, 3],
+            [7, 5, 4],
+            [31, 12, 9],
+        ],
+        dtype=torch.int64,
+        device="cuda",
+    )
+    octlevel = torch.tensor([[1], [3], [3], [5]], dtype=torch.int8, device="cuda")
+    octpath = new_svraster_cuda.utils.ijk_2_octpath(ijk, octlevel)
+
+    ours_ijk = svraster_octpath_to_ijk(
+        octpath,
+        octlevel,
+        backend_name="new_cuda",
+        max_num_levels=5,
+    )
+    ref_ijk = new_svraster_cuda.utils.octpath_2_ijk(octpath, octlevel)
+
+    assert torch.equal(ours_ijk, ref_ijk)
+
+    ours_grid_pts_key, ours_vox_key = svraster_build_grid_points_link(
+        octpath,
+        octlevel,
+        backend_name="new_cuda",
+        max_num_levels=5,
+    )
+    ref_grid_pts_key, ref_vox_key = octree_utils.build_grid_pts_link(
+        octpath,
+        octlevel,
+        backend_name="new_cuda",
+    )
+
+    assert torch.equal(ours_grid_pts_key, ref_grid_pts_key)
+    assert torch.equal(ours_vox_key, ref_vox_key)

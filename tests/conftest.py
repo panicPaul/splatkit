@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 import torch
-from splatkit.core import CameraState, GaussianScene
+from splatkit.core import CameraState, GaussianScene3D, SparseVoxelScene
 
 
 @pytest.fixture
-def cpu_scene() -> GaussianScene:
+def cpu_scene() -> GaussianScene3D:
     center_position = torch.tensor(
         [
             [0.0, 0.0, 0.0],
@@ -34,13 +34,30 @@ def cpu_scene() -> GaussianScene:
         ],
         dtype=torch.float32,
     )
-    return GaussianScene(
+    return GaussianScene3D(
         center_position=center_position,
         log_scales=log_scales,
         quaternion_orientation=quaternion_orientation,
         logit_opacity=logit_opacity,
         feature=feature,
         sh_degree=0,
+    )
+
+
+@pytest.fixture
+def cpu_sparse_voxel_scene() -> SparseVoxelScene:
+    return SparseVoxelScene(
+        backend_name="new_cuda",
+        active_sh_degree=0,
+        max_num_levels=4,
+        scene_center=torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32),
+        scene_extent=torch.tensor([2.0], dtype=torch.float32),
+        inside_extent=torch.tensor([1.0], dtype=torch.float32),
+        octpath=torch.tensor([[0], [4]], dtype=torch.int64),
+        octlevel=torch.tensor([[1], [1]], dtype=torch.int8),
+        geo_grid_pts=torch.full((12, 1), -10.0, dtype=torch.float32),
+        sh0=torch.zeros((2, 3), dtype=torch.float32),
+        shs=torch.zeros((2, 0, 3), dtype=torch.float32),
     )
 
 
@@ -58,7 +75,7 @@ def cpu_camera() -> CameraState:
 
 
 @pytest.fixture
-def cuda_scene(cpu_scene: GaussianScene) -> GaussianScene:
+def cuda_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required for gsplat backend tests.")
     return cpu_scene.to(torch.device("cuda"))
