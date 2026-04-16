@@ -16,6 +16,8 @@ from splatkit.data import (
     HorizonAlignPipeConfig,
     ImagePreparationSpec,
     MaterializationConfig,
+    MipNerf360IndoorDatasetConfig,
+    MipNerf360OutdoorDatasetConfig,
     NormalizePipeConfig,
     ResizePipeConfig,
     ResizeSpec,
@@ -227,6 +229,69 @@ def test_colmap_dataset_config_serializes_pipe_kinds() -> None:
     assert payload["prepare_pipes"][0]["kind"] == "normalize"
 
 
+def test_colmap_dataset_config_exposes_all_default_pipe_phases() -> None:
+    config = ColmapDatasetConfig(path=Path("scene"))
+
+    payload = config.model_dump(mode="json")
+
+    assert payload["runtime"] == {
+        "split": {"target": "train", "every_n": 8, "train_ratio": None},
+        "materialization": {
+            "stage": "decoded",
+            "mode": "eager",
+            "num_workers": 0,
+        },
+    }
+    assert payload["source_pipes"] == [
+        {
+            "kind": "horizon_align",
+            "enabled": True,
+            "target_up": [0.0, 1.0, 0.0],
+        }
+    ]
+    assert payload["cache_pipes"] == [
+        {
+            "kind": "resize",
+            "width_scale": None,
+            "width_target": 1980,
+            "interpolation": "bicubic",
+        }
+    ]
+    assert payload["prepare_pipes"] == [{"kind": "normalize", "enabled": True}]
+
+
+def test_mipnerf360_indoor_dataset_config_uses_quarter_scale_resize() -> None:
+    config = MipNerf360IndoorDatasetConfig(path=Path("scene"))
+
+    payload = config.model_dump(mode="json")
+
+    assert payload["kind"] == "colmap"
+    assert payload["cache_pipes"] == [
+        {
+            "kind": "resize",
+            "width_scale": 0.25,
+            "width_target": None,
+            "interpolation": "bicubic",
+        }
+    ]
+
+
+def test_mipnerf360_outdoor_dataset_config_uses_half_scale_resize() -> None:
+    config = MipNerf360OutdoorDatasetConfig(path=Path("scene"))
+
+    payload = config.model_dump(mode="json")
+
+    assert payload["kind"] == "colmap"
+    assert payload["cache_pipes"] == [
+        {
+            "kind": "resize",
+            "width_scale": 0.5,
+            "width_target": None,
+            "interpolation": "bicubic",
+        }
+    ]
+
+
 def test_load_dataset_from_colmap_config_returns_prepared_dataset(
     tmp_path: Path,
 ) -> None:
@@ -254,7 +319,6 @@ def test_load_dataset_applies_source_pipes_from_config(tmp_path: Path) -> None:
     dataset = load_dataset(
         ColmapDatasetConfig(
             path=tmp_path,
-            source_pipes=(HorizonAlignPipeConfig(),),
         )
     )
 

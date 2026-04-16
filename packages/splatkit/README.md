@@ -60,7 +60,9 @@ import splatkit as sk
 dataset = sk.load_dataset(
     sk.ColmapDatasetConfig(
         path="scene_dir",
-        cache_pipes=(sk.ResizePipeConfig(width_target=1280),),
+        source_pipes=(sk.HorizonAlignPipeConfig(),),
+        cache_pipes=(sk.ResizePipeConfig(width_target=1980),),
+        prepare_pipes=(sk.NormalizePipeConfig(),),
     )
 )
 config = sk.TrainingConfig(
@@ -82,6 +84,11 @@ checkpoint = sk.load_checkpoint_dir(result.checkpoint_dir)
 concrete dataset config, register any new pipe spec classes plus runtime
 implementations, and override the ordered `source_pipes`, `cache_pipes`, and
 `prepare_pipes` tuples on that subclass.
+
+Built-in presets:
+- `ColmapDatasetConfig`: plain COLMAP defaults
+- `MipNerf360IndoorDatasetConfig`: default cache resize with `width_scale=0.25`
+- `MipNerf360OutdoorDatasetConfig`: default cache resize with `width_scale=0.5`
 
 Checkpoints are saved as directories containing `config.json`, `metadata.json`, `model.ckpt`, and optionally `scene.ply`.
 

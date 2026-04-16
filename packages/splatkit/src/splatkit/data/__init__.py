@@ -3,12 +3,20 @@
 The primary user path is:
 
 ```python
-from splatkit.data import ColmapDatasetConfig, ResizePipeConfig, load_dataset
+from splatkit.data import (
+    ColmapDatasetConfig,
+    HorizonAlignPipeConfig,
+    NormalizePipeConfig,
+    ResizePipeConfig,
+    load_dataset,
+)
 
 dataset = load_dataset(
     ColmapDatasetConfig(
         path="scene_dir",
-        cache_pipes=(ResizePipeConfig(width_target=1280),),
+        source_pipes=(HorizonAlignPipeConfig(),),
+        cache_pipes=(ResizePipeConfig(width_target=1980),),
+        prepare_pipes=(NormalizePipeConfig(),),
     )
 )
 ```
@@ -25,6 +33,10 @@ from typing import Literal, overload
 from splatkit.data.adapters import FrameDataset, collate_frame_samples
 from splatkit.data.config import (
     ColmapDatasetConfig,
+    MipNerf360IndoorDatasetConfig,
+    MipNerf360OutdoorDatasetConfig,
+)
+from splatkit.data.config_contracts import (
     DatasetConfig,
     DatasetRuntimeConfig,
     FrameDatasetConfig,
@@ -197,6 +209,8 @@ __all__ = [
     "MaterializationConfig",
     "MaterializationMode",
     "MaterializationStage",
+    "MipNerf360IndoorDatasetConfig",
+    "MipNerf360OutdoorDatasetConfig",
     "Must3rCheckpointPaths",
     "Must3rRuntime",
     "NormalizePipeConfig",

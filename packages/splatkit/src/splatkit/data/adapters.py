@@ -13,7 +13,7 @@ from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 
 from splatkit.core.contracts import CameraState
-from splatkit.data.config import (
+from splatkit.data.config_contracts import (
     FrameDatasetConfig,
     ImagePreparationConfig,
     SplitConfig,
