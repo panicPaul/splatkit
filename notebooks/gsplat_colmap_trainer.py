@@ -11,11 +11,13 @@ with app.setup:
     from typing import Literal
 
     import marimo as mo
+    import numpy as np
     import splatkit as sk
     import splatkit_backends.gsplat as sk_gsplat
     import torch
     import torch.nn.functional as F
     from marimo_3dv import json_gui
+    from PIL import Image
     from pydantic import BaseModel, Field
     from splatkit.data import (
         ColmapDatasetConfig,
