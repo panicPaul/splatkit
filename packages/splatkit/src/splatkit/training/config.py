@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from splatkit.data.contracts import MaterializationMode, MaterializationStage
+
 
 class TrainingConfigBase(BaseModel):
     """Base config with strict validation."""
@@ -47,30 +49,31 @@ class BatchingConfig(TrainingConfigBase):
 
     batch_size: int = Field(default=1, ge=1)
     shuffle: bool = True
+    materialization_stage: MaterializationStage = "decoded"
+    materialization_mode: MaterializationMode = "eager"
+    materialization_num_workers: int | None = 0
     normalize: bool = True
-    resize_width: int | None = Field(default=None, ge=1)
-    resize_height: int | None = Field(default=None, ge=1)
-    resize_max_long_edge: int | None = Field(default=None, ge=1)
-    interpolation: Literal["nearest", "bilinear", "bicubic", "lanczos"] = (
-        "lanczos"
-    )
+    resize_width_scale: float | None = Field(default=None, gt=0.0)
+    resize_width_target: int | None = Field(default=None, ge=1)
+    interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
 
     @model_validator(mode="after")
     def _validate_resize(self) -> BatchingConfig:
-        has_exact_shape = (
-            self.resize_width is not None or self.resize_height is not None
-        )
-        if has_exact_shape and self.resize_max_long_edge is not None:
+        if (
+            self.resize_width_scale is not None
+            and self.resize_width_target is not None
+        ):
             raise ValueError(
-                "BatchingConfig must use either exact resize shape or max_long_edge."
+                "BatchingConfig must use either resize_width_scale or "
+                "resize_width_target."
             )
-        if self.resize_width is None and self.resize_height is not None:
+        if (
+            self.materialization_num_workers is not None
+            and self.materialization_num_workers == 1
+        ):
             raise ValueError(
-                "BatchingConfig.resize_width is required when resize_height is set."
-            )
-        if self.resize_height is None and self.resize_width is not None:
-            raise ValueError(
-                "BatchingConfig.resize_height is required when resize_width is set."
+                "BatchingConfig.materialization_num_workers must be 0, None, "
+                "or >= 2."
             )
         return self
 

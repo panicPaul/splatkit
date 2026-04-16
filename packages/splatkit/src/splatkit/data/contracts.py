@@ -8,12 +8,14 @@ from typing import Literal, Protocol
 
 import torch
 from beartype import beartype
-from jaxtyping import Float
+from jaxtyping import Float, UInt8
 from torch import Tensor
 
 from splatkit.core.contracts import CameraState
 
 DatasetSource = Literal["colmap", "must3r"]
+MaterializationStage = Literal["none", "decoded", "prepared"]
+MaterializationMode = Literal["lazy", "eager"]
 
 
 def horizontal_fov_degrees(
@@ -30,31 +32,21 @@ def horizontal_fov_degrees(
 class ResizeSpec:
     """Declarative image resizing configuration."""
 
-    width: int | None = None
-    height: int | None = None
-    max_long_edge: int | None = None
-    interpolation: Literal["nearest", "bilinear", "bicubic", "lanczos"] = (
-        "lanczos"
-    )
+    width_scale: float | None = None
+    width_target: int | None = None
+    interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
 
     def __post_init__(self) -> None:
-        has_exact_shape = self.width is not None or self.height is not None
-        if has_exact_shape and self.max_long_edge is not None:
+        if self.width_scale is not None and self.width_target is not None:
             raise ValueError(
-                "ResizeSpec must use either exact width/height or max_long_edge."
+                "ResizeSpec must use either width_scale or width_target."
             )
-        if self.width is not None and self.height is None:
-            raise ValueError("ResizeSpec.height is required when width is set.")
-        if self.height is not None and self.width is None:
-            raise ValueError("ResizeSpec.width is required when height is set.")
-        if (
-            self.width is None
-            and self.height is None
-            and self.max_long_edge is None
-        ):
-            raise ValueError(
-                "ResizeSpec requires width/height or max_long_edge."
-            )
+        if self.width_scale is None and self.width_target is None:
+            raise ValueError("ResizeSpec requires width_scale or width_target.")
+        if self.width_scale is not None and self.width_scale <= 0.0:
+            raise ValueError("ResizeSpec.width_scale must be > 0.")
+        if self.width_target is not None and self.width_target <= 0:
+            raise ValueError("ResizeSpec.width_target must be > 0.")
 
 
 @beartype
@@ -143,8 +135,34 @@ class PreparedFrameSample:
     """Prepared sample returned by the Torch dataset adapter."""
 
     frame: DatasetFrame
-    image: Float[Tensor, "3 height width"]
+    image: Float[Tensor, "height width 3"]
     camera: CameraState
+
+    def to(self, device: torch.device) -> PreparedFrameSample:
+        """Move tensor fields to a device."""
+        return replace(
+            self,
+            image=self.image.to(device),
+            camera=self.camera.to(device),
+        )
+
+
+@beartype
+@dataclass(frozen=True)
+class DecodedFrameSample:
+    """Decoded sample with canonical in-memory image data."""
+
+    frame: DatasetFrame
+    image: UInt8[Tensor, "height width 3"]
+    camera: CameraState
+
+    def to(self, device: torch.device) -> DecodedFrameSample:
+        """Move tensor fields to a device."""
+        return replace(
+            self,
+            image=self.image.to(device),
+            camera=self.camera.to(device),
+        )
 
 
 @beartype
@@ -153,8 +171,16 @@ class PreparedFrameBatch:
     """Batched prepared samples."""
 
     frames: tuple[DatasetFrame, ...]
-    images: Float[Tensor, "batch 3 height width"]
+    images: Float[Tensor, "batch height width 3"]
     camera: CameraState
+
+    def to(self, device: torch.device) -> PreparedFrameBatch:
+        """Move tensor fields to a device."""
+        return replace(
+            self,
+            images=self.images.to(device),
+            camera=self.camera.to(device),
+        )
 
 
 class HasCamera(Protocol):
@@ -163,19 +189,19 @@ class HasCamera(Protocol):
     camera: CameraState
 
 
-class HasRgbTargets(Protocol):
+class HasImages(Protocol):
     """Batch capability for RGB supervision."""
 
-    images: Float[Tensor, "batch 3 height width"]
+    images: Float[Tensor, "batch height width 3"]
 
 
-class HasDepthTargets(Protocol):
+class HasDepth(Protocol):
     """Batch capability for depth supervision."""
 
     depth: Float[Tensor, "batch height width"]
 
 
-class HasMaskTargets(Protocol):
+class HasMask(Protocol):
     """Batch capability for binary masks."""
 
     mask: Float[Tensor, "batch height width"]

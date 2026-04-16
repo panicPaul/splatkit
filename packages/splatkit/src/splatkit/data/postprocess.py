@@ -9,6 +9,7 @@ from jaxtyping import Float
 from torch import Tensor
 
 from splatkit.data.contracts import HorizonAdjustmentSpec, SceneDataset
+from splatkit.data.pipes import HorizonAlignPipeConfig, register_source_pipe
 
 
 def _normalize(vector: Float[Tensor, " 3"]) -> Float[Tensor, " 3"]:
@@ -121,3 +122,12 @@ def adjust_dataset_horizon(
         world_up=spec.target_up,
         focus_point=translation,
     )
+
+
+@register_source_pipe(kind="horizon_align", spec_cls=HorizonAlignPipeConfig)
+def apply_horizon_align_pipe(
+    dataset: SceneDataset,
+    pipe: HorizonAlignPipeConfig,
+) -> SceneDataset:
+    """Registered source pipe wrapper for horizon alignment."""
+    return adjust_dataset_horizon(dataset, pipe.to_spec())

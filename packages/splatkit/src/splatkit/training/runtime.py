@@ -141,13 +141,12 @@ def _build_preparation(
 ) -> ImagePreparationSpec:
     resize = None
     if (
-        config.batching.resize_width is not None
-        or config.batching.resize_max_long_edge is not None
+        config.batching.resize_width_scale is not None
+        or config.batching.resize_width_target is not None
     ):
         resize = ResizeSpec(
-            width=config.batching.resize_width,
-            height=config.batching.resize_height,
-            max_long_edge=config.batching.resize_max_long_edge,
+            width_scale=config.batching.resize_width_scale,
+            width_target=config.batching.resize_width_target,
             interpolation=config.batching.interpolation,
         )
     return ImagePreparationSpec(
@@ -164,6 +163,11 @@ def build_dataloader(
     frame_dataset = FrameDataset(
         dataset,
         preparation=_build_preparation(config),
+        materialization_stage=config.batching.materialization_stage,
+        materialization_mode=config.batching.materialization_mode,
+        materialization_num_workers=(
+            config.batching.materialization_num_workers
+        ),
     )
     return DataLoader(
         frame_dataset,
@@ -351,12 +355,6 @@ def build_optimizer_set(
 
 
 def _move_batch_to_device(batch: Any, device: torch.device) -> Any:
-    if isinstance(batch, PreparedFrameBatch):
-        return replace(
-            batch,
-            images=batch.images.to(device),
-            camera=batch.camera.to(device),
-        )
     if hasattr(batch, "to"):
         return batch.to(device)
     return batch

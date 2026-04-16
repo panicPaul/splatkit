@@ -5,6 +5,7 @@ __pycache__/
 *.ply
 
 tmp
+debug
 
 # we only track the uv.lock file at the root of the repository
 packages/*/uv.lock

@@ -108,6 +108,11 @@ def rgb_l2_loss(
     )
 
 
+def test_batching_config_rejects_single_materialization_worker() -> None:
+    with pytest.raises(ValueError, match="0, None, or >= 2"):
+        BatchingConfig(materialization_num_workers=1)
+
+
 def apply_color_mlp(
     model: InitializedModel,
     camera: CameraState,

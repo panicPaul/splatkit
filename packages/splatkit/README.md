@@ -57,7 +57,12 @@ Typical flow:
 ```python
 import splatkit as sk
 
-dataset = sk.load_dataset("scene_dir")
+dataset = sk.load_dataset(
+    sk.ColmapDatasetConfig(
+        path="scene_dir",
+        cache_pipes=(sk.ResizePipeConfig(width_target=1280),),
+    )
+)
 config = sk.TrainingConfig(
     render=sk.RenderPipelineSpec(backend="gsplat"),
     loss=sk.LossConfig(
@@ -72,6 +77,11 @@ config = sk.TrainingConfig(
 result = sk.run_training(dataset, config)
 checkpoint = sk.load_checkpoint_dir(result.checkpoint_dir)
 ```
+
+`ColmapDatasetConfig` is the default user path. For extensions, subclass the
+concrete dataset config, register any new pipe spec classes plus runtime
+implementations, and override the ordered `source_pipes`, `cache_pipes`, and
+`prepare_pipes` tuples on that subclass.
 
 Checkpoints are saved as directories containing `config.json`, `metadata.json`, `model.ckpt`, and optionally `scene.ply`.
 

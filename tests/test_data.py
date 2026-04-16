@@ -10,17 +10,24 @@ import pytest
 import torch
 from PIL import Image
 from splatkit.data import (
+    ColmapDatasetConfig,
     FrameDataset,
     HorizonAdjustmentSpec,
+    HorizonAlignPipeConfig,
     ImagePreparationSpec,
+    MaterializationConfig,
+    NormalizePipeConfig,
+    ResizePipeConfig,
     ResizeSpec,
     SceneDataset,
     collate_frame_samples,
     load_colmap_dataset,
+    load_dataset,
     load_must3r_dataset,
     resolve_must3r_checkpoints,
     run_must3r_dataset,
 )
+from splatkit.data.adapters import _resolve_materialization_num_workers
 from torch.utils.data import DataLoader
 
 
@@ -158,11 +165,11 @@ def test_torch_frame_dataset_resizes_and_collates(tmp_path: Path) -> None:
     frame_dataset = FrameDataset(
         scene_dataset,
         preparation=ImagePreparationSpec(
-            resize=ResizeSpec(max_long_edge=8),
+            resize=ResizeSpec(width_target=8),
         ),
     )
     sample = frame_dataset[0]
-    assert sample.image.shape == (3, 6, 8)
+    assert sample.image.shape == (6, 8, 3)
     assert int(sample.camera.width[0].item()) == 8
 
     loader = DataLoader(
@@ -171,9 +178,19 @@ def test_torch_frame_dataset_resizes_and_collates(tmp_path: Path) -> None:
         collate_fn=collate_frame_samples,
     )
     batch = next(iter(loader))
-    assert batch.images.shape == (2, 3, 6, 8)
+    assert batch.images.shape == (2, 6, 8, 3)
     assert batch.camera.intrinsics is not None
     assert batch.camera.intrinsics.shape == (2, 3, 3)
+
+
+def test_materialization_config_rejects_single_worker() -> None:
+    with pytest.raises(ValueError, match="0, None, or >= 2"):
+        MaterializationConfig(num_workers=1)
+
+
+def test_materialization_num_workers_resolver_rejects_single_worker() -> None:
+    with pytest.raises(ValueError, match="0, None, or >= 2"):
+        _resolve_materialization_num_workers(1)
 
 
 def test_horizon_adjustment_applies_consistent_transform(
@@ -192,6 +209,57 @@ def test_horizon_adjustment_applies_consistent_transform(
     )
     assert dataset.point_cloud is not None
     assert dataset.point_cloud.points.shape[1] == 3
+
+
+def test_colmap_dataset_config_serializes_pipe_kinds() -> None:
+    config = ColmapDatasetConfig(
+        path=Path("scene"),
+        source_pipes=(HorizonAlignPipeConfig(),),
+        cache_pipes=(ResizePipeConfig(width_target=640),),
+        prepare_pipes=(NormalizePipeConfig(),),
+    )
+
+    payload = config.model_dump(mode="json")
+
+    assert payload["kind"] == "colmap"
+    assert payload["source_pipes"][0]["kind"] == "horizon_align"
+    assert payload["cache_pipes"][0]["kind"] == "resize"
+    assert payload["prepare_pipes"][0]["kind"] == "normalize"
+
+
+def test_load_dataset_from_colmap_config_returns_prepared_dataset(
+    tmp_path: Path,
+) -> None:
+    _write_images(tmp_path)
+    _write_colmap_text_model(tmp_path)
+
+    dataset = load_dataset(
+        ColmapDatasetConfig(
+            path=tmp_path,
+            cache_pipes=(ResizePipeConfig(width_target=8),),
+        )
+    )
+
+    assert isinstance(dataset, FrameDataset)
+    sample = dataset[0]
+    assert sample.image.shape == (6, 8, 3)
+    assert sample.image.dtype == torch.float32
+    assert int(sample.camera.width[0].item()) == 8
+
+
+def test_load_dataset_applies_source_pipes_from_config(tmp_path: Path) -> None:
+    _write_images(tmp_path)
+    _write_colmap_text_model(tmp_path)
+
+    dataset = load_dataset(
+        ColmapDatasetConfig(
+            path=tmp_path,
+            source_pipes=(HorizonAlignPipeConfig(),),
+        )
+    )
+
+    assert isinstance(dataset, FrameDataset)
+    assert dataset.dataset.world_up is not None
 
 
 def test_load_must3r_dataset_from_json(tmp_path: Path) -> None:
