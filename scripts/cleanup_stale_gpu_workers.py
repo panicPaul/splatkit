@@ -12,7 +12,6 @@ from pathlib import Path
 import tyro
 from pydantic import BaseModel
 
-
 SYSTEMD_USER_NAMES = {"systemd", "(systemd)", "systemd --user"}
 
 
@@ -107,7 +106,7 @@ def _read_process_info(proc_path: Path, repo_root: Path) -> ProcessInfo | None:
     pid = int(proc_path.name)
     try:
         ppid, elapsed_seconds = _read_stat_fields(proc_path / "stat")
-        executable = Path(os.readlink(proc_path / "exe"))
+        executable = (proc_path / "exe").readlink()
         command = _read_cmdline(proc_path / "cmdline")
         cwd = _read_optional_link(proc_path / "cwd")
         parent_command = _read_parent_command(ppid)
@@ -159,7 +158,7 @@ def _read_cmdline(cmdline_path: Path) -> str:
 def _read_optional_link(link_path: Path) -> Path | None:
     """Resolve a procfs symlink, returning None when unavailable."""
     try:
-        return Path(os.readlink(link_path))
+        return link_path.readlink()
     except (FileNotFoundError, PermissionError, OSError):
         return None
 
@@ -181,10 +180,10 @@ def _iter_fd_targets(fd_dir: Path) -> list[str]:
     try:
         for fd_path in fd_dir.iterdir():
             try:
-                target = os.readlink(fd_path)
+                target = fd_path.readlink()
             except (FileNotFoundError, PermissionError, OSError):
                 continue
-            targets.append(Path(target).name)
+            targets.append(target.name)
     except (FileNotFoundError, PermissionError, OSError):
         return []
     return targets

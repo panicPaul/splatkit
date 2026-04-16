@@ -161,9 +161,7 @@ def svraster_build_grid_points_link(
         if backend_name is not None
         else max_num_levels
     )
-    level_shift = (
-        finest_level - octlevel.to(torch.int64)
-    ).reshape(-1, 1, 1)
+    level_shift = (finest_level - octlevel.to(torch.int64)).reshape(-1, 1, 1)
     subtree_shifts = _SUBTREE_SHIFTS.to(octpath.device)
     base_grid_ijk = (ijk << level_shift.reshape(-1, 1)).reshape(-1, 1, 3)
     grid_points = base_grid_ijk + (subtree_shifts << level_shift)

@@ -154,8 +154,7 @@ def save_gaussian_ply(
         ("f_dc_2", "f4"),
     ]
     dtype.extend(
-        (f"f_rest_{index}", "f4")
-        for index in range(3 * max(0, num_bases - 1))
+        (f"f_rest_{index}", "f4") for index in range(3 * max(0, num_bases - 1))
     )
     dtype.extend(
         [

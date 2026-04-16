@@ -14,8 +14,16 @@ from splatkit.core.capabilities import (
     RenderWithAlpha2DProjections,
     RenderWithAlphaDepth,
     RenderWithAlphaDepth2DProjections,
+    RenderWithAlphaDepthNormals,
+    RenderWithAlphaDepthProjectiveIntersectionTransforms,
+    RenderWithAlphaNormals,
+    RenderWithAlphaProjectiveIntersectionTransforms,
     RenderWithDepth,
     RenderWithDepth2DProjections,
+    RenderWithDepthNormals,
+    RenderWithDepthProjectiveIntersectionTransforms,
+    RenderWithNormals,
+    RenderWithProjectiveIntersectionTransforms,
 )
 from splatkit.core.contracts import (
     BackendName,
@@ -73,7 +81,9 @@ def render(
     backend: BackendName,
     return_alpha: Literal[False] = False,
     return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderOutput: ...
 
@@ -86,7 +96,9 @@ def render(
     backend: BackendName,
     return_alpha: Literal[True],
     return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderWithAlpha: ...
 
@@ -99,7 +111,9 @@ def render(
     backend: BackendName,
     return_alpha: Literal[False] = False,
     return_depth: Literal[True] = True,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderWithDepth: ...
 
@@ -112,7 +126,9 @@ def render(
     backend: BackendName,
     return_alpha: Literal[True],
     return_depth: Literal[True],
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderWithAlphaDepth: ...
 
@@ -125,7 +141,9 @@ def render(
     backend: BackendName,
     return_alpha: Literal[False] = False,
     return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[True] = True,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderWith2DProjections: ...
 
@@ -138,7 +156,9 @@ def render(
     backend: BackendName,
     return_alpha: Literal[True],
     return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[True] = True,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderWithAlpha2DProjections: ...
 
@@ -151,7 +171,9 @@ def render(
     backend: BackendName,
     return_alpha: Literal[False] = False,
     return_depth: Literal[True] = True,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[True] = True,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderWithDepth2DProjections: ...
 
@@ -164,9 +186,131 @@ def render(
     backend: BackendName,
     return_alpha: Literal[True],
     return_depth: Literal[True],
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[True] = True,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: RenderOptions | None = None,
 ) -> RenderWithAlphaDepth2DProjections: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[False] = False,
+    return_normals: Literal[True] = True,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithNormals: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[True],
+    return_depth: Literal[False] = False,
+    return_normals: Literal[True] = True,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithAlphaNormals: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[True] = True,
+    return_normals: Literal[True] = True,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithDepthNormals: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[True],
+    return_depth: Literal[True],
+    return_normals: Literal[True] = True,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithAlphaDepthNormals: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[True] = True,
+    options: RenderOptions | None = None,
+) -> RenderWithProjectiveIntersectionTransforms: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[True],
+    return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[True] = True,
+    options: RenderOptions | None = None,
+) -> RenderWithAlphaProjectiveIntersectionTransforms: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[True] = True,
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[True] = True,
+    options: RenderOptions | None = None,
+) -> RenderWithDepthProjectiveIntersectionTransforms: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: Literal[True],
+    return_depth: Literal[True],
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[True] = True,
+    options: RenderOptions | None = None,
+) -> RenderWithAlphaDepthProjectiveIntersectionTransforms: ...
 
 
 @beartype
@@ -177,7 +321,9 @@ def render(
     backend: BackendName,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_normals: bool = False,
     return_2d_projections: bool = False,
+    return_projective_intersection_transforms: bool = False,
     options: RenderOptions | None = None,
 ) -> RenderOutput:
     """Render through a named backend."""
@@ -202,7 +348,12 @@ def render(
         for enabled, name in (
             (return_alpha, "alpha"),
             (return_depth, "depth"),
+            (return_normals, "normals"),
             (return_2d_projections, "2d_projections"),
+            (
+                return_projective_intersection_transforms,
+                "projective_intersection_transforms",
+            ),
         )
         if enabled
     )
@@ -225,6 +376,10 @@ def render(
         camera,
         return_alpha=return_alpha,
         return_depth=return_depth,
+        return_normals=return_normals,
         return_2d_projections=return_2d_projections,
+        return_projective_intersection_transforms=(
+            return_projective_intersection_transforms
+        ),
         options=resolved_options,
     )

@@ -208,7 +208,9 @@ def render_inria(
     *,
     return_alpha: Literal[False] = False,
     return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: InriaRenderOptions | None = None,
 ) -> InriaRenderOutput: ...
 
@@ -220,7 +222,9 @@ def render_inria(
     *,
     return_alpha: Literal[False] = False,
     return_depth: Literal[True] = True,
+    return_normals: Literal[False] = False,
     return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
     options: InriaRenderOptions | None = None,
 ) -> InriaDepthRenderOutput: ...
 
@@ -231,15 +235,24 @@ def render_inria(
     *,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_normals: bool = False,
     return_2d_projections: bool = False,
+    return_projective_intersection_transforms: bool = False,
     options: InriaRenderOptions | None = None,
 ) -> InriaRenderOutput | InriaDepthRenderOutput:
     """Render a scene with the Inria differential Gaussian rasterizer."""
     if return_alpha:
         raise ValueError("The Inria backend does not expose alpha output.")
+    if return_normals:
+        raise ValueError("The Inria backend does not expose normals.")
     if return_2d_projections:
         raise ValueError(
             "The Inria backend does not expose 2D Gaussian projections."
+        )
+    if return_projective_intersection_transforms:
+        raise ValueError(
+            "The Inria backend does not expose projective intersection "
+            "transforms."
         )
 
     _validate_inputs(scene, camera)

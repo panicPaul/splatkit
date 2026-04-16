@@ -23,11 +23,15 @@ inria = [
 svraster = [
     "new-svraster-cuda>=0.0.0",
 ]
+stoch3dgs = [
+    "threedgrut>=0.0.1",
+]
 all = [
     "gsplat>=1.5.3",
     "FasterGSCudaBackend",
     "diff-gaussian-rasterization>=0.0.0",
     "new-svraster-cuda>=0.0.0",
+    "threedgrut>=0.0.1",
 ]
 cu128 = [
     "torch>=2.11.0",
@@ -47,17 +51,18 @@ conflicts = [
         { extra = "cu130" },
     ],
 ]
-no-build-isolation-package = [
-    "diff-gaussian-rasterization",
-    "FasterGSCudaBackend",
-    "new-svraster-cuda",
-]
+
+[tool.uv.extra-build-dependencies]
+diff-gaussian-rasterization = [{ requirement = "torch", match-runtime = true }]
+FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
+new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.sources]
 splatkit = { path = "../splatkit", editable = true }
 diff-gaussian-rasterization = { path = "../../third_party/diff-gaussian-rasterization", editable = true }
 FasterGSCudaBackend = { path = "../../third_party/faster-gaussian-splatting/FasterGSCudaBackend", editable = true }
 new-svraster-cuda = { path = "../../third_party/sv_raster/backends/new_cuda", editable = true }
+threedgrut = { path = "../../third_party/Stoch3DGS", editable = true }
 torch = [
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },

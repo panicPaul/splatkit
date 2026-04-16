@@ -3,6 +3,69 @@
 Monorepo for a modular Gaussian splatting stack centered around a minimal core,
 typed backend interfaces, and fast research iteration.
 
+The default workflow is `uv`. If `uv` is not enough for your machine or native
+backend setup, fall back to Pixi.
+
+## Install
+
+For local development from the monorepo root, initialize submodules and create
+the virtual environment:
+
+```bash
+git submodule update --init --recursive
+uv venv
+```
+
+Then install dependencies with the default `torch` build:
+
+```bash
+uv sync
+```
+
+To try a CUDA-specific PyTorch wheel through `uv`, select an extra:
+
+```bash
+uv sync --extra cu128
+```
+
+or:
+
+```bash
+uv sync --extra cu130
+```
+
+Notes:
+- plain `uv sync` uses the default `torch` dependency
+- `cu128` and `cu130` are mutually exclusive
+- the CUDA extras only affect Python package resolution, especially the PyTorch
+  wheel index
+- prefer `uv` first because it is the simplest path
+- fall back to Pixi when `uv` is not enough due to CUDA or toolchain issues
+
+Pixi uses Conda packages under the hood, so it can ship CUDA libraries,
+compiler toolchains like `gcc`, and related native dependencies explicitly.
+That makes it the better fallback when Python package resolution alone is not
+enough.
+
+For a Pixi-managed environment:
+
+```bash
+pixi install
+pixi shell
+```
+
+or select a CUDA-specific environment explicitly:
+
+```bash
+pixi install -e cu128
+pixi shell -e cu128
+```
+
+```bash
+pixi install -e cu130
+pixi shell -e cu130
+```
+
 ## What This Repository Is For
 
 This repository exists to make experimentation with Gaussian splatting faster,
@@ -98,48 +161,6 @@ tests/                     Cross-package tests
 notebooks/                 Monorepo-level examples
 ```
 
-## Install
-
-Initialize submodules first:
-
-```bash
-git clone <repo-url>
-cd splatkit
-git submodule update --init --recursive
-```
-
-For local development from the monorepo root with the default `torch` build:
-
-```bash
-git submodule update --init --recursive
-uv sync
-```
-
-To try a CUDA-specific PyTorch wheel through `uv`, select an extra:
-
-```bash
-git submodule update --init --recursive
-uv sync --extra cu128
-```
-
-or:
-
-```bash
-git submodule update --init --recursive
-uv sync --extra cu130
-```
-
-Notes:
-- plain `uv sync` uses the default `torch` dependency
-- `cu128` and `cu130` are mutually exclusive
-- the CUDA extras only affect Python package resolution, especially the PyTorch
-  wheel index
-- if you need a managed CUDA toolkit / compiler environment, Pixi remains the
-  fallback path
-
-Optional Pixi setup is intended to make full environment setup easier when pure
-`uv` is not enough due to CUDA or toolchain mismatches.
-
 ## Package Roles
 
 - `splatkit`: backend-agnostic contracts, capabilities, type-driven traits,
@@ -147,7 +168,8 @@ Optional Pixi setup is intended to make full environment setup easier when pure
   `viewer`, `training`, `eval`, and `all`; the viewer stack remains separate
   from `all` for now
 - `splatkit-backends`: wrappers around commonly used implementations such as
-  `gsplat` and the local Inria path, with per-backend extras plus `all`
+  `gsplat`, the local Inria path, and the local `Stoch3DGS` path, with
+  per-backend extras plus `all`
 - `marimo-3dv`: utilities for `marimo`, desktop viewers, and auto-generated GUI
   options that work well with serializable configs
 
@@ -159,7 +181,75 @@ pip install "splatkit[viewer]"
 pip install "splatkit[all]"
 pip install "splatkit-backends[gsplat]"
 pip install "splatkit-backends[inria]"
+pip install "splatkit-backends[stoch3dgs]"
 pip install "splatkit-backends[all]"
+```
+
+## Supported Backends
+
+Currently registered backends in `splatkit-backends`:
+
+| Backend name | Scene type | Alpha | Depth | Normals | 2D projections | Projective intersection transforms | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gsplat_2dgs` | `GaussianScene2D` | ✅ | ✅ | ❌ | ❌ | ✅ | 2D Gaussian backend via `gsplat.rasterization_2dgs` |
+| `fastergs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB-only FasterGS adapter |
+| `gsplat` | `GaussianScene3D` | ✅ | ✅ | ❌ | ✅ | ❌ | 3D Gaussian backend via `gsplat.rasterization` |
+| `inria` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | GraphDeco/Inria rasterizer adapter |
+| `stoch3dgs` | `GaussianScene3D` | ✅ | ✅ | ❌ | ❌ | ❌ | Stochastic 3DGRT adapter |
+| `svraster` | `SparseVoxelScene` | ❌ | ✅ | ❌ | ❌ | ❌ | Sparse voxel rasterization backend |
+
+Capability notes:
+- `alpha`: per-pixel accumulated opacity/transmittance output.
+- `depth`: per-pixel depth output in the backend's native shared render surface.
+- `normals`: per-pixel surface or rendered normal output. This capability exists in the shared API, but no official backend exposes it yet.
+- `2d_projections`: projected Gaussian centers plus compact conic coefficients via `projected_means` and `projected_conics`.
+- `projective_intersection_transforms`: projected Gaussian centers plus 2DGS projective intersection geometry via `projected_means` and `projective_intersection_transforms`.
+
+## Stoch3DGS / OptiX
+
+The `stoch3dgs` backend requires NVIDIA OptiX to build the upstream 3DGRT
+runtime.
+
+What is required:
+- an NVIDIA driver and GPU that support OptiX
+- a working CUDA toolkit/toolchain that matches your PyTorch install
+- the `optix-dev` headers, which are tracked in this repo as a nested submodule
+  of `third_party/Stoch3DGS`
+
+The header-only `optix-dev` checkout should appear at:
+
+```text
+third_party/Stoch3DGS/threedgrt_tracer/dependencies/optix-dev/include/optix.h
+```
+
+If that file is missing, initialize nested submodules again:
+
+```bash
+git submodule update --init --recursive
+```
+
+If you already had the repo cloned before `Stoch3DGS` was added, rerun the same
+command after pulling the latest changes. In particular, `stoch3dgs` will not
+compile unless the nested `optix-dev` submodule inside `third_party/Stoch3DGS`
+is present.
+
+Recommended install flow for the backend:
+
+```bash
+git submodule update --init --recursive
+uv pip install -e './packages/splatkit-backends[stoch3dgs,cu130]'
+```
+
+If OptiX headers are still missing after a recursive submodule update, inspect:
+
+```bash
+git -C third_party/Stoch3DGS submodule status --recursive
+```
+
+You should see an entry for:
+
+```text
+threedgrt_tracer/dependencies/optix-dev
 ```
 
 ## Versioning
@@ -268,17 +358,17 @@ repository-owned multiprocessing workers.
 
 | Goal | Subgoals | Status |
 | --- | --- | --- |
-| Core contracts and traits | Typed scene/camera contracts, capability traits, backend registry, shared render surface across `inria` and `gsplat` | Done |
+| Core contracts and traits | Typed scene/camera contracts, capability traits, backend registry, shared render surface across `inria`, `gsplat`, and other registered backends | Done |
 | Viewer workflow | Viewer works well in `marimo`, plus an experimental desktop viewer that reuses marimo-defined GUI elements | In progress |
 | Notebook to script workflow | Define custom GUI elements in a notebook, then run the notebook as a Python file for a more interactive local viewer flow | In progress |
-| Backend wrappers | Current wrappers for `inria` and `gsplat`, with `3dGUT` and `FasterGS` planned as additional third-party wrappers | In progress |
+| Backend wrappers | Current wrappers for `inria`, `gsplat`, `svraster`, `fastergs`, and `stoch3dgs`, with broader training-oriented wrappers still planned | In progress |
 | Hackable backend implementations | Stripped-down, modular variant of `FasterGS` aimed at rapid experimentation and easier modification while minimizing perfomance cost | Planned |
 | Training and data pipeline | Dataloading, training scripts, training utilities, and evaluation scripts | Not started |
 | Densification framework | Hackable densification design that stays flexible without becoming overly verbose | Not started |
 
 ## Non-Goals
 
-- Being the best standalone rasterizer implementation. Check out `gsplat` or `Lichtfeld Studio` for that.
+- Being the best standalone rasterizer implementation. Check out `gsplat` or `Lichtfeld Studio` or the awesome `FasterGS` for that.
 - Replacing polished backend-specific projects
 - Optimizing primarily for end-user product UX over research flexibility
 - Hiding backend differences so aggressively that important semantics disappear

@@ -10,11 +10,16 @@ from splatkit.core import (
 from splatkit_backends.gsplat import (
     GsplatRenderOptions,
     render_gsplat,
+    render_gsplat_2dgs,
 )
 
 
 def test_registry_contains_gsplat() -> None:
     assert "gsplat" in BACKEND_REGISTRY
+
+
+def test_registry_contains_gsplat_2dgs() -> None:
+    assert "gsplat_2dgs" in BACKEND_REGISTRY
 
 
 def test_render_unknown_backend_raises(cpu_scene, cpu_camera) -> None:
@@ -74,3 +79,18 @@ def test_render_default_options_type() -> None:
     assert isinstance(
         BACKEND_REGISTRY["gsplat"].default_options, GsplatRenderOptions
     )
+    assert isinstance(
+        BACKEND_REGISTRY["gsplat_2dgs"].default_options,
+        GsplatRenderOptions,
+    )
+
+
+def test_render_gsplat_2dgs_beartype_rejects_wrong_options(
+    cpu_scene_2d, cpu_camera
+) -> None:
+    with pytest.raises(BeartypeCallHintParamViolation):
+        render_gsplat_2dgs(
+            cpu_scene_2d,
+            cpu_camera,
+            options=RenderOptions(),  # type: ignore[arg-type]
+        )

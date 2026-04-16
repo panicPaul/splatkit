@@ -57,7 +57,9 @@ def _resolve_svraster_checkpoint_path(
                 f"No SV Raster checkpoints found in {checkpoints_dir}."
             )
         if iteration is None:
-            return checkpoints[-1], config_path if config_path.exists() else None
+            return checkpoints[
+                -1
+            ], config_path if config_path.exists() else None
         return (
             checkpoints_dir / f"iter{iteration:06d}_model.pt",
             config_path if config_path.exists() else None,
@@ -124,9 +126,9 @@ def load_svraster_checkpoint(
         inside_extent=state_dict["inside_extent"].reshape(1).to(torch.float32),
         octpath=state_dict["octpath"].reshape(-1, 1).to(torch.int64),
         octlevel=state_dict["octlevel"].reshape(-1, 1).to(torch.int8),
-        geo_grid_pts=state_dict["_geo_grid_pts"].reshape(-1, 1).to(
-            torch.float32
-        ),
+        geo_grid_pts=state_dict["_geo_grid_pts"]
+        .reshape(-1, 1)
+        .to(torch.float32),
         sh0=state_dict["_sh0"].to(torch.float32),
         shs=state_dict["_shs"].to(torch.float32),
     )
@@ -142,9 +144,7 @@ def save_svraster_checkpoint(
     if output_path.suffix != ".pt":
         iteration_value = 0 if iteration is None else iteration
         output_path = (
-            output_path
-            / "checkpoints"
-            / f"iter{iteration_value:06d}_model.pt"
+            output_path / "checkpoints" / f"iter{iteration_value:06d}_model.pt"
         )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     state_dict = {

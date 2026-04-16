@@ -14,7 +14,6 @@ from typing import Literal
 import tyro
 from pydantic import BaseModel
 
-
 ShellName = Literal["bash", "zsh"]
 
 SCRIPT_SCAN_EXCLUDES = {
@@ -25,13 +24,16 @@ SCRIPT_SCAN_EXCLUDES = {
     "build",
 }
 
+
 def _bash_completion_dir() -> Path:
     """Return the user-local bash completion directory."""
     base = Path(
         os.environ.get(
             "BASH_COMPLETION_USER_DIR",
             Path(
-                os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
+                os.environ.get(
+                    "XDG_DATA_HOME", Path.home() / ".local" / "share"
+                )
             )
             / "bash-completion",
         )
@@ -86,7 +88,9 @@ class InstallTabCompletion(BaseModel):
             target_scripts = [requested]
 
         if not target_scripts:
-            raise ValueError("No tyro CLI scripts were found in this repository.")
+            raise ValueError(
+                "No tyro CLI scripts were found in this repository."
+            )
 
         completion_dir = (
             _bash_completion_dir()
@@ -99,7 +103,9 @@ class InstallTabCompletion(BaseModel):
             relative = script_path.relative_to(project_root)
             flattened_name = "__".join(relative.with_suffix("").parts)
             output_name = (
-                script_path.name if self.shell == "bash" else f"_{flattened_name}"
+                script_path.name
+                if self.shell == "bash"
+                else f"_{flattened_name}"
             )
             output_path = completion_dir / output_name
 
@@ -114,10 +120,14 @@ class InstallTabCompletion(BaseModel):
                 check=True,
             )
 
-            print(f"Wrote {self.shell} completion for {relative} to {output_path}")
+            print(
+                f"Wrote {self.shell} completion for {relative} to {output_path}"
+            )
 
         if self.shell == "zsh":
-            print("Ensure ~/.zfunc is in fpath and run `autoload -Uz compinit && compinit`.")
+            print(
+                "Ensure ~/.zfunc is in fpath and run `autoload -Uz compinit && compinit`."
+            )
         else:
             print(
                 "Bash completion expects scripts to be invoked directly as commands."

@@ -3,7 +3,6 @@ import torch
 from beartype.roar import BeartypeCallHintParamViolation
 from splatkit.core import (
     CameraState,
-    GaussianScene,
     GaussianScene2D,
     GaussianScene3D,
     SparseVoxelScene,
@@ -40,7 +39,24 @@ def test_camera_state_to_moves_all_tensors(cpu_camera: CameraState) -> None:
     assert moved.cam_to_world.device.type == "cpu"
 
 
-def test_gaussian_scene_to_moves_all_tensors(cpu_scene: GaussianScene3D) -> None:
+def test_camera_state_prefers_explicit_intrinsics() -> None:
+    intrinsics = torch.tensor(
+        [[[100.0, 0.0, 10.0], [0.0, 120.0, 12.0], [0.0, 0.0, 1.0]]],
+        dtype=torch.float32,
+    )
+    camera = CameraState(
+        width=torch.tensor([20], dtype=torch.int64),
+        height=torch.tensor([24], dtype=torch.int64),
+        fov_degrees=torch.tensor([60.0], dtype=torch.float32),
+        cam_to_world=torch.eye(4, dtype=torch.float32)[None],
+        intrinsics=intrinsics,
+    )
+    assert torch.equal(camera.get_intrinsics(), intrinsics)
+
+
+def test_gaussian_scene_to_moves_all_tensors(
+    cpu_scene: GaussianScene3D,
+) -> None:
     moved = cpu_scene.to(torch.device("cpu"))
     assert moved.center_position.device.type == "cpu"
     assert moved.log_scales.device.type == "cpu"
@@ -111,7 +127,9 @@ def test_svraster_helpers_match_new_cuda_backend_on_cuda() -> None:
         dtype=torch.int64,
         device="cuda",
     )
-    octlevel = torch.tensor([[1], [3], [3], [5]], dtype=torch.int8, device="cuda")
+    octlevel = torch.tensor(
+        [[1], [3], [3], [5]], dtype=torch.int8, device="cuda"
+    )
     octpath = new_svraster_cuda.utils.ijk_2_octpath(ijk, octlevel)
 
     ours_ijk = svraster_octpath_to_ijk(

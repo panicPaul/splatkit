@@ -44,13 +44,19 @@ with app.setup:
     }
 
     class GaussianLoadConfig(BaseModel):
+        """Parameters for loading a 3DGS PLY scene."""
+
         path: Path = Path("tmp/example_scene.ply")
 
     class SVRasterLoadConfig(BaseModel):
+        """Parameters for loading an SV Raster checkpoint."""
+
         run_path: Path = Path("tmp/quarter_res_full_train/garden")
         iteration: int = -1
 
     class LinkConfig(BaseModel):
+        """Viewer-state linking options for the comparison UI."""
+
         enabled: bool = True
         link_camera: bool = True
         link_show_axes: bool = False
@@ -60,6 +66,7 @@ with app.setup:
         aspect_ratio: float = 1.1
 
     def install_linux_parent_death_signal() -> None:
+        """Ensure the viewer subprocess exits when the parent process dies."""
         if sys.platform != "linux":
             return
 
@@ -70,6 +77,7 @@ with app.setup:
     install_linux_parent_death_signal()
 
     def raise_cuda_context_error(stage: str, error: BaseException) -> None:
+        """Raise a consistent error for asynchronous CUDA context failures."""
         raise RuntimeError(
             "Comparison viewer hit a broken CUDA context while "
             f"{stage}. This usually means an earlier CUDA kernel failed "
@@ -78,6 +86,7 @@ with app.setup:
         ) from error
 
     def ensure_cuda_context_healthy(stage: str) -> None:
+        """Synchronize CUDA to surface any pending asynchronous failures."""
         if not torch.cuda.is_available():
             return
         try:
@@ -86,6 +95,7 @@ with app.setup:
             raise_cuda_context_error(stage, error)
 
     def synchronize_after_render(scene: sk.Scene) -> None:
+        """Synchronize SV Raster renders so CUDA failures surface promptly."""
         if not isinstance(scene, sk.SparseVoxelScene):
             return
         if scene.octpath.device.type != "cuda":
@@ -96,11 +106,13 @@ with app.setup:
             raise_cuda_context_error("rendering the SV Raster frame", error)
 
     def scene_class_for_type(scene_type: SceneType) -> type[sk.Scene]:
+        """Return the scene class associated with a UI scene-type value."""
         if scene_type == "3dgs_ply":
             return sk.GaussianScene3D
         return sk.SparseVoxelScene
 
     def available_backends(scene_type: SceneType) -> list[str]:
+        """List registered backends compatible with the selected scene type."""
         scene_class = scene_class_for_type(scene_type)
         return sorted(
             backend_name
@@ -115,6 +127,7 @@ with app.setup:
         scene_type: SceneType,
         load_value: GaussianLoadConfig | SVRasterLoadConfig,
     ) -> sk.Scene | None:
+        """Load the selected scene artifact and move it to CUDA when available."""
         if scene_type == "3dgs_ply":
             assert isinstance(load_value, GaussianLoadConfig)
             if not load_value.path.exists():
@@ -138,6 +151,7 @@ with app.setup:
         return scene
 
     def camera_device_for_scene(scene: sk.Scene) -> torch.device:
+        """Return the device that should own camera tensors for the scene."""
         if isinstance(scene, sk.GaussianScene3D):
             return scene.center_position.device
         if isinstance(scene, sk.SparseVoxelScene):
@@ -387,6 +401,7 @@ def rasterize_scene(
 @app.cell
 def _(left_backend, left_scene, left_viewer_state, viewer_aspect_ratio):
     left_viewer_state.aspect_ratio = viewer_aspect_ratio
+
     def render_left(camera_state):
         return rasterize_scene(
             camera_state,
@@ -401,6 +416,7 @@ def _(left_backend, left_scene, left_viewer_state, viewer_aspect_ratio):
 @app.cell
 def _(right_backend, right_scene, right_viewer_state, viewer_aspect_ratio):
     right_viewer_state.aspect_ratio = viewer_aspect_ratio
+
     def render_right(camera_state):
         return rasterize_scene(
             camera_state,

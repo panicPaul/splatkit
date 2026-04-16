@@ -16,6 +16,7 @@ with app.setup:
     import splatkit as sk
     import splatkit_backends.fastergs as sk_fastergs
     import splatkit_backends.gsplat as sk_gsplat
+    import splatkit_backends.stoch3dgs as sk_stoch
     import torch
     from marimo_3dv import (
         CameraState,
@@ -36,6 +37,7 @@ with app.setup:
 
     sk_fastergs.register()
     sk_gsplat.register()
+    sk_stoch.register()
     register_inria()
 
     def _install_linux_parent_death_signal() -> None:
@@ -52,7 +54,7 @@ with app.setup:
 @app.cell
 def _():
     class BackendConfig(BaseModel):
-        backend: Literal["gsplat", "inria", "fastergs"] = "gsplat"
+        backend: Literal["gsplat", "inria", "fastergs", "stoch3dgs"] = "gsplat"
 
     backend_form = form_gui(
         BackendConfig,
@@ -99,31 +101,29 @@ def _():
     return
 
 
+@app.function
+def load_gaussian_scene(path):
+    """Load a Gaussian scene and move it to CUDA when available."""
+    backend_scene = sk.load_gaussian_ply(path)
+    if torch.cuda.is_available():
+        backend_scene = backend_scene.to(torch.device("cuda"))
+    if backend_scene.feature.ndim != 3:
+        raise ValueError(
+            "Gaussian viewer expects SH coefficients with shape "
+            "(num_splats, num_bases, 3)."
+        )
+    return SplatScene(
+        center_positions=backend_scene.center_position,
+        log_half_extents=backend_scene.log_scales,
+        quaternion_orientation=backend_scene.quaternion_orientation,
+        spherical_harmonics=backend_scene.feature,
+        opacity_logits=backend_scene.logit_opacity[:, None],
+        sh_degree=backend_scene.sh_degree,
+    )
+
+
 @app.cell
 def _():
-    def load_gaussian_scene(path):
-        backend_scene = sk.load_gaussian_ply(path)
-        if torch.cuda.is_available():
-            backend_scene = backend_scene.to(torch.device("cuda"))
-        if backend_scene.feature.ndim != 3:
-            raise ValueError(
-                "Gaussian viewer expects SH coefficients with shape "
-                "(num_splats, num_bases, 3)."
-            )
-        return SplatScene(
-            center_positions=backend_scene.center_position,
-            log_half_extents=backend_scene.log_scales,
-            quaternion_orientation=backend_scene.quaternion_orientation,
-            spherical_harmonics=backend_scene.feature,
-            opacity_logits=backend_scene.logit_opacity[:, None],
-            sh_degree=backend_scene.sh_degree,
-        )
-
-    return (load_gaussian_scene,)
-
-
-@app.cell
-def _(load_gaussian_scene):
     viewer_state = ViewerState(camera_convention="opencv")
     return (viewer_state,)
 
@@ -136,7 +136,7 @@ def _():
 
 
 @app.cell
-def _(load_form, load_gaussian_scene, viewer_state):
+def _(load_form, viewer_state):
     if mo.running_in_notebook():
         cleanup_before_splat_reload(
             viewer_state,
@@ -168,7 +168,7 @@ def rasterize_scene(
     camera: CameraState,
     scene: SplatScene | None,
     *,
-    backend: Literal["gsplat", "inria", "fastergs"] = "gsplat",
+    backend: Literal["gsplat", "inria", "fastergs", "stoch3dgs"] = "gsplat",
 ) -> RenderResult:
     """Render a splat scene through splatkit."""
     if scene is None:

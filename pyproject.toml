@@ -8,16 +8,16 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "torch>=2.11.0",
+    # Editable dependencies
     "splatkit[all]",
     "splatkit-backends[all]",
     "marimo-3dv>=0.1.1",
-
+    # Non editable dependencies
     "marimo>=0.22.4",
-    "torch>=2.11.0",
     "ruff>=0.15.10",
     "ty>=0.0.29",
 ]
-
 [project.optional-dependencies]
 cu128 = ["torch>=2.11.0"]
 cu130 = ["torch>=2.11.0"]
@@ -30,11 +30,11 @@ conflicts = [
         { extra = "cu130" },
     ],
 ]
-no-build-isolation-package = [
-    "diff-gaussian-rasterization",
-    "FasterGSCudaBackend",
-    "new-svraster-cuda",
-]
+
+[tool.uv.extra-build-dependencies]
+diff-gaussian-rasterization = [{ requirement = "torch", match-runtime = true }]
+FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
+new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.sources]
 marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
@@ -61,7 +61,7 @@ explicit = true
 
 [tool.ruff]
 line-length = 80
-exclude = ['third_party/*']
+exclude = ['third_party/*', '.agents/*', '.claude/*']
 
 
 [tool.ruff.lint] # Mostly just copied over from mojo
@@ -126,6 +126,9 @@ convention = "google"
     "B018",       # Useless expresions can be nice for output visualization in marimo
     "F401",       # Unused imports from marimo
     "RUF059",     # Unused unpacked variable
+]
+"packages/splatkit/src/splatkit/training/checkpoints.py" = [
+    "NPY002",     # Capturing/restoring global NumPy RNG state requires the legacy stateful API
 ]
 
 [tool.pytest.ini_options]

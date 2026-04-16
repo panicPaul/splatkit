@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
-
 from splatkit import (
     GaussianScene3D,
     SparseVoxelScene,
@@ -16,13 +15,18 @@ from splatkit import (
 )
 
 
-def test_gaussian_ply_roundtrip(tmp_path: Path, cpu_scene: GaussianScene3D) -> None:
+def test_gaussian_ply_roundtrip(
+    tmp_path: Path, cpu_scene: GaussianScene3D
+) -> None:
     path = tmp_path / "scene.ply"
     save_gaussian_ply(cpu_scene, path)
     loaded = load_gaussian_ply(path)
     assert loaded.center_position.shape == cpu_scene.center_position.shape
     assert loaded.log_scales.shape == cpu_scene.log_scales.shape
-    assert loaded.quaternion_orientation.shape == cpu_scene.quaternion_orientation.shape
+    assert (
+        loaded.quaternion_orientation.shape
+        == cpu_scene.quaternion_orientation.shape
+    )
     assert loaded.logit_opacity.shape == cpu_scene.logit_opacity.shape
     assert loaded.feature.shape == cpu_scene.feature.shape
 

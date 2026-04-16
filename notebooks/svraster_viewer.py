@@ -29,6 +29,7 @@ with app.setup:
     sk_svraster.register()
 
     def install_linux_parent_death_signal() -> None:
+        """Ensure the viewer subprocess exits when the parent process dies."""
         if sys.platform != "linux":
             return
 
@@ -39,6 +40,7 @@ with app.setup:
     install_linux_parent_death_signal()
 
     def raise_cuda_context_error(stage: str, error: BaseException) -> None:
+        """Raise a consistent error for asynchronous CUDA context failures."""
         raise RuntimeError(
             "SV Raster viewer hit a broken CUDA context while "
             f"{stage}. This usually means an earlier CUDA kernel failed "
@@ -47,6 +49,7 @@ with app.setup:
         ) from error
 
     def ensure_cuda_context_healthy(stage: str) -> None:
+        """Synchronize CUDA to surface any pending asynchronous failures."""
         if not torch.cuda.is_available():
             return
         try:
@@ -55,6 +58,7 @@ with app.setup:
             raise_cuda_context_error(stage, error)
 
     def synchronize_after_render(scene: sk.SparseVoxelScene) -> None:
+        """Synchronize SV Raster renders so CUDA failures surface promptly."""
         if scene.octpath.device.type != "cuda":
             return
         try:
@@ -100,7 +104,9 @@ def _():
 
 @app.cell
 def _(load_form, viewer_state):
-    iteration = None if load_form.value.iteration < 0 else load_form.value.iteration
+    iteration = (
+        None if load_form.value.iteration < 0 else load_form.value.iteration
+    )
     cleanup_before_splat_reload(
         viewer_state,
         close_existing_viewer=True,

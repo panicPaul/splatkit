@@ -10,16 +10,23 @@ from typing import Literal, NamedTuple, Self
 import torch
 from beartype import beartype
 from jaxtyping import Float, Int
+from torch import Tensor
+
 from splatkit.core.sparse_voxel import (
     SVRasterBackendName,
     svraster_build_grid_points_link,
     svraster_octpath_decoding,
 )
-from torch import Tensor
 
 CameraConvention = Literal["opencv", "opengl", "blender", "colmap"]
 BackendName = str
-OutputName = Literal["alpha", "depth", "2d_projections"]
+OutputName = Literal[
+    "alpha",
+    "depth",
+    "normals",
+    "2d_projections",
+    "projective_intersection_transforms",
+]
 SceneFamily = Literal["gaussian", "sparse_voxel"]
 
 
@@ -88,6 +95,7 @@ class CameraState:
     height: Int[Tensor, " num_cams"]
     fov_degrees: Float[Tensor, " num_cams"]
     cam_to_world: Float[Tensor, "num_cams 4 4"]
+    intrinsics: Float[Tensor, "num_cams 3 3"] | None = None
     camera_convention: CameraConvention = "opencv"
     up_direction: Literal["up", "down"] = "up"
 
@@ -98,11 +106,18 @@ class CameraState:
             width=self.width.to(device),
             height=self.height.to(device),
             fov_degrees=self.fov_degrees.to(device),
+            intrinsics=(
+                self.intrinsics.to(device)
+                if self.intrinsics is not None
+                else None
+            ),
             cam_to_world=self.cam_to_world.to(device),
         )
 
     def get_intrinsics(self) -> Float[Tensor, "num_cams 3 3"]:
         """Compute batched intrinsics."""
+        if self.intrinsics is not None:
+            return self.intrinsics
         return camera_params_to_intrinsics(
             self.width,
             self.height,
@@ -127,6 +142,7 @@ class GaussianScene(Scene, ABC):
 
     @property
     def scene_family(self) -> SceneFamily:
+        """Return the Gaussian scene family tag."""
         return "gaussian"
 
     @property
@@ -160,6 +176,7 @@ class GaussianScene3D(GaussianScene):
 
     @property
     def spatial_dims(self) -> int:
+        """Return the Gaussian scale dimensionality."""
         return 3
 
 
@@ -170,6 +187,7 @@ class GaussianScene2D(GaussianScene):
 
     @property
     def spatial_dims(self) -> int:
+        """Return the Gaussian scale dimensionality."""
         return 2
 
 
@@ -192,6 +210,7 @@ class SparseVoxelScene(Scene):
 
     @property
     def scene_family(self) -> SceneFamily:
+        """Return the sparse-voxel scene family tag."""
         return "sparse_voxel"
 
     def __post_init__(self) -> None:
@@ -200,9 +219,13 @@ class SparseVoxelScene(Scene):
         if self.octpath.shape[0] != self.octlevel.shape[0]:
             raise ValueError("SparseVoxelScene octpath/octlevel size mismatch.")
         if self.sh0.shape[0] != self.octpath.shape[0]:
-            raise ValueError("SparseVoxelScene sh0 size must match voxel count.")
+            raise ValueError(
+                "SparseVoxelScene sh0 size must match voxel count."
+            )
         if self.shs.shape[0] != self.octpath.shape[0]:
-            raise ValueError("SparseVoxelScene shs size must match voxel count.")
+            raise ValueError(
+                "SparseVoxelScene shs size must match voxel count."
+            )
         if self.active_sh_degree < 0:
             raise ValueError(
                 "SparseVoxelScene.active_sh_degree must be non-negative."

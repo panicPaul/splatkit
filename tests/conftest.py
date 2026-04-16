@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 import torch
-from splatkit.core import CameraState, GaussianScene3D, SparseVoxelScene
+from splatkit.core import (
+    CameraState,
+    GaussianScene2D,
+    GaussianScene3D,
+    SparseVoxelScene,
+)
 
 
 @pytest.fixture
@@ -35,6 +40,45 @@ def cpu_scene() -> GaussianScene3D:
         dtype=torch.float32,
     )
     return GaussianScene3D(
+        center_position=center_position,
+        log_scales=log_scales,
+        quaternion_orientation=quaternion_orientation,
+        logit_opacity=logit_opacity,
+        feature=feature,
+        sh_degree=0,
+    )
+
+
+@pytest.fixture
+def cpu_scene_2d() -> GaussianScene2D:
+    center_position = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.2, 0.0, 0.1],
+            [-0.2, 0.1, 0.2],
+        ],
+        dtype=torch.float32,
+    )
+    log_scales = torch.full((3, 2), -1.0, dtype=torch.float32)
+    quaternion_orientation = torch.tensor(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+        ],
+        dtype=torch.float32,
+    )
+    logit_opacity = torch.tensor([2.0, 1.5, 1.0], dtype=torch.float32)
+    feature = torch.zeros((3, 16, 3), dtype=torch.float32)
+    feature[:, 0, :] = torch.tensor(
+        [
+            [0.9, 0.2, 0.2],
+            [0.2, 0.9, 0.2],
+            [0.2, 0.2, 0.9],
+        ],
+        dtype=torch.float32,
+    )
+    return GaussianScene2D(
         center_position=center_position,
         log_scales=log_scales,
         quaternion_orientation=quaternion_orientation,
@@ -79,6 +123,13 @@ def cuda_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required for gsplat backend tests.")
     return cpu_scene.to(torch.device("cuda"))
+
+
+@pytest.fixture
+def cuda_scene_2d(cpu_scene_2d: GaussianScene2D) -> GaussianScene2D:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for gsplat backend tests.")
+    return cpu_scene_2d.to(torch.device("cuda"))
 
 
 @pytest.fixture

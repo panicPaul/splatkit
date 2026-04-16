@@ -1,15 +1,17 @@
 # splatkit
 
-Minimal, backend-agnostic scene contracts, scene I/O, and runtime helpers.
+Minimal, backend-agnostic scene contracts, scene I/O, initialization, and declarative training helpers.
 
 ## What It Contains
 - `splatkit.core`: canonical scene/camera contracts, output capability protocols, backend registry, and the generic `render(...)` wrapper
+- `splatkit.data`: dataset ingestion plus lazy camera-batched image preparation
+- `splatkit.initialization`: reusable scene/model initialization helpers for training
 - `splatkit.io`: scene-only load/save helpers for 3DGS PLY and SV Raster checkpoints
+- `splatkit.training`: declarative training configs, render/loss builders, and reproducible checkpoint-directory export
 - optional extras over time for reusable tooling that should remain separate from the minimal core dependency set
 
 Current extras:
 - `viewer`: installs the viewer dependency stack via `marimo-3dv`
-- `training`: reserved for future training utilities
 - `eval`: reserved for future evaluation utilities
 - `all`: installs the non-viewer optional utility stacks; `viewer` remains separate for now
 
@@ -46,6 +48,32 @@ image = output.render
 ```
 
 Backends are registered separately. `splatkit` does not import backend packages automatically.
+
+## Training
+Training is organized around declarative configs plus importable pipeline stages.
+
+Typical flow:
+
+```python
+import splatkit as sk
+
+dataset = sk.load_dataset("scene_dir")
+config = sk.TrainingConfig(
+    render=sk.RenderPipelineSpec(backend="gsplat"),
+    loss=sk.LossConfig(
+        target=sk.CallableSpec(target="my_project.losses.rgb_l2_loss")
+    ),
+    optimization=sk.OptimizationConfig(
+        parameter_groups=[
+            sk.ParameterGroupConfig(selector="scene.feature", lr=1e-2),
+        ]
+    ),
+)
+result = sk.run_training(dataset, config)
+checkpoint = sk.load_checkpoint_dir(result.checkpoint_dir)
+```
+
+Checkpoints are saved as directories containing `config.json`, `metadata.json`, `model.ckpt`, and optionally `scene.ply`.
 
 ## Registering Backends
 `splatkit` owns the shared registry, but backend packages are responsible for registering themselves.

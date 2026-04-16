@@ -10,3 +10,6 @@
 [submodule "third_party/sv_raster"]
 	path = third_party/sv_raster
 	url = https://github.com/panicPaul/sv_raster.git
+[submodule "third_party/Stoch3DGS"]
+	path = third_party/Stoch3DGS
+	url = https://github.com/panicPaul/Stoch3DGS.git

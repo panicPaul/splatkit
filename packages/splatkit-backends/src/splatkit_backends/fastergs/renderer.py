@@ -1,7 +1,6 @@
 """FasterGS backend contract surface."""
 
 from dataclasses import dataclass
-from typing import Literal
 
 import torch
 from beartype import beartype
@@ -90,7 +89,9 @@ def render_fastergs(
     *,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_normals: bool = False,
     return_2d_projections: bool = False,
+    return_projective_intersection_transforms: bool = False,
     options: FasterGSRenderOptions | None = None,
 ) -> FasterGSRenderOutput:
     """Render a scene with FasterGS."""
@@ -98,9 +99,16 @@ def render_fastergs(
         raise ValueError("The FasterGS backend does not expose alpha output.")
     if return_depth:
         raise ValueError("The FasterGS backend does not expose depth output.")
+    if return_normals:
+        raise ValueError("The FasterGS backend does not expose normals.")
     if return_2d_projections:
         raise ValueError(
             "The FasterGS backend does not expose 2D Gaussian projections."
+        )
+    if return_projective_intersection_transforms:
+        raise ValueError(
+            "The FasterGS backend does not expose projective intersection "
+            "transforms."
         )
     if scene.log_scales.shape[-1] != 3:
         raise ValueError(
@@ -125,7 +133,9 @@ def render_fastergs(
             opacities=scene.logit_opacity[:, None],
             sh_coefficients_0=sh_coefficients_0.contiguous(),
             sh_coefficients_rest=sh_coefficients_rest.contiguous(),
-            densification_info=torch.empty(0, device=scene.center_position.device),
+            densification_info=torch.empty(
+                0, device=scene.center_position.device
+            ),
             rasterizer_settings=_build_rasterizer_settings(
                 scene,
                 camera,

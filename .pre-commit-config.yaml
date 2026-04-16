@@ -1,3 +1,5 @@
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.9
@@ -10,7 +12,14 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: uv run pytest
+        entry: uv run pytest tests -q
         language: system
         pass_filenames: false
         types_or: [python]
+      - id: check-submodule-remotes
+        name: check submodule remotes
+        entry: python scripts/check_submodule_remotes.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

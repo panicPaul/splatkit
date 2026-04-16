@@ -107,7 +107,9 @@ def _render_single_camera(
 ) -> tuple[Tensor, Tensor]:
     geos = scene.voxel_geometries
 
-    def vox_fn(_idx: Tensor, cam_pos: Tensor, _color_mode: str) -> dict[str, Tensor]:
+    def vox_fn(
+        _idx: Tensor, cam_pos: Tensor, _color_mode: str
+    ) -> dict[str, Tensor]:
         rgbs = svraster_renderer.SH_eval.apply(
             scene.active_sh_degree,
             None,
@@ -152,15 +154,24 @@ def render_svraster(
     *,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_normals: bool = False,
     return_2d_projections: bool = False,
+    return_projective_intersection_transforms: bool = False,
     options: SVRasterRenderOptions | None = None,
 ) -> SVRasterRenderOutput | SVRasterDepthRenderOutput:
     """Render a sparse-voxel scene with the backend-only SV Raster adapter."""
     if return_alpha:
         raise ValueError("The SV Raster backend does not expose alpha output.")
+    if return_normals:
+        raise ValueError("The SV Raster backend does not expose normals.")
     if return_2d_projections:
         raise ValueError(
             "The SV Raster backend does not expose 2D projections."
+        )
+    if return_projective_intersection_transforms:
+        raise ValueError(
+            "The SV Raster backend does not expose projective intersection "
+            "transforms."
         )
 
     _validate_inputs(scene, camera)

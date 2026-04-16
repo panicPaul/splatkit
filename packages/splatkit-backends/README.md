@@ -5,16 +5,38 @@ Official backend adapters for `splatkit`.
 ## What It Contains
 - `splatkit_backends.gsplat`: gsplat adapter and backend-specific options/output types
 - `splatkit_backends.inria`: adapter shim for the forked GraphDeco/Inria rasterizer
+- `splatkit_backends.stoch3dgs`: adapter shim for the stochastic 3DGRT backend from `Stoch3DGS`
 - additional official backends can be added as subpackages over time
 
 These official adapters are examples and conveniences, not privileged integrations.
 `splatkit` is designed so you can write and register your own backend packages without depending on this repository.
+
+## Supported Backends
+
+Currently registered backends in this package:
+
+| Backend name | Scene type | Alpha | Depth | Normals | 2D projections | Projective intersection transforms | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gsplat_2dgs` | `GaussianScene2D` | ✅ | ✅ | ❌ | ❌ | ✅ | 2D Gaussian backend via `gsplat.rasterization_2dgs` |
+| `fastergs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB-only FasterGS adapter |
+| `gsplat` | `GaussianScene3D` | ✅ | ✅ | ❌ | ✅ | ❌ | 3D Gaussian backend via `gsplat.rasterization` |
+| `inria` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | GraphDeco/Inria rasterizer adapter |
+| `stoch3dgs` | `GaussianScene3D` | ✅ | ✅ | ❌ | ❌ | ❌ | Stochastic 3DGRT adapter |
+| `svraster` | `SparseVoxelScene` | ❌ | ✅ | ❌ | ❌ | ❌ | Sparse voxel rasterization backend |
+
+Capability notes:
+- `alpha`: per-pixel accumulated opacity/transmittance output.
+- `depth`: per-pixel depth output in the backend's native shared render surface.
+- `normals`: per-pixel surface or rendered normal output. This capability exists in the shared API, but no official backend exposes it yet.
+- `2d_projections`: projected Gaussian centers plus compact conic coefficients via `projected_means` and `projected_conics`.
+- `projective_intersection_transforms`: projected Gaussian centers plus 2DGS projective intersection geometry via `projected_means` and `projective_intersection_transforms`.
 
 Current extras:
 - `gsplat`: installs the `gsplat` runtime dependency
 - `fastergs`: installs the local `faster-gaussian-splatting` runtime dependency
 - `inria`: installs the local `diff-gaussian-rasterization` runtime dependency
 - `svraster`: installs the local `new_svraster_cuda` runtime dependency
+- `stoch3dgs`: installs the local `Stoch3DGS` runtime dependency
 - `all`: installs all officially supported backend runtime dependencies
 
 ## Install
@@ -48,6 +70,12 @@ With the SV Raster backend dependency:
 pip install "splatkit-backends[svraster]"
 ```
 
+With the Stoch3DGS backend dependency:
+
+```bash
+pip install "splatkit-backends[stoch3dgs]"
+```
+
 With all current backend dependencies:
 
 ```bash
@@ -55,6 +83,14 @@ pip install "splatkit-backends[all]"
 ```
 
 `splatkit` is a required dependency of this package.
+
+`stoch3dgs` also requires OptiX headers through the nested
+`third_party/Stoch3DGS/threedgrt_tracer/dependencies/optix-dev` submodule in
+the monorepo checkout. Before installing it locally, run:
+
+```bash
+git submodule update --init --recursive
+```
 
 ## Registration
 Backends are activated explicitly:
@@ -122,6 +158,7 @@ src/splatkit_backends/
   __init__.py
   gsplat/
   inria/
+  stoch3dgs/
   svraster/
 ```
 

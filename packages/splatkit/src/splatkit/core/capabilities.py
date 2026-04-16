@@ -18,11 +18,39 @@ class HasDepth(Protocol):
     depth: Float[Tensor, "num_cams height width"]
 
 
-class Has2DProjections(Protocol):
-    """Output capability for projected 2D Gaussian geometry."""
+class HasNormals(Protocol):
+    """Output capability for normals."""
+
+    normals: Float[Tensor, "num_cams height width 3"]
+
+
+class HasProjectedMeans(Protocol):
+    """Output capability for 2D projected Gaussian centers."""
 
     projected_means: Float[Tensor, "num_cams num_splats 2"]
+
+
+class HasProjectedConics(Protocol):
+    """Output capability for projected 2D Gaussian conics."""
+
     projected_conics: Float[Tensor, "num_cams num_splats 3"]
+
+
+class Has2DProjections(HasProjectedMeans, HasProjectedConics, Protocol):
+    """Output capability for projected 2D Gaussian geometry."""
+
+
+class HasProjectiveIntersectionTransforms(HasProjectedMeans, Protocol):
+    """Output capability for 2DGS projective intersection geometry.
+
+    `projective_intersection_transforms` stores the 2DGS-specific projected
+    intersection transform for each camera/primitive pair. Unlike
+    `projected_conics`, which is a compact 2D ellipse representation,
+    these matrices retain the richer projective geometry used by 2DGS
+    rasterization.
+    """
+
+    projective_intersection_transforms: Float[Tensor, "num_cams num_splats 3 3"]
 
 
 class RenderWithAlpha(Protocol):
@@ -37,6 +65,13 @@ class RenderWithDepth(Protocol):
 
     render: Float[Tensor, "num_cams height width 3"]
     depth: Float[Tensor, "num_cams height width"]
+
+
+class RenderWithNormals(Protocol):
+    """Render output that guarantees normals."""
+
+    render: Float[Tensor, "num_cams height width 3"]
+    normals: Float[Tensor, "num_cams height width 3"]
 
 
 class RenderWithAlphaDepth(Protocol):
@@ -55,6 +90,14 @@ class RenderWith2DProjections(Protocol):
     projected_conics: Float[Tensor, "num_cams num_splats 3"]
 
 
+class RenderWithProjectiveIntersectionTransforms(Protocol):
+    """Render output that guarantees projective intersection transforms."""
+
+    render: Float[Tensor, "num_cams height width 3"]
+    projected_means: Float[Tensor, "num_cams num_splats 2"]
+    projective_intersection_transforms: Float[Tensor, "num_cams num_splats 3 3"]
+
+
 class RenderWithAlpha2DProjections(RenderWithAlpha, Has2DProjections, Protocol):
     """Render output that guarantees alpha and 2D Gaussian projections."""
 
@@ -67,3 +110,33 @@ class RenderWithAlphaDepth2DProjections(
     RenderWithAlphaDepth, Has2DProjections, Protocol
 ):
     """Render output that guarantees alpha, depth, and 2D projections."""
+
+
+class RenderWithAlphaProjectiveIntersectionTransforms(
+    RenderWithAlpha, HasProjectiveIntersectionTransforms, Protocol
+):
+    """Render output that guarantees alpha and projective intersections."""
+
+
+class RenderWithDepthProjectiveIntersectionTransforms(
+    RenderWithDepth, HasProjectiveIntersectionTransforms, Protocol
+):
+    """Render output that guarantees depth and projective intersections."""
+
+
+class RenderWithAlphaDepthProjectiveIntersectionTransforms(
+    RenderWithAlphaDepth, HasProjectiveIntersectionTransforms, Protocol
+):
+    """Render output that guarantees alpha, depth, and intersections."""
+
+
+class RenderWithAlphaNormals(RenderWithAlpha, HasNormals, Protocol):
+    """Render output that guarantees alpha and normals."""
+
+
+class RenderWithDepthNormals(RenderWithDepth, HasNormals, Protocol):
+    """Render output that guarantees depth and normals."""
+
+
+class RenderWithAlphaDepthNormals(RenderWithAlphaDepth, HasNormals, Protocol):
+    """Render output that guarantees alpha, depth, and normals."""
