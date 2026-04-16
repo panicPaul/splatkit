@@ -17,6 +17,7 @@ packages/*/uv.lock
 build/
 develop-eggs/
 dist/
+*.sif
 downloads/
 eggs/
 .eggs/

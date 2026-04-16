@@ -306,6 +306,67 @@ uv pip install --reinstall third_party/faster-gaussian-splatting/FasterGSCudaBac
 uv pip install --reinstall third_party/diff-gaussian-rasterization
 ```
 
+## Container Smoke Tests
+
+For a fresh-clone install smoke test in Docker, build the smoke image from the
+remote recursively cloned repository:
+
+```bash
+python scripts/smoke_fresh_clone.py
+```
+
+This infers the supported CUDA flavors from `pyproject.toml`, orders them with
+the Pixi default first, and currently tests `cu128` and `cu130`.
+
+To test one flavor only:
+
+```bash
+python scripts/smoke_fresh_clone.py --cuda cu130
+```
+
+For CI or local iteration against the current checkout instead of a fresh
+clone:
+
+```bash
+python scripts/smoke_fresh_clone.py --source worktree
+```
+
+These smoke tests require an NVIDIA GPU. The Docker image just captures the
+repo and toolchain; the actual validation runs inside `docker run --gpus all`.
+
+The smoke container installs the frozen Pixi environment from `pixi.lock`,
+runs `uv sync --locked --extra <flavor>`, and verifies that these imports
+succeed:
+
+- `torch`
+- `diff_gaussian_rasterization`
+- `FasterGSCudaBackend`
+- `new_svraster_cuda`
+
+## Cluster SIF Builds
+
+For cluster deployment, build a `.sif` artifact through Docker and Apptainer:
+
+```bash
+python scripts/build_sif.py --cuda cu128
+```
+
+That creates `dist/splatkit-cu128.sif`, then runs a GPU-backed import smoke test
+against the resulting artifact with `apptainer exec --nv`.
+
+To build the other CUDA flavor or choose a different output path:
+
+```bash
+python scripts/build_sif.py --cuda cu130
+python scripts/build_sif.py --cuda cu130 --output dist/custom-cu130.sif
+```
+
+On the cluster, run the SIF with NVIDIA passthrough:
+
+```bash
+apptainer exec --nv dist/splatkit-cu128.sif python -c "import torch"
+```
+
 For Tyro-based CLI script completion, install shell completion files for all
 detected executable Tyro scripts with:
 
