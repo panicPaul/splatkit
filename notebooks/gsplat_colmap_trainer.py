@@ -17,9 +17,9 @@ with app.setup:
     import torch
     import torch.nn.functional as F
     from marimo_config_gui import (
+        create_config_state,
         config_error,
         config_form,
-        config_state,
         config_json,
         config_json_output,
         config_value,
@@ -80,83 +80,49 @@ def _():
 @app.cell
 def _(Config):
     (
-        train_payload_state,
-        set_train_payload_state,
-        train_json_text_state,
-        set_train_json_text_state,
-        train_json_error_state,
-        set_train_json_error_state,
-    ) = config_state(Config)
-    return (
-        set_train_json_error_state,
-        set_train_json_text_state,
-        set_train_payload_state,
-        train_payload_state,
-        train_json_error_state,
-        train_json_text_state,
-    )
+        train_form_gui_state,
+        train_json_gui_state,
+        train_config_bindings,
+    ) = create_config_state(Config)
+    return train_config_bindings, train_form_gui_state, train_json_gui_state
 
 
 @app.cell
-def _(Config, train_json_error_state, train_payload_state):
+def _(train_config_bindings, train_form_gui_state, train_json_gui_state):
     config_json_output(
-        Config,
-        payload_state=train_payload_state,
-        json_error_state=train_json_error_state,
+        train_config_bindings,
+        form_gui_state=train_form_gui_state,
+        json_gui_state=train_json_gui_state,
     )
     return
 
 
 @app.cell
-def _(Config, train_json_error_state, train_payload_state):
+def _(train_config_bindings, train_form_gui_state, train_json_gui_state):
     config_error(
-        Config,
-        payload_state=train_payload_state,
-        json_error_state=train_json_error_state,
+        train_config_bindings,
+        form_gui_state=train_form_gui_state,
+        json_gui_state=train_json_gui_state,
     )
     return
 
 
 @app.cell
-def _(
-    Config,
-    set_train_json_error_state,
-    set_train_json_text_state,
-    set_train_payload_state,
-    train_payload_state,
-):
+def _(train_config_bindings, train_form_gui_state):
     train_form = config_form(
-        Config,
-        payload_state=train_payload_state,
-        set_payload_state=set_train_payload_state,
-        set_json_text_state=set_train_json_text_state,
-        set_json_error_state=set_train_json_error_state,
-        label="COLMAP Trainer",
-        nested_models_flat_after_level=3,
+        train_config_bindings,
+        form_gui_state=train_form_gui_state,
     )
     train_form
     return
 
 
 @app.cell
-def _(
-    Config,
-    set_train_json_error_state,
-    set_train_json_text_state,
-    set_train_payload_state,
-    train_json_error_state,
-    train_json_text_state,
-    train_payload_state,
-):
+def _(train_config_bindings, train_form_gui_state, train_json_gui_state):
     train_json = config_json(
-        Config,
-        payload_state=train_payload_state,
-        set_payload_state=set_train_payload_state,
-        json_text_state=train_json_text_state,
-        set_json_text_state=set_train_json_text_state,
-        json_error_state=train_json_error_state,
-        set_json_error_state=set_train_json_error_state,
-        label="",
+        train_config_bindings,
+        form_gui_state=train_form_gui_state,
+        json_gui_state=train_json_gui_state,
     )
     train_json
     return
@@ -540,8 +506,13 @@ def _(Config):
         )
 
     def build_config_from_form(payload: dict[str, object]) -> Config | None:
+        form_gui_state, json_gui_state, config_bindings = create_config_state(
+            Config, value=payload
+        )
         model_value = config_value(
-            config_state(Config, value=payload)
+            config_bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
         )
         if model_value is None:
             return None
@@ -588,8 +559,8 @@ def _(Config):
 
 
 @app.cell
-def _(build_config_from_form, train_payload_state):
-    config = build_config_from_form(train_payload_state())
+def _(build_config_from_form, train_form_gui_state):
+    config = build_config_from_form(train_form_gui_state())
     return (config,)
 
 

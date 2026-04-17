@@ -12,10 +12,12 @@ from enum import Enum
 from pathlib import Path
 from types import UnionType
 from typing import (
+    Annotated,
     Any,
     Callable,
     Generic,
     Literal,
+    Sequence,
     TypeVar,
     Union,
     cast,
@@ -54,8 +56,6 @@ _NULLABLE_SET_TAB = "Configure"
 _UNION_ACTIVE_KEY = "__active__"
 _UNION_KIND_KEY = "__kind__"
 
-ConfigGuiMode = Literal["form"]
-_LegacyConfigGuiMode = Literal["form", "form_live_json", "hybrid", "json"]
 _RenderMode = Literal["auto", "json", "widget"]
 _WidgetMode = Literal["auto", "slider"]
 
@@ -76,24 +76,23 @@ class _ArrayShape:
 
 
 @dataclass(frozen=True)
-class _ScriptCliResult(Generic[ModelT]):
-    value: ModelT
+class ConfigBindings(Generic[ModelT]):
+    """Setter and metadata bindings for config GUI helpers.
+
+    Attributes:
+        model_cls: The Pydantic model type being edited.
+        set_form_gui_state: Setter for the structured form GUI state.
+        set_json_gui_state: Setter for the JSON draft text state.
+    """
+
+    model_cls: type[ModelT]
+    set_form_gui_state: Callable[[dict[str, Any]], None]
+    set_json_gui_state: Callable[[str], None]
 
 
 @dataclass(frozen=True)
-class _ConfigGuiState:
-    payload: dict[str, Any]
-    json_text: str
-    json_error: str | None = None
-
-
-@dataclass(frozen=True)
-class _ConfigGuiLiveState(Generic[ModelT]):
-    value: ModelT | None
-    error: str | None
-    payload: dict[str, Any]
-    json_text: str
-
+class _JsonConfigSource:
+    path: Annotated[Path, tyro.conf.Positional]
 
 @dataclass(frozen=True)
 class _FieldGuiConfig:
@@ -1499,120 +1498,6 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
         self._sync_task = loop.create_task(kernel.set_ui_element_value(command))
 
 
-class _ScriptConfigGuiStateHandle(Generic[ModelT]):
-    def __init__(
-        self,
-        model_cls: type[ModelT],
-        state_getter: Callable[[], _ConfigGuiState] | None = None,
-        *,
-        script_value: ModelT | None = None,
-    ) -> None:
-        self._model_cls = model_cls
-        self._state_getter = state_getter
-        self._script_value = script_value
-
-    def _state(self) -> _ConfigGuiState:
-        if self._state_getter is None:
-            raise RuntimeError("Notebook state is unavailable in script mode.")
-        return self._state_getter()
-
-    def validated(self) -> tuple[ModelT | None, str | None]:
-        if self._script_value is not None:
-            return self._script_value, None
-        state = self._state()
-        if state.json_error is not None:
-            return None, state.json_error
-        return _validate_payload_with_error(self._model_cls, state.payload)
-
-    @property
-    def value(self) -> ModelT | None:
-        return self.validated()[0]
-
-    @property
-    def error(self) -> str | None:
-        return self.validated()[1]
-
-    @property
-    def payload(self) -> dict[str, Any]:
-        if self._script_value is not None:
-            return _jsonify_model_value(self._script_value)
-        return self._state().payload
-
-    @property
-    def json_text(self) -> str:
-        if self._script_value is not None:
-            return _payload_to_json(_jsonify_model_value(self._script_value))
-        state = self._state()
-        if state.json_error is not None:
-            return state.json_text
-        return _payload_to_json(
-            _order_payload_for_model(self._model_cls, state.payload)
-        )
-
-    def json_output(self) -> Any:
-        if self._script_value is not None:
-            return _json_output(_jsonify_model_value(self._script_value))
-        _, error = self.validated()
-        if error is not None:
-            return _invalid_json_output(error)
-        return _json_output(
-            _order_payload_for_model(self._model_cls, self._state().payload)
-        )
-
-    def error_output(self) -> Any:
-        return _validation_output(self.error)
-
-    def json(self) -> Any:
-        return self.json_output()
-
-    def require_valid(self, output: object | None = None) -> ModelT:
-        value = self.value
-        if value is not None:
-            return value
-        mo.stop(
-            True,
-            output=output
-            if output is not None
-            else _validation_output(self.error or "Not a valid config."),
-        )
-        raise AssertionError("mo.stop should prevent evaluation from continuing.")
-
-
-def _normalize_config_gui_flags(
-    *,
-    mode: _LegacyConfigGuiMode | None,
-    return_error_element: bool | None,
-    return_form: bool | None,
-    return_json: bool | None,
-) -> tuple[bool, bool, bool]:
-    if mode == "hybrid":
-        raise ValueError(
-            "mode='hybrid' is no longer supported. Use the form output and "
-            "field metadata to opt into specific widgets."
-        )
-
-    if mode is None:
-        return (
-            True if return_error_element is None else return_error_element,
-            True if return_form is None else return_form,
-            False if return_json is None else return_json,
-        )
-
-    legacy_defaults = {
-        "form": (False, True, False),
-        "json": (False, False, True),
-        "form_live_json": (False, True, True),
-    }
-    default_error, default_form, default_json = legacy_defaults[mode]
-    return (
-        default_error
-        if return_error_element is None
-        else return_error_element,
-        default_form if return_form is None else return_form,
-        default_json if return_json is None else return_json,
-    )
-
-
 def _json_editor_error(error: Exception) -> str:
     if isinstance(error, json.JSONDecodeError):
         return f"json: {error.msg}"
@@ -1640,104 +1525,83 @@ def _build_error_view(error: str | None) -> Any:
     return mo.callout(error, kind="warn")
 
 
-def _live_state_from_payload(
-    model_cls: type[ModelT],
-    payload: dict[str, Any],
+def _current_config_error(
+    model_cls: type[BaseModel],
     *,
-    json_text: str,
-    json_error: str | None,
-) -> _ConfigGuiLiveState[ModelT]:
-    if json_error is not None:
-        return _ConfigGuiLiveState(
-            value=None,
-            error=json_error,
-            payload=payload,
-            json_text=json_text,
-        )
-    value, error = _validate_payload_with_error(model_cls, payload)
-    return _ConfigGuiLiveState(
-        value=value,
-        error=error,
-        payload=payload,
-        json_text=json_text,
+    form_gui_state: Any,
+    json_gui_state: Any,
+) -> str | None:
+    json_text = json_gui_state()
+    parsed_payload, parse_error = _parse_json_editor_payload(model_cls, json_text)
+    if parse_error is not None or parsed_payload is None:
+        return parse_error
+    _, validation_error = _validate_payload_with_error(model_cls, parsed_payload)
+    if validation_error is not None:
+        return validation_error
+    _, payload_validation_error = _validate_payload_with_error(
+        model_cls,
+        form_gui_state(),
     )
+    return payload_validation_error
 
 
-def _attach_state_helpers(
-    state: Any,
+def load_script_config(
     model_cls: type[ModelT],
-) -> Any:
-    def _json() -> Any:
-        current = state()
-        if current.error is not None:
-            return _invalid_json_output(current.error)
-        return _json_output(_order_payload_for_model(model_cls, current.payload))
+    *,
+    value: ModelT | dict[str, Any] | None = None,
+    args: Sequence[str] | None = None,
+) -> ModelT:
+    """Load a config in script mode via tyro CLI or JSON file.
 
-    def _error_output() -> Any:
-        return _validation_output(state().error)
+    Args:
+        model_cls: Pydantic model type to load.
+        value: Optional default value for the `cli` subcommand.
+        args: Optional CLI argument sequence. When omitted, uses `sys.argv`.
 
-    def _require_valid(output: object | None = None) -> ModelT:
-        current = state()
-        if current.value is not None:
-            return current.value
-        mo.stop(
-            True,
-            output=output
-            if output is not None
-            else _validation_output(current.error or "Not a valid config."),
-        )
-        raise AssertionError("mo.stop should prevent evaluation from continuing.")
-
-    state.json = _json
-    state.error_output = _error_output
-    state.require_valid = _require_valid
-    return state
+    Returns:
+        The validated model instance loaded from either the `cli` or `json`
+        tyro subcommand.
+    """
+    default = _resolve_cli_default(model_cls, value)
+    script_input_type = (
+        Annotated[model_cls, tyro.conf.subcommand("cli", default=default)]
+        | Annotated[_JsonConfigSource, tyro.conf.subcommand("json")]
+    )
+    parsed = tyro.cli(script_input_type, args=args)
+    if isinstance(parsed, _JsonConfigSource):
+        json_payload = json.loads(parsed.path.read_text())
+        return model_cls.model_validate(json_payload)
+    return parsed
 
 
 @overload
-def config_state(
+def create_config_state(
     model_cls: type[ModelT],
     *,
     value: ModelT | dict[str, Any] | None = None,
-) -> tuple[
-    Any,
-    Callable[[dict[str, Any] | Callable[[dict[str, Any]], dict[str, Any]]], None],
-    Any,
-    Callable[[str | Callable[[str], str]], None],
-    Any,
-    Callable[[str | None | Callable[[str | None], str | None]], None],
-]: ...
+) -> tuple[Any, Any, ConfigBindings[ModelT]]: ...
 
 
-def config_state(
+def create_config_state(
     model_cls: type[ModelT],
     *,
     value: ModelT | dict[str, Any] | None = None,
-    label: str = "",
-    return_error_element: bool | None = None,
-    return_form: bool | None = None,
-    return_json: bool | None = None,
-    nested_models_multiple_open: bool = True,
-    nested_models_flat_after_level: int | None = None,
-    mode: _LegacyConfigGuiMode | None = None,
-    submit_label: str | None = None,
-    live_update: bool | None = None,
 ) -> Any:
-    """Create reactive notebook state for a shared config editor."""
-    del (
-        label,
-        return_error_element,
-        return_form,
-        return_json,
-        nested_models_multiple_open,
-        nested_models_flat_after_level,
-        mode,
-        submit_label,
-        live_update,
-    )
+    """Create reactive state for form and JSON config GUIs.
+
+    Args:
+        model_cls: Pydantic model type to edit.
+        value: Optional initial model instance or payload override.
+
+    Returns:
+        A tuple of `(form_gui_state, json_gui_state, config_bindings)`, where
+        `form_gui_state` is the canonical structured config draft,
+        `json_gui_state` is the current JSON editor text, and
+        `config_bindings` contains the model type and setter callbacks used by
+        the helper constructors.
+    """
     if not mo.running_in_notebook():
-        default = _resolve_cli_default(model_cls, value)
-        parsed = tyro.cli(model_cls, default=default)
+        parsed = load_script_config(model_cls, value=value)
         initial_payload = _order_payload_for_model(
             model_cls,
             _resolve_initial_payload(model_cls, parsed),
@@ -1756,17 +1620,14 @@ def config_state(
         _payload_to_json(initial_payload),
         allow_self_loops=True,
     )
-    json_error_state, set_json_error_state = mo.state(
-        None,
-        allow_self_loops=True,
-    )
     return (
         payload_state,
-        set_payload_state,
         json_text_state,
-        set_json_text_state,
-        json_error_state,
-        set_json_error_state,
+        ConfigBindings(
+            model_cls=model_cls,
+            set_form_gui_state=set_payload_state,
+            set_json_gui_state=set_json_text_state,
+        ),
     )
 
 
@@ -1839,7 +1700,7 @@ def config_gui(
 ) -> Any:
     """Create renderable config GUI elements over shared reactive state.
 
-    For multi-cell notebook wiring, use ``config_state(...)`` together with
+    For multi-cell notebook wiring, use ``create_config_state(...)`` together with
     ``config_form(...)``, ``config_json(...)``, and related helpers.
     """
     if not return_form and not return_json:
@@ -1849,30 +1710,24 @@ def config_gui(
 
     (
         payload_state,
-        set_payload_state,
         json_text_state,
-        set_json_text_state,
-        json_error_state,
-        set_json_error_state,
-    ) = config_state(model_cls, value=value)
+        bindings,
+    ) = create_config_state(model_cls, value=value)
 
     outputs: list[Any] = []
     if return_error_element:
         outputs.append(
             config_error(
                 model_cls,
-                payload_state=payload_state,
-                json_error_state=json_error_state,
+                form_gui_state=payload_state,
+                json_gui_state=json_text_state,
             )
         )
     if return_form:
         outputs.append(
             config_form(
-                model_cls,
-                payload_state=payload_state,
-                set_payload_state=set_payload_state,
-                set_json_text_state=set_json_text_state,
-                set_json_error_state=set_json_error_state,
+                bindings,
+                form_gui_state=payload_state,
                 label=label,
                 nested_models_multiple_open=nested_models_multiple_open,
                 nested_models_flat_after_level=nested_models_flat_after_level,
@@ -1881,13 +1736,9 @@ def config_gui(
     if return_json:
         outputs.append(
             config_json(
-                model_cls,
-                payload_state=payload_state,
-                set_payload_state=set_payload_state,
-                json_text_state=json_text_state,
-                set_json_text_state=set_json_text_state,
-                json_error_state=json_error_state,
-                set_json_error_state=set_json_error_state,
+                bindings,
+                form_gui_state=payload_state,
+                json_gui_state=json_text_state,
                 label=label if not return_form else "",
             )
         )
@@ -1897,28 +1748,58 @@ def config_gui(
 
 
 def config_form(
-    model_cls: type[ModelT],
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
     *,
-    payload_state: Any,
-    set_payload_state: Callable[[dict[str, Any]], None],
-    set_json_text_state: Callable[[str], None],
-    set_json_error_state: Callable[[str | None], None],
+    form_gui_state: Any,
+    set_form_gui_state: Callable[[dict[str, Any]], None] | None = None,
+    set_json_gui_state: Callable[[str], None] | None = None,
     label: str = "",
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
 ) -> PydanticGui[ModelT]:
+    """Build the form GUI for a config model.
+
+    Args:
+        state_or_model_cls: Either config bindings returned by
+            `create_config_state(...)` or the raw model class.
+        form_gui_state: Reactive structured state backing the form GUI.
+        set_form_gui_state: Raw setter for `form_gui_state` when not using
+            bindings.
+        set_json_gui_state: Raw setter for the JSON GUI state when not using
+            bindings.
+        label: Optional UI label.
+        nested_models_multiple_open: Whether nested accordions allow multiple
+            sections open.
+        nested_models_flat_after_level: Optional nesting depth after which
+            nested models render flat.
+
+    Returns:
+        A `PydanticGui` bound to the provided reactive state.
+    """
+    if isinstance(state_or_model_cls, ConfigBindings):
+        model_cls = state_or_model_cls.model_cls
+        set_form_gui_state = state_or_model_cls.set_form_gui_state
+        set_json_gui_state = state_or_model_cls.set_json_gui_state
+    else:
+        model_cls = state_or_model_cls
+        if (
+            set_form_gui_state is None
+            or set_json_gui_state is None
+        ):
+            raise TypeError(
+                "config_form requires setters when not given ConfigBindings."
+            )
     form_ref: dict[str, PydanticGui[ModelT]] = {}
 
     def _on_form_change(_: Any) -> None:
         form = form_ref["form"]
         next_payload = _order_payload_for_model(model_cls, form._last_payload)
-        set_payload_state(next_payload)
-        set_json_text_state(_payload_to_json(next_payload))
-        set_json_error_state(None)
+        set_form_gui_state(next_payload)
+        set_json_gui_state(_payload_to_json(next_payload))
 
     form = PydanticGui(
         model_cls,
-        value=payload_state(),
+        value=form_gui_state(),
         label=label,
         include_json_editor=False,
         bordered=False,
@@ -1931,40 +1812,64 @@ def config_form(
 
 
 def config_json(
-    model_cls: type[ModelT],
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
     *,
-    payload_state: Any,
-    set_payload_state: Callable[[dict[str, Any]], None],
-    json_text_state: Any,
-    set_json_text_state: Callable[[str], None],
-    json_error_state: Any,
-    set_json_error_state: Callable[[str | None], None],
+    form_gui_state: Any,
+    set_form_gui_state: Callable[[dict[str, Any]], None] | None = None,
+    json_gui_state: Any,
+    set_json_gui_state: Callable[[str], None] | None = None,
     label: str = "",
 ) -> UIElement[Any, Any]:
-    del payload_state, json_error_state
+    """Build the JSON editor for a config model.
+
+    Args:
+        state_or_model_cls: Either config bindings returned by
+            `create_config_state(...)` or the raw model class.
+        form_gui_state: Reactive structured form GUI state.
+        set_form_gui_state: Raw setter for `form_gui_state` when not using
+            bindings.
+        json_gui_state: Reactive JSON draft state.
+        set_json_gui_state: Raw setter for `json_gui_state` when not using
+            bindings.
+        label: Optional UI label.
+
+    Returns:
+        A marimo code editor bound to the provided reactive state.
+    """
+    del form_gui_state
+    if isinstance(state_or_model_cls, ConfigBindings):
+        model_cls = state_or_model_cls.model_cls
+        set_form_gui_state = state_or_model_cls.set_form_gui_state
+        set_json_gui_state = state_or_model_cls.set_json_gui_state
+    else:
+        model_cls = state_or_model_cls
+        if (
+            set_form_gui_state is None
+            or set_json_gui_state is None
+        ):
+            raise TypeError(
+                "config_json requires setters when not given ConfigBindings."
+            )
 
     def _on_json_change(next_text: str) -> None:
-        set_json_text_state(next_text)
+        set_json_gui_state(next_text)
         next_payload, parse_error = _parse_json_editor_payload(
             model_cls, next_text
         )
         if parse_error is not None or next_payload is None:
-            set_json_error_state(parse_error)
             return
         _, validation_error = _validate_payload_with_error(
             model_cls,
             next_payload,
         )
         if validation_error is not None:
-            set_json_error_state(validation_error)
             return
         normalized_payload = _order_payload_for_model(model_cls, next_payload)
-        set_payload_state(normalized_payload)
-        set_json_text_state(_payload_to_json(normalized_payload))
-        set_json_error_state(None)
+        set_form_gui_state(normalized_payload)
+        set_json_gui_state(_payload_to_json(normalized_payload))
 
     return mo.ui.code_editor(
-        value=json_text_state(),
+        value=json_gui_state(),
         language="json",
         show_copy_button=True,
         debounce=False,
@@ -1974,67 +1879,143 @@ def config_json(
 
 
 def config_error(
-    model_cls: type[ModelT],
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
     *,
-    payload_state: Any,
-    json_error_state: Any,
+    form_gui_state: Any,
+    json_gui_state: Any,
 ) -> Any:
-    current_json_error = json_error_state()
-    if current_json_error is not None:
-        return _build_error_view(current_json_error)
-    _, validation_error = _validate_payload_with_error(
-        model_cls,
-        payload_state(),
+    """Render the current config error output.
+
+    Args:
+        state_or_model_cls: Either config bindings returned by
+            `create_config_state(...)` or the raw model class.
+        form_gui_state: Reactive structured form GUI state.
+        json_gui_state: Reactive JSON draft state.
+
+    Returns:
+        An empty markdown node when valid, otherwise a warning callout.
+    """
+    model_cls = (
+        state_or_model_cls.model_cls
+        if isinstance(state_or_model_cls, ConfigBindings)
+        else state_or_model_cls
     )
-    return _build_error_view(validation_error)
+    return _build_error_view(
+        _current_config_error(
+            model_cls,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        )
+    )
 
 
 def config_value(
-    model_cls: type[ModelT],
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
     *,
-    payload_state: Any,
-    json_error_state: Any,
+    form_gui_state: Any,
+    json_gui_state: Any,
 ) -> ModelT | None:
-    if json_error_state() is not None:
+    """Validate and return the current config value.
+
+    Args:
+        state_or_model_cls: Either config bindings returned by
+            `create_config_state(...)` or the raw model class.
+        form_gui_state: Reactive structured form GUI state.
+        json_gui_state: Reactive JSON draft state.
+
+    Returns:
+        The validated model instance if valid, otherwise `None`.
+    """
+    model_cls = (
+        state_or_model_cls.model_cls
+        if isinstance(state_or_model_cls, ConfigBindings)
+        else state_or_model_cls
+    )
+    current_error = _current_config_error(
+        model_cls,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    )
+    if current_error is not None:
         return None
-    value, _ = _validate_payload_with_error(model_cls, payload_state())
+    value, _ = _validate_payload_with_error(model_cls, form_gui_state())
     return value
 
 
 def config_json_output(
-    model_cls: type[ModelT],
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
     *,
-    payload_state: Any,
-    json_error_state: Any,
+    form_gui_state: Any,
+    json_gui_state: Any,
 ) -> Any:
-    current_error = json_error_state()
+    """Render the validated config as JSON output.
+
+    Args:
+        state_or_model_cls: Either config bindings returned by
+            `create_config_state(...)` or the raw model class.
+        form_gui_state: Reactive structured form GUI state.
+        json_gui_state: Reactive JSON draft state.
+
+    Returns:
+        A `mo.json(...)` view when valid, otherwise an invalid-config output.
+    """
+    model_cls = (
+        state_or_model_cls.model_cls
+        if isinstance(state_or_model_cls, ConfigBindings)
+        else state_or_model_cls
+    )
+    current_error = _current_config_error(
+        model_cls,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    )
     if current_error is not None:
         return _invalid_json_output(current_error)
     value, validation_error = _validate_payload_with_error(
         model_cls,
-        payload_state(),
+        form_gui_state(),
     )
     if value is None or validation_error is not None:
         return _invalid_json_output(validation_error)
-    return _json_output(_order_payload_for_model(model_cls, payload_state()))
+    return _json_output(_order_payload_for_model(model_cls, form_gui_state()))
 
 
 def config_require_valid(
-    model_cls: type[ModelT],
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
     *,
-    payload_state: Any,
-    json_error_state: Any,
+    form_gui_state: Any,
+    json_gui_state: Any,
     output: object | None = None,
 ) -> ModelT:
-    value = config_value(model_cls, payload_state=payload_state, json_error_state=json_error_state)
+    """Return the validated config or stop notebook execution.
+
+    Args:
+        state_or_model_cls: Either config bindings returned by
+            `create_config_state(...)` or the raw model class.
+        form_gui_state: Reactive structured form GUI state.
+        json_gui_state: Reactive JSON draft state.
+        output: Optional custom output to pass to `mo.stop(...)`.
+
+    Returns:
+        The validated model instance.
+    """
+    model_cls = (
+        state_or_model_cls.model_cls
+        if isinstance(state_or_model_cls, ConfigBindings)
+        else state_or_model_cls
+    )
+    value = config_value(
+        model_cls,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    )
     if value is not None:
         return value
-    current_error = json_error_state()
-    if current_error is None:
-        _, current_error = _validate_payload_with_error(
-            model_cls,
-            payload_state(),
-        )
+    current_error = _current_config_error(
+        model_cls,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    )
     mo.stop(
         True,
         output=output

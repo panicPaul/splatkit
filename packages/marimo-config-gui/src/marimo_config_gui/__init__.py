@@ -1,11 +1,12 @@
 """Public package exports for marimo-config-gui."""
 
 from marimo_config_gui._pydantic import (
+    ConfigBindings,
+    create_config_state,
     config_error,
     PydanticGui,
     PydanticJsonGui,
     config_gui,
-    config_state,
     config_form,
     config_json,
     config_json_output,
@@ -13,13 +14,15 @@ from marimo_config_gui._pydantic import (
     config_value,
     form_gui,
     json_gui,
+    load_script_config,
 )
 
 __all__ = [
     "PydanticGui",
     "PydanticJsonGui",
+    "ConfigBindings",
+    "create_config_state",
     "config_gui",
-    "config_state",
     "config_form",
     "config_json",
     "config_error",
@@ -28,4 +31,5 @@ __all__ = [
     "config_require_valid",
     "form_gui",
     "json_gui",
+    "load_script_config",
 ]

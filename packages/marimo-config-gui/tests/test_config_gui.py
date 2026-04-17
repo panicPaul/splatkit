@@ -9,17 +9,19 @@ from pydantic import BaseModel, Field
 
 import marimo_config_gui._pydantic as pgui
 from marimo_config_gui import (
+    ConfigBindings,
     PydanticGui,
+    create_config_state,
     config_error,
     config_form,
     config_gui,
-    config_state,
     config_json,
     config_json_output,
     config_require_valid,
     config_value,
     form_gui,
     json_gui,
+    load_script_config,
 )
 
 
@@ -84,18 +86,18 @@ def _dispatch_json_change(json_view: object, text: str) -> None:
 
 
 def _make_state(model_cls: type[BaseModel]):
-    return config_state(model_cls)
+    return create_config_state(model_cls)
 
 
 def test_config_state_returns_state_tuple(notebook_runtime: None) -> None:
     generated = _make_state(_RequiredModel)
 
     assert isinstance(generated, tuple)
-    assert len(generated) == 6
-    payload_state, _set_payload, json_text_state, _set_json, json_error_state, _set_error = generated
-    assert payload_state() == {"title": "demo", "count": 0}
-    assert '"count": 0' in json_text_state()
-    assert json_error_state() is None
+    assert len(generated) == 3
+    form_gui_state, json_gui_state, bindings = generated
+    assert form_gui_state() == {"title": "demo", "count": 0}
+    assert '"count": 0' in json_gui_state()
+    assert isinstance(bindings, ConfigBindings)
 
 
 def test_config_gui_defaults_to_error_and_form(
@@ -142,28 +144,22 @@ def test_config_gui_requires_a_rendered_view(notebook_runtime: None) -> None:
 
 def test_config_form_updates_payload_and_json_text(notebook_runtime: None) -> None:
     (
-        payload_state,
-        set_payload_state,
-        _json_text_state,
-        set_json_text_state,
-        _json_error_state,
-        set_json_error_state,
+        form_gui_state,
+        _json_gui_state,
+        bindings,
     ) = _make_state(_RequiredModel)
     form = config_form(
-        _RequiredModel,
-        payload_state=payload_state,
-        set_payload_state=set_payload_state,
-        set_json_text_state=set_json_text_state,
-        set_json_error_state=set_json_error_state,
+        bindings,
+        form_gui_state=form_gui_state,
     )
 
     _dispatch_form_change(form, {"count": 3})
 
-    assert payload_state() == {"title": "demo", "count": 3}
+    assert form_gui_state() == {"title": "demo", "count": 3}
     assert config_value(
         _RequiredModel,
-        payload_state=payload_state,
-        json_error_state=_json_error_state,
+        form_gui_state=form_gui_state,
+        json_gui_state=_json_gui_state,
     ) == _RequiredModel(count=3)
 
 
@@ -171,96 +167,71 @@ def test_config_json_updates_payload_only_on_valid_model(
     notebook_runtime: None,
 ) -> None:
     (
-        payload_state,
-        set_payload_state,
-        json_text_state,
-        set_json_text_state,
-        json_error_state,
-        set_json_error_state,
+        form_gui_state,
+        json_gui_state,
+        bindings,
     ) = _make_state(_RequiredModel)
     json_view = config_json(
-        _RequiredModel,
-        payload_state=payload_state,
-        set_payload_state=set_payload_state,
-        json_text_state=json_text_state,
-        set_json_text_state=set_json_text_state,
-        json_error_state=json_error_state,
-        set_json_error_state=set_json_error_state,
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
     )
 
     _dispatch_json_change(json_view, '{"title": "updated", "count": -1}')
-    assert payload_state() == {"title": "demo", "count": 0}
-    assert json_error_state() == "count: Input should be greater than or equal to 0"
+    assert form_gui_state() == {"title": "demo", "count": 0}
+    assert config_error(
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    ).text != pgui.mo.md("").text
 
     _dispatch_json_change(json_view, "{")
-    assert payload_state() == {"title": "demo", "count": 0}
-    assert json_error_state() == "json: Expecting property name enclosed in double quotes"
+    assert form_gui_state() == {"title": "demo", "count": 0}
+    assert "Expecting property name enclosed in double quotes" in config_error(
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    ).text
 
     _dispatch_json_change(json_view, '{"title": "updated", "count": 5}')
-    assert payload_state() == {"title": "updated", "count": 5}
-    assert json_error_state() is None
+    assert form_gui_state() == {"title": "updated", "count": 5}
+    assert config_error(
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    ).text == pgui.mo.md("").text
 
 
 def test_config_error_prefers_json_errors_then_validation(
     notebook_runtime: None,
 ) -> None:
     (
-        payload_state,
-        _set_payload_state,
-        _json_text_state,
-        _set_json_text_state,
-        json_error_state,
-        set_json_error_state,
+        form_gui_state,
+        json_gui_state,
+        bindings,
     ) = _make_state(_RequiredModel)
 
-    empty = config_error(
-        _RequiredModel,
-        payload_state=payload_state,
-        json_error_state=json_error_state,
-    )
+    empty = config_error(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state)
     assert empty.text == pgui.mo.md("").text
 
-    set_json_error_state("json: broken")
-    errored = config_error(
-        _RequiredModel,
-        payload_state=payload_state,
-        json_error_state=json_error_state,
-    )
-    assert "json: broken" in errored.text
+    bindings.set_json_gui_state("{")
+    errored = config_error(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state)
+    assert "Expecting property name enclosed in double quotes" in errored.text
 
 
 def test_config_value_and_json_output(notebook_runtime: None) -> None:
     (
-        payload_state,
-        _set_payload_state,
-        _json_text_state,
-        _set_json_text_state,
-        json_error_state,
-        set_json_error_state,
+        form_gui_state,
+        json_gui_state,
+        bindings,
     ) = _make_state(_RequiredModel)
 
-    assert config_value(
-        _RequiredModel,
-        payload_state=payload_state,
-        json_error_state=json_error_state,
-    ) == _RequiredModel()
-    assert "&quot;count&quot;:0" in config_json_output(
-        _RequiredModel,
-        payload_state=payload_state,
-        json_error_state=json_error_state,
-    ).text
+    assert config_value(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state) == _RequiredModel()
+    assert "&quot;count&quot;:0" in config_json_output(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state).text
 
-    set_json_error_state("json: broken")
-    assert config_value(
-        _RequiredModel,
-        payload_state=payload_state,
-        json_error_state=json_error_state,
-    ) is None
-    assert "Not a valid config" in config_json_output(
-        _RequiredModel,
-        payload_state=payload_state,
-        json_error_state=json_error_state,
-    ).text
+    bindings.set_json_gui_state("{")
+    assert config_value(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state) is None
+    assert "Not a valid config" in config_json_output(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state).text
 
 
 def test_config_require_valid_stops_when_invalid(
@@ -268,14 +239,11 @@ def test_config_require_valid_stops_when_invalid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (
-        payload_state,
-        _set_payload_state,
-        _json_text_state,
-        _set_json_text_state,
-        json_error_state,
-        set_json_error_state,
+        form_gui_state,
+        json_gui_state,
+        bindings,
     ) = _make_state(_RequiredModel)
-    set_json_error_state("json: broken")
+    bindings.set_json_gui_state("{")
 
     captured: dict[str, object] = {}
 
@@ -287,26 +255,45 @@ def test_config_require_valid_stops_when_invalid(
     monkeypatch.setattr(pgui.mo, "stop", _fake_stop)
 
     with pytest.raises(RuntimeError, match="stopped"):
-        config_require_valid(
-            _RequiredModel,
-            payload_state=payload_state,
-            json_error_state=json_error_state,
-        )
+        config_require_valid(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state)
 
     assert captured["condition"] is True
-    assert "json: broken" in captured["output"].text
+    assert "Expecting property name enclosed in double quotes" in captured["output"].text
 
 
 def test_script_mode_uses_tyro(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
     monkeypatch.setattr(
-        pgui.tyro,
-        "cli",
-        lambda model_cls, default: model_cls(title="cli", count=4),
+        pgui,
+        "load_script_config",
+        lambda model_cls, value=None, args=None: model_cls(
+            title="cli", count=4
+        ),
     )
 
-    payload_state, *_rest = config_state(_RequiredModel)
-    assert payload_state() == {"title": "cli", "count": 4}
+    form_gui_state, *_rest = create_config_state(_RequiredModel)
+    assert form_gui_state() == {"title": "cli", "count": 4}
+
+
+def test_load_script_config_supports_cli_subcommand() -> None:
+    loaded = load_script_config(
+        _RequiredModel,
+        args=["cli", "--title", "cli", "--count", "5"],
+    )
+
+    assert loaded == _RequiredModel(title="cli", count=5)
+
+
+def test_load_script_config_supports_json_subcommand(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"title": "json", "count": 7}')
+
+    loaded = load_script_config(
+        _RequiredModel,
+        args=["json", str(config_path)],
+    )
+
+    assert loaded == _RequiredModel(title="json", count=7)
 
 
 def test_form_gui_returns_raw_form(notebook_runtime: None) -> None:
@@ -348,21 +335,14 @@ def test_nested_models_use_accordion_until_flat_level() -> None:
 
 def test_union_json_serialization_keeps_kind(notebook_runtime: None) -> None:
     (
-        payload_state,
-        set_payload_state,
-        json_text_state,
-        set_json_text_state,
-        json_error_state,
-        set_json_error_state,
+        form_gui_state,
+        json_gui_state,
+        bindings,
     ) = _make_state(_UnionRoot)
     json_view = config_json(
-        _UnionRoot,
-        payload_state=payload_state,
-        set_payload_state=set_payload_state,
-        json_text_state=json_text_state,
-        set_json_text_state=set_json_text_state,
-        json_error_state=json_error_state,
-        set_json_error_state=set_json_error_state,
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
     )
 
     _dispatch_json_change(
@@ -370,31 +350,19 @@ def test_union_json_serialization_keeps_kind(notebook_runtime: None) -> None:
         '{\n  "item": {\n    "__kind__": "_UnionB",\n    "title": "switched"\n  }\n}',
     )
 
-    assert json_error_state() is None
-    assert "&quot;__kind__&quot;" in config_json_output(
-        _UnionRoot,
-        payload_state=payload_state,
-        json_error_state=json_error_state,
-    ).text
+    assert "&quot;__kind__&quot;" in config_json_output(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state).text
 
 
 def test_json_editor_uses_model_field_order(notebook_runtime: None) -> None:
     (
-        payload_state,
-        set_payload_state,
-        json_text_state,
-        set_json_text_state,
-        json_error_state,
-        set_json_error_state,
+        form_gui_state,
+        json_gui_state,
+        bindings,
     ) = _make_state(_OrderModel)
     json_view = config_json(
-        _OrderModel,
-        payload_state=payload_state,
-        set_payload_state=set_payload_state,
-        json_text_state=json_text_state,
-        set_json_text_state=set_json_text_state,
-        json_error_state=json_error_state,
-        set_json_error_state=set_json_error_state,
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
     )
     assert json_view.value.index('"zeta"') < json_view.value.index('"alpha"')
     assert json_view.value.index('"alpha"') < json_view.value.index('"middle"')
