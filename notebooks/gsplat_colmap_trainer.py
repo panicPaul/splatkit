@@ -16,19 +16,23 @@ with app.setup:
     import splatkit_backends.gsplat as sk_gsplat
     import torch
     import torch.nn.functional as F
-    from marimo_3dv import json_gui
+    from marimo_config_gui import (
+        config_error,
+        config_form,
+        config_state,
+        config_json,
+        config_json_output,
+        config_value,
+    )
     from PIL import Image
     from pydantic import BaseModel, Field
     from splatkit.data import (
-        ColmapDatasetConfig,
         DatasetRuntimeConfig,
-        HorizonAlignPipeConfig,
         MaterializationConfig,
-        NormalizePipeConfig,
-        ResizePipeConfig,
         SplitConfig,
         collate_frame_samples,
         load_dataset,
+        MipNerf360IndoorDatasetConfig,
     )
     from splatkit.io.scene import save_scene
     from torch.utils.data import DataLoader
@@ -75,18 +79,86 @@ def _():
 
 @app.cell
 def _(Config):
-    train_form = json_gui(
-        Config,
-        value=Config(),
-        label="COLMAP Trainer",
-        live_update=False,
+    (
+        train_payload_state,
+        set_train_payload_state,
+        train_json_text_state,
+        set_train_json_text_state,
+        train_json_error_state,
+        set_train_json_error_state,
+    ) = config_state(Config)
+    return (
+        set_train_json_error_state,
+        set_train_json_text_state,
+        set_train_payload_state,
+        train_payload_state,
+        train_json_error_state,
+        train_json_text_state,
     )
-    return (train_form,)
 
 
 @app.cell
-def _(train_form):
+def _(Config, train_json_error_state, train_payload_state):
+    config_json_output(
+        Config,
+        payload_state=train_payload_state,
+        json_error_state=train_json_error_state,
+    )
+    return
+
+
+@app.cell
+def _(Config, train_json_error_state, train_payload_state):
+    config_error(
+        Config,
+        payload_state=train_payload_state,
+        json_error_state=train_json_error_state,
+    )
+    return
+
+
+@app.cell
+def _(
+    Config,
+    set_train_json_error_state,
+    set_train_json_text_state,
+    set_train_payload_state,
+    train_payload_state,
+):
+    train_form = config_form(
+        Config,
+        payload_state=train_payload_state,
+        set_payload_state=set_train_payload_state,
+        set_json_text_state=set_train_json_text_state,
+        set_json_error_state=set_train_json_error_state,
+        label="COLMAP Trainer",
+        nested_models_flat_after_level=3,
+    )
     train_form
+    return
+
+
+@app.cell
+def _(
+    Config,
+    set_train_json_error_state,
+    set_train_json_text_state,
+    set_train_payload_state,
+    train_json_error_state,
+    train_json_text_state,
+    train_payload_state,
+):
+    train_json = config_json(
+        Config,
+        payload_state=train_payload_state,
+        set_payload_state=set_train_payload_state,
+        json_text_state=train_json_text_state,
+        set_json_text_state=set_train_json_text_state,
+        json_error_state=train_json_error_state,
+        set_json_error_state=set_train_json_error_state,
+        label="",
+    )
+    train_json
     return
 
 
@@ -102,7 +174,7 @@ def _():
 
 
 @app.cell
-def _(config, run_button, run_training, trainer_bundle):
+def _(build_trainer_bundle, config, dataset, run_button, run_training):
     training_artifact: tuple | None
     if (run_button.value or 0) <= 0:
         training_artifact = None
@@ -123,7 +195,8 @@ def _(config, run_button, run_training, trainer_bundle):
         )
         training_artifact = None
     else:
-        training_artifact = run_training(config, trainer_bundle)
+        _trainer_bundle = build_trainer_bundle(config, dataset)
+        training_artifact = run_training(config, _trainer_bundle)
         if training_artifact is None and config is not None:
             _ = mo.callout(
                 "Training did not run. Check form configuration and try again.",
@@ -144,35 +217,43 @@ def _():
 
 
 @app.cell
-def _(benchmark_button, trainer_bundle):
+def _(benchmark_button, build_trainer_bundle, config, dataset):
     if (benchmark_button.value or 0) <= 0:
         _ = mo.callout(
             "Press 'Run dataloader benchmark' to measure loader speed.",
             kind="info",
         )
         dataloader_benchmark = None
-    elif trainer_bundle is None:
+    elif config is None or dataset is None:
         _ = mo.callout(
             "Load a valid dataset and build dataloader before benchmarking.",
             kind="warn",
         )
         dataloader_benchmark = None
     else:
-        dataloader = trainer_bundle[1]
-        dataloader_benchmark = benchmark_dataloader(
-            dataloader, measured_steps=1_000
-        )
-        _ = mo.callout(
-            (
-                f"Benchmark done. Initialization: {dataloader_benchmark['initialization_ms']:.2f} ms. "
-                f"Warmup: {dataloader_benchmark['warmup_ms_per_batch']:.2f} ms/batch "
-                f"(steps={dataloader_benchmark['warmup_steps']}). "
-                f"Measured: {dataloader_benchmark['ms_per_batch']:.2f} ms/batch, "
-                f"{dataloader_benchmark['iters_per_sec']:.2f} it/s "
-                f"(steps={dataloader_benchmark['measured_steps']})."
-            ),
-            kind="success",
-        )
+        _trainer_bundle = build_trainer_bundle(config, dataset)
+        if _trainer_bundle is None:
+            _ = mo.callout(
+                "Failed to build training bundle before benchmarking.",
+                kind="warn",
+            )
+            dataloader_benchmark = None
+        else:
+            dataloader = _trainer_bundle[1]
+            dataloader_benchmark = benchmark_dataloader(
+                dataloader, measured_steps=1_000
+            )
+            _ = mo.callout(
+                (
+                    f"Benchmark done. Initialization: {dataloader_benchmark['initialization_ms']:.2f} ms. "
+                    f"Warmup: {dataloader_benchmark['warmup_ms_per_batch']:.2f} ms/batch "
+                    f"(steps={dataloader_benchmark['warmup_steps']}). "
+                    f"Measured: {dataloader_benchmark['ms_per_batch']:.2f} ms/batch, "
+                    f"{dataloader_benchmark['iters_per_sec']:.2f} it/s "
+                    f"(steps={dataloader_benchmark['measured_steps']})."
+                ),
+                kind="success",
+            )
     return (dataloader_benchmark,)
 
 
@@ -192,12 +273,6 @@ def _(config, load_dataset_from_config):
 def _(dataloader_benchmark):
     dataloader_benchmark
     return
-
-
-@app.cell
-def _(build_trainer_bundle, config, dataset):
-    trainer_bundle = build_trainer_bundle(config, dataset)
-    return (trainer_bundle,)
 
 
 @app.cell(hide_code=True)
@@ -233,26 +308,19 @@ def _():
 
 @app.cell
 def _():
-    class DataConfig(BaseModel):
-        colmap_root: Path = Path(
-            "/home/schlack/Documents/3DGS_scenes/360/garden"
+    def _default_data_config() -> MipNerf360IndoorDatasetConfig:
+        return MipNerf360IndoorDatasetConfig(
+            path=Path("/home/schlack/Documents/3DGS_scenes/360/garden/images"),
+            runtime=DatasetRuntimeConfig(
+                split=None,
+                materialization=MaterializationConfig(
+                    stage="prepared",
+                    mode="eager",
+                    num_workers=0,
+                ),
+            ),
+            undistort_output_dir=None,
         )
-        enable_undistort: bool = False
-        undistort_output_dir: Path = Path(
-            "/tmp/splatkit_gsplat_colmap_undistorted"
-        )
-        apply_horizon_adjustment: bool = True
-        split_target: Literal["all", "train", "val"] = "all"
-        materialization_stage: Literal["decoded", "prepared"] = "prepared"
-        materialization_mode: Literal["lazy", "eager"] = "eager"
-        materialization_num_workers: int = Field(default=0, ge=0, le=32)
-        resize_width_target: int = Field(default=1297, ge=1)
-        resize_interpolation: Literal[
-            "nearest",
-            "bilinear",
-            "bicubic",
-        ] = "bicubic"
-        normalize_images: bool = True
 
     class ModelConfig(BaseModel):
         sh_degree: int = 3
@@ -273,7 +341,9 @@ def _():
 
     class Config(BaseModel):
         execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
-        data: DataConfig = Field(default_factory=DataConfig)
+        data: MipNerf360IndoorDatasetConfig = Field(
+            default_factory=_default_data_config
+        )
         model: ModelConfig = Field(default_factory=ModelConfig)
         optimization: OptimizationConfig = Field(
             default_factory=OptimizationConfig
@@ -430,6 +500,18 @@ def move_model_to_device_as_leaf(model, device: torch.device):
     )
 
 
+@app.cell
+def _(PreparedFrameSample):
+    def plot_dataset_entry(frame: PreparedFrameSample) -> Image:
+        """Plots the dataset entry."""
+
+        image = (frame.image * 255).to(torch.uint8).numpy()
+        return Image.fromarray(image)
+
+
+    return
+
+
 @app.cell(hide_code=True)
 def _():
     mo.md("""
@@ -440,88 +522,65 @@ def _():
 
 @app.cell
 def _(Config):
-    def _build_split_config(
-        target: Literal["all", "train", "val"],
-    ) -> SplitConfig:
-        if target == "all":
-            return SplitConfig(
-                target="all",
-                every_n=None,
-                train_ratio=None,
-            )
-        if target == "val":
-            return SplitConfig(target="val")
-        return SplitConfig(target="train")
-
-    def build_colmap_dataset_config(config: Config) -> ColmapDatasetConfig:
+    def build_colmap_dataset_config(
+        config: Config,
+    ) -> MipNerf360IndoorDatasetConfig:
         data = config.data
-        runtime = DatasetRuntimeConfig(
-            split=_build_split_config(data.split_target),
-            materialization=MaterializationConfig(
-                stage=data.materialization_stage,
-                mode=data.materialization_mode,
-                num_workers=data.materialization_num_workers,
-            ),
-        )
-        source_pipes = (
-            HorizonAlignPipeConfig(
-                enabled=data.apply_horizon_adjustment,
-            ),
-        )
-        cache_pipes = (
-            ResizePipeConfig(
-                width_target=data.resize_width_target,
-                interpolation=data.resize_interpolation,
-            ),
-        )
-        prepare_pipes = (NormalizePipeConfig(enabled=data.normalize_images),)
+        root = data.path.expanduser()
         undistort_output_dir = (
             data.undistort_output_dir.expanduser()
-            if data.enable_undistort
+            if data.undistort_output_dir is not None
             else None
         )
-        return ColmapDatasetConfig(
-            path=data.colmap_root,
-            runtime=runtime,
-            source_pipes=source_pipes,
-            cache_pipes=cache_pipes,
-            prepare_pipes=prepare_pipes,
-            undistort_output_dir=undistort_output_dir,
+        return data.model_copy(
+            update={
+                "path": root,
+                "undistort_output_dir": undistort_output_dir,
+            }
         )
 
-    def build_config_from_form(form) -> Config | None:
-        if not str(form.value.data.colmap_root).strip():
+    def build_config_from_form(payload: dict[str, object]) -> Config | None:
+        model_value = config_value(
+            config_state(Config, value=payload)
+        )
+        if model_value is None:
+            return None
+        if not str(model_value.data.path).strip():
             return None
 
-        root = form.value.data.colmap_root.expanduser()
+        root = model_value.data.path.expanduser()
         if not root.exists():
             raise ValueError(f"COLMAP root `{root}` does not exist.")
         if (
-            form.value.execution.device == "cuda"
+            model_value.execution.device == "cuda"
             and not torch.cuda.is_available()
         ):
             raise RuntimeError(
                 "CUDA selected but not available in this environment."
             )
 
-        output_dir = form.value.execution.output_dir.expanduser()
+        output_dir = model_value.execution.output_dir.expanduser()
         if not output_dir:
             raise ValueError("output_dir must be set.")
 
-        data = form.value.data.model_copy(
+        data = model_value.data.model_copy(
             update={
-                "colmap_root": root,
-                "undistort_output_dir": form.value.data.undistort_output_dir.expanduser(),
+                "path": root,
+                "undistort_output_dir": (
+                    model_value.data.undistort_output_dir.expanduser()
+                    if model_value.data.undistort_output_dir is not None
+                    else None
+                ),
             }
         )
         return Config(
-            execution=form.value.execution.model_copy(
+            execution=model_value.execution.model_copy(
                 update={"output_dir": output_dir}
             ),
             data=data,
-            model=form.value.model,
-            optimization=form.value.optimization,
-            training=form.value.training,
+            model=model_value.model,
+            optimization=model_value.optimization,
+            training=model_value.training,
             run_immediately=True,
         )
 
@@ -529,8 +588,8 @@ def _(Config):
 
 
 @app.cell
-def _(build_config_from_form, train_form):
-    config = build_config_from_form(train_form)
+def _(build_config_from_form, train_payload_state):
+    config = build_config_from_form(train_payload_state())
     return (config,)
 
 
@@ -764,10 +823,13 @@ def _():
     - No densification branch is used.
     - A single top-level `Config` now flows through setup → dataloader → training,
       with `data`, `model`, `optimization`, and `training` subconfigs.
-    - Data backend behavior is driven by a single `ColmapDatasetConfig` built
-      from the UI `DataConfig` in `build_colmap_dataset_config`.
+    - Data backend behavior is driven by a single
+      `MipNerf360IndoorDatasetConfig` exposed directly in the top-level
+      `Config` and passed through `build_colmap_dataset_config`.
     - This notebook keeps batch checks strict for backend compatibility.
     - Defaults intentionally mirror the simple gsplat training baseline.
+    - Indoor preset cache scaling is inherited from
+      `MipNerf360IndoorDatasetConfig` unless overridden by direct config edits.
     """)
     return
 
