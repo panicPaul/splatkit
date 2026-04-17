@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import is_dataclass, replace
+from dataclasses import fields, is_dataclass, replace
 from functools import partial
 from importlib import import_module
 from typing import Any
@@ -19,6 +19,12 @@ from splatkit.data.contracts import (
     PreparedFrameBatch,
     ResizeSpec,
     SceneDataset,
+)
+from splatkit.densification.runtime import (
+    bind_densification,
+    build_densification,
+    make_context,
+    merge_densification_requirements,
 )
 from splatkit.initialization import InitializedModel
 from splatkit.training.config import (
@@ -188,11 +194,51 @@ def _build_backend_options(config: TrainingConfig) -> Any:
         raise TypeError(
             "Registered backend default options must be dataclass instances."
         )
+    valid_option_names = {field.name for field in fields(default_options)}
+    unknown_option_names = sorted(
+        set(config.render.backend_options) - valid_option_names
+    )
+    if unknown_option_names:
+        raise ValueError(
+            f"Backend {config.render.backend!r} does not support render "
+            f"options {unknown_option_names!r}."
+        )
     return replace(default_options, **config.render.backend_options)
+
+
+def _validate_requested_outputs(config: TrainingConfig) -> None:
+    backend = BACKEND_REGISTRY.get(config.render.backend)
+    if backend is None:
+        raise ValueError(
+            f"Backend {config.render.backend!r} is not registered."
+        )
+    requested_outputs = {
+        name
+        for name, enabled in (
+            ("alpha", config.render.return_alpha),
+            ("depth", config.render.return_depth),
+            ("normals", config.render.return_normals),
+            ("2d_projections", config.render.return_2d_projections),
+            (
+                "projective_intersection_transforms",
+                config.render.return_projective_intersection_transforms,
+            ),
+        )
+        if enabled
+    }
+    unsupported_outputs = sorted(
+        requested_outputs - backend.supported_outputs - {"alpha"}
+    )
+    if unsupported_outputs:
+        raise ValueError(
+            f"Backend {config.render.backend!r} does not support outputs "
+            f"{unsupported_outputs!r}."
+        )
 
 
 def build_render_fn(config: TrainingConfig) -> RenderFn:
     """Build the stateless render pipeline."""
+    _validate_requested_outputs(config)
     feature_fn = resolve_callable(config.render.feature_fn)
     postprocess_fn = resolve_callable(config.render.postprocess_fn)
     options = _build_backend_options(config)
@@ -285,6 +331,13 @@ def build_hooks(config: TrainingConfig) -> list[TrainingHook]:
         hook = instantiate_callable(builder)
         hooks.append(hook)
     return hooks
+
+
+def build_densification_from_config(
+    config: TrainingConfig,
+) -> Any | None:
+    """Instantiate an unbound densification method from config."""
+    return build_densification(config.densification)
 
 
 def _resolve_selector(
@@ -397,6 +450,19 @@ def _call_after_step_hooks(
             after_step(state, metrics)
 
 
+def _call_post_optimizer_step_hooks(
+    hooks: Sequence[TrainingHook],
+    state: TrainState,
+    batch: Any,
+    render_output: Any,
+    loss_result: LossResult,
+) -> None:
+    for hook in hooks:
+        post_optimizer_step = getattr(hook, "post_optimizer_step", None)
+        if post_optimizer_step is not None:
+            post_optimizer_step(state, batch, render_output, loss_result)
+
+
 def train_step(
     state: TrainState,
     batch: Any,
@@ -404,6 +470,7 @@ def train_step(
     render_fn: RenderFn,
     loss_fn: LossFn,
     optimizers: Sequence[OptimizerBinding],
+    densification: Any | None = None,
     hooks: Sequence[TrainingHook] = (),
 ) -> dict[str, float]:
     """Run one optimization step."""
@@ -412,6 +479,16 @@ def train_step(
         optimizer_binding.optimizer.zero_grad(set_to_none=True)
     render_output = render_fn(state.model, resolved_batch.camera)
     loss_result = loss_fn(state, resolved_batch, render_output)
+    densification_context = None
+    if densification is not None:
+        densification_context = make_context(
+            state=state,
+            batch=resolved_batch,
+            render_output=render_output,
+            loss_result=loss_result,
+            optimizers=list(optimizers),
+        )
+        densification.pre_backward(densification_context)
     _call_pre_backward_hooks(
         hooks,
         state,
@@ -420,6 +497,8 @@ def train_step(
         loss_result,
     )
     loss_result.loss.backward()
+    if densification_context is not None:
+        densification.post_backward(densification_context)
     _call_post_backward_hooks(
         hooks,
         state,
@@ -429,11 +508,31 @@ def train_step(
     )
     for optimizer_binding in optimizers:
         optimizer_binding.optimizer.step()
+    if densification_context is not None:
+        densification.post_optimizer_step(densification_context)
+    _call_post_optimizer_step_hooks(
+        hooks,
+        state,
+        resolved_batch,
+        render_output,
+        loss_result,
+    )
     state.step += 1
     metrics = {
         "loss": float(loss_result.loss.detach().item()),
         **loss_result.metrics,
     }
+    if densification_context is not None:
+        densification.after_step(
+            make_context(
+                state=state,
+                batch=resolved_batch,
+                render_output=render_output,
+                loss_result=loss_result,
+                optimizers=list(optimizers),
+            ),
+            metrics,
+        )
     _call_after_step_hooks(hooks, state, metrics)
     return metrics
 
@@ -465,11 +564,18 @@ def run_training(
         seed=config.runtime.seed,
         device=device,
     )
+    densification = build_densification_from_config(config)
+    if densification is not None:
+        merge_densification_requirements(
+            config,
+            densification.get_render_requirements(),
+        )
     dataloader = build_dataloader(dataset, config)
     render_fn = build_render_fn(config)
     loss_fn = build_loss_fn(config)
     hooks = build_hooks(config)
     optimizers = build_optimizer_set(state, config)
+    densification = bind_densification(densification, state, optimizers)
     history: list[dict[str, float]] = []
     iterator = _cycle(dataloader)
     for _ in range(config.runtime.max_steps):
@@ -480,6 +586,7 @@ def run_training(
                 render_fn=render_fn,
                 loss_fn=loss_fn,
                 optimizers=optimizers,
+                densification=densification,
                 hooks=hooks,
             )
         )
@@ -500,6 +607,7 @@ def run_training(
 
 __all__ = [
     "build_dataloader",
+    "build_densification_from_config",
     "build_hooks",
     "build_loss_fn",
     "build_modules",

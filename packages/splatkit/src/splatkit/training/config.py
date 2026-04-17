@@ -141,6 +141,12 @@ class HookConfig(TrainingConfigBase):
     builders: list[CallableSpec] = Field(default_factory=list)
 
 
+class DensificationConfig(TrainingConfigBase):
+    """Declarative densification builder configuration."""
+
+    builder: CallableSpec | None = None
+
+
 class CheckpointExportConfig(TrainingConfigBase):
     """Checkpoint directory export settings."""
 
@@ -160,6 +166,7 @@ class TrainingConfig(TrainingConfigBase):
     render: RenderPipelineSpec
     optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
     loss: LossConfig
+    densification: DensificationConfig | None = None
     hooks: HookConfig = Field(default_factory=HookConfig)
     checkpoint: CheckpointExportConfig = Field(
         default_factory=CheckpointExportConfig
@@ -184,6 +191,7 @@ class CheckpointMetadata(TrainingConfigBase):
 __all__ = [
     "BatchingConfig",
     "CallableSpec",
+    "DensificationConfig",
     "CheckpointExportConfig",
     "CheckpointMetadata",
     "HookConfig",

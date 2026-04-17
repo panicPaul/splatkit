@@ -1,0 +1,91 @@
+"""Public densification exports."""
+
+from splatkit.densification.collectors import (
+    ImagePlaneGradientCollector,
+    PositionGradientCollector,
+    SparseVoxelGradientCollector,
+)
+from splatkit.densification.contracts import (
+    BaseDensificationComponent,
+    DensificationCollector,
+    DensificationContext,
+    DensificationMethod,
+    DensificationPass,
+    DensificationRenderRequirements,
+    DensificationSignals,
+    Schedule,
+)
+from splatkit.densification.families import (
+    FieldBehavior,
+    GaussianFamilyOps,
+    SparseVoxelFamilyOps,
+    build_family_ops,
+    copy_field,
+    custom_field,
+    zero_field,
+)
+from splatkit.densification.methods import (
+    AbsGS,
+    ComposedDensificationMethod,
+    FastGS,
+    MCMC,
+    SVRasterAdaptive,
+    Vanilla3DGS,
+    compose_densification,
+)
+from splatkit.densification.passes import (
+    GaussianClonePass,
+    GaussianJitterPass,
+    GaussianOpacityDecayPass,
+    GaussianPruneOpacityPass,
+    GaussianResetOpacityPass,
+    GaussianSplitPass,
+    SparseVoxelPrunePass,
+    SparseVoxelSubdividePass,
+)
+from splatkit.densification.runtime import (
+    bind_densification,
+    build_densification,
+    make_context,
+    merge_densification_requirements,
+)
+
+__all__ = [
+    "AbsGS",
+    "BaseDensificationComponent",
+    "ComposedDensificationMethod",
+    "DensificationCollector",
+    "DensificationContext",
+    "DensificationMethod",
+    "DensificationPass",
+    "DensificationRenderRequirements",
+    "DensificationSignals",
+    "FastGS",
+    "FieldBehavior",
+    "GaussianClonePass",
+    "GaussianFamilyOps",
+    "GaussianJitterPass",
+    "GaussianOpacityDecayPass",
+    "GaussianPruneOpacityPass",
+    "GaussianResetOpacityPass",
+    "GaussianSplitPass",
+    "ImagePlaneGradientCollector",
+    "MCMC",
+    "PositionGradientCollector",
+    "SVRasterAdaptive",
+    "Schedule",
+    "SparseVoxelGradientCollector",
+    "SparseVoxelPrunePass",
+    "SparseVoxelSubdividePass",
+    "SparseVoxelFamilyOps",
+    "Vanilla3DGS",
+    "bind_densification",
+    "build_densification",
+    "build_family_ops",
+    "compose_densification",
+    "copy_field",
+    "custom_field",
+    "make_context",
+    "merge_densification_requirements",
+    "zero_field",
+]

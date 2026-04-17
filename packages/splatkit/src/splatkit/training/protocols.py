@@ -79,6 +79,15 @@ class TrainingHook(Protocol):
     ) -> None:
         """Run after optimizer steps."""
 
+    def post_optimizer_step(
+        self,
+        state: TrainState,
+        batch: Any,
+        render_output: Any,
+        loss_result: LossResult,
+    ) -> None:
+        """Run after optimizer steps and before metric hooks."""
+
 
 RenderFn = Callable[[InitializedModel, CameraState], Any]
 LossFn = Callable[[TrainState, Any, Any], LossResult]

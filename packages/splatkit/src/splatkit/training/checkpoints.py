@@ -78,6 +78,8 @@ def _import_paths(config: TrainingConfig) -> list[str]:
         import_paths.append(config.render.feature_fn.target)
     if config.render.postprocess_fn is not None:
         import_paths.append(config.render.postprocess_fn.target)
+    if config.densification is not None and config.densification.builder is not None:
+        import_paths.append(config.densification.builder.target)
     import_paths.extend(builder.target for builder in config.hooks.builders)
     return sorted(set(import_paths))
 

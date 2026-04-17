@@ -16,9 +16,14 @@ from splatkit.core.contracts import (
 )
 from splatkit.core.registry import BACKEND_REGISTRY, register_backend
 from splatkit.data.contracts import DatasetFrame, PointCloudState, SceneDataset
+from splatkit.densification import (
+    DensificationContext,
+    DensificationRenderRequirements,
+)
 from splatkit.initialization import InitializedModel
 from splatkit.training import (
     CallableSpec,
+    DensificationConfig,
     LoadedCheckpoint,
     LossResult,
     TrainingConfig,
@@ -133,6 +138,7 @@ class CountingHook:
     def __init__(self) -> None:
         self.pre_count = 0
         self.post_count = 0
+        self.post_optimizer_count = 0
         self.after_count = 0
 
     def pre_backward(
@@ -162,6 +168,55 @@ class CountingHook:
     ) -> None:
         del state, metrics
         self.after_count += 1
+
+    def post_optimizer_step(
+        self,
+        state: TrainState,
+        batch: object,
+        render_output: object,
+        loss_result: LossResult,
+    ) -> None:
+        del state, batch, render_output, loss_result
+        self.post_optimizer_count += 1
+
+
+class CloneFirstSplatDensification:
+    expected_scene_families = ("gaussian",)
+
+    def __init__(self) -> None:
+        self._family_ops = None
+        self.post_optimizer_count = 0
+
+    def get_render_requirements(self) -> DensificationRenderRequirements:
+        return DensificationRenderRequirements()
+
+    def bind(
+        self,
+        state: TrainState,
+        optimizers: list[object],
+        family_ops: object,
+    ) -> None:
+        del state, optimizers
+        self._family_ops = family_ops
+
+    def pre_backward(self, context: DensificationContext) -> None:
+        del context
+
+    def post_backward(self, context: DensificationContext) -> None:
+        del context
+
+    def post_optimizer_step(self, context: DensificationContext) -> None:
+        del context
+        self.post_optimizer_count += 1
+        assert self._family_ops is not None
+        self._family_ops.clone(torch.tensor([True], dtype=torch.bool))
+
+    def after_step(
+        self,
+        context: DensificationContext,
+        metrics: dict[str, float],
+    ) -> None:
+        del context, metrics
 
 
 def build_sparse_voxel_model(
@@ -351,8 +406,58 @@ def test_train_step_supports_modules_parameters_and_hooks(
     assert state.step == 1
     assert hook.pre_count == 1
     assert hook.post_count == 1
+    assert hook.post_optimizer_count == 1
     assert hook.after_count == 1
     assert "loss" in metrics
+
+
+def test_train_step_supports_direct_densification_injection(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    state = TrainState(
+        model=model,
+        step=0,
+        seed=config.runtime.seed,
+        device=torch.device("cpu"),
+    )
+    batch = next(iter(build_dataset_loader(dataset, config)))
+    render_fn = build_render_fn(config)
+    loss_fn = build_loss_fn(config)
+    optimizers = build_optimizer_set(state, config)
+    densification = CloneFirstSplatDensification()
+    from splatkit.densification.runtime import bind_densification
+
+    bind_densification(densification, state, optimizers)
+
+    train_step(
+        state,
+        batch,
+        render_fn=render_fn,
+        loss_fn=loss_fn,
+        optimizers=optimizers,
+        densification=densification,
+    )
+
+    assert densification.post_optimizer_count == 1
+    assert state.model.scene.feature.shape[0] == 2
+
+
+def test_run_training_merges_densification_render_requirements(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.densification = DensificationConfig(
+        builder=CallableSpec(target="splatkit.densification.Vanilla3DGS")
+    )
+
+    with pytest.raises(ValueError, match="2d_projections"):
+        run_training(dataset, config)
 
 
 def build_dataset_loader(
