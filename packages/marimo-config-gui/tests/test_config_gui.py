@@ -11,7 +11,10 @@ import marimo_config_gui._pydantic as pgui
 from marimo_config_gui import (
     ConfigBindings,
     PydanticGui,
+    create_committed_config_state,
     create_config_state,
+    config_commit_button,
+    config_committed_value,
     config_error,
     config_form,
     config_gui,
@@ -89,6 +92,12 @@ def _make_state(model_cls: type[BaseModel]):
     return create_config_state(model_cls)
 
 
+def _dispatch_button_click(button: object) -> None:
+    next_value = button._on_click(button.value)
+    button._value = next_value
+    button._value_frontend = button._convert_value(next_value)
+
+
 def test_config_state_returns_state_tuple(notebook_runtime: None) -> None:
     generated = _make_state(_RequiredModel)
 
@@ -98,6 +107,16 @@ def test_config_state_returns_state_tuple(notebook_runtime: None) -> None:
     assert form_gui_state() == {"title": "demo", "count": 0}
     assert '"count": 0' in json_gui_state()
     assert isinstance(bindings, ConfigBindings)
+
+
+def test_committed_config_state_matches_initial_payload(
+    notebook_runtime: None,
+) -> None:
+    committed_state, _set_committed_state = create_committed_config_state(
+        _RequiredModel
+    )
+
+    assert committed_state() == {"title": "demo", "count": 0}
 
 
 def test_config_gui_defaults_to_error_and_form(
@@ -234,6 +253,104 @@ def test_config_value_and_json_output(notebook_runtime: None) -> None:
     assert "Not a valid config" in config_json_output(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state).text
 
 
+def test_config_commit_button_commits_valid_dirty_draft(
+    notebook_runtime: None,
+) -> None:
+    (
+        form_gui_state,
+        json_gui_state,
+        bindings,
+    ) = _make_state(_RequiredModel)
+    committed_state, set_committed_state = create_committed_config_state(
+        _RequiredModel
+    )
+    bindings.set_form_gui_state({"title": "demo", "count": 5})
+    bindings.set_json_gui_state('{\n  "title": "demo",\n  "count": 5\n}')
+
+    commit_button = config_commit_button(
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+        committed_state=committed_state,
+        set_committed_state=set_committed_state,
+    )
+
+    assert commit_button._component_args["disabled"] is False
+    _dispatch_button_click(commit_button)
+    assert committed_state() == {"title": "demo", "count": 5}
+    assert config_committed_value(
+        bindings,
+        committed_state=committed_state,
+    ) == _RequiredModel(count=5)
+
+
+def test_config_commit_button_stays_disabled_when_not_dirty(
+    notebook_runtime: None,
+) -> None:
+    (
+        form_gui_state,
+        json_gui_state,
+        bindings,
+    ) = _make_state(_RequiredModel)
+    committed_state, set_committed_state = create_committed_config_state(
+        _RequiredModel
+    )
+
+    commit_button = config_commit_button(
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+        committed_state=committed_state,
+        set_committed_state=set_committed_state,
+    )
+
+    assert commit_button._component_args["disabled"] is True
+    assert commit_button._component_args["tooltip"] == "No unapplied config changes."
+
+
+def test_config_commit_button_stays_disabled_when_invalid(
+    notebook_runtime: None,
+) -> None:
+    (
+        form_gui_state,
+        json_gui_state,
+        bindings,
+    ) = _make_state(_RequiredModel)
+    committed_state, set_committed_state = create_committed_config_state(
+        _RequiredModel
+    )
+    bindings.set_json_gui_state("{")
+
+    commit_button = config_commit_button(
+        bindings,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+        committed_state=committed_state,
+        set_committed_state=set_committed_state,
+    )
+
+    assert commit_button._component_args["disabled"] is True
+    assert commit_button._component_args["tooltip"] == "Fix config errors before applying."
+    assert committed_state() == {"title": "demo", "count": 0}
+
+
+def test_config_committed_value_returns_none_for_invalid_payload(
+    notebook_runtime: None,
+) -> None:
+    committed_state, set_committed_state = create_committed_config_state(
+        _RequiredModel
+    )
+    set_committed_state({"title": "demo", "count": -1})
+
+    assert (
+        config_committed_value(
+            _RequiredModel,
+            committed_state=committed_state,
+        )
+        is None
+    )
+
+
 def test_config_require_valid_stops_when_invalid(
     notebook_runtime: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -331,6 +448,17 @@ def test_nested_models_use_accordion_until_flat_level() -> None:
 
     assert "marimo-accordion" not in collapsed.text
     assert "marimo-accordion" in sectioned.text
+
+
+def test_indent_nested_layout_wraps_nested_content() -> None:
+    layout = pgui.mo.md("demo")
+
+    unindented = pgui._indent_nested_layout(layout, current_level=0)
+    indented = pgui._indent_nested_layout(layout, current_level=2)
+
+    assert unindented is layout
+    assert "border-left:" in indented.text
+    assert "margin-left:" in indented.text
 
 
 def test_union_json_serialization_keeps_kind(notebook_runtime: None) -> None:

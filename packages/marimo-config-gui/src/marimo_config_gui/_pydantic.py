@@ -1545,6 +1545,32 @@ def _current_config_error(
     return payload_validation_error
 
 
+def _initial_config_payload(
+    model_cls: type[ModelT],
+    *,
+    value: ModelT | dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not mo.running_in_notebook():
+        parsed = load_script_config(model_cls, value=value)
+        resolved_value: ModelT | dict[str, Any] | None = parsed
+    else:
+        resolved_value = value
+    return _order_payload_for_model(
+        model_cls,
+        _resolve_initial_payload(model_cls, resolved_value),
+    )
+
+
+def _resolve_bound_model_cls(
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
+) -> type[ModelT]:
+    return (
+        state_or_model_cls.model_cls
+        if isinstance(state_or_model_cls, ConfigBindings)
+        else state_or_model_cls
+    )
+
+
 def load_script_config(
     model_cls: type[ModelT],
     *,
@@ -1600,18 +1626,7 @@ def create_config_state(
         `config_bindings` contains the model type and setter callbacks used by
         the helper constructors.
     """
-    if not mo.running_in_notebook():
-        parsed = load_script_config(model_cls, value=value)
-        initial_payload = _order_payload_for_model(
-            model_cls,
-            _resolve_initial_payload(model_cls, parsed),
-        )
-    else:
-        initial_payload = _order_payload_for_model(
-            model_cls,
-            _resolve_initial_payload(model_cls, value),
-        )
-
+    initial_payload = _initial_config_payload(model_cls, value=value)
     payload_state, set_payload_state = mo.state(
         initial_payload,
         allow_self_loops=True,
@@ -1629,6 +1644,28 @@ def create_config_state(
             set_json_gui_state=set_json_text_state,
         ),
     )
+
+
+@overload
+def create_committed_config_state(
+    model_cls: type[ModelT],
+    *,
+    value: ModelT | dict[str, Any] | None = None,
+) -> tuple[Any, Callable[[dict[str, Any]], None]]: ...
+
+
+def create_committed_config_state(
+    model_cls: type[ModelT],
+    *,
+    value: ModelT | dict[str, Any] | None = None,
+) -> tuple[Any, Callable[[dict[str, Any]], None]]:
+    """Create reactive state for the last committed config payload."""
+    initial_payload = _initial_config_payload(model_cls, value=value)
+    committed_state, set_committed_state = mo.state(
+        initial_payload,
+        allow_self_loops=True,
+    )
+    return committed_state, set_committed_state
 
 
 @overload
@@ -1895,11 +1932,7 @@ def config_error(
     Returns:
         An empty markdown node when valid, otherwise a warning callout.
     """
-    model_cls = (
-        state_or_model_cls.model_cls
-        if isinstance(state_or_model_cls, ConfigBindings)
-        else state_or_model_cls
-    )
+    model_cls = _resolve_bound_model_cls(state_or_model_cls)
     return _build_error_view(
         _current_config_error(
             model_cls,
@@ -1926,11 +1959,7 @@ def config_value(
     Returns:
         The validated model instance if valid, otherwise `None`.
     """
-    model_cls = (
-        state_or_model_cls.model_cls
-        if isinstance(state_or_model_cls, ConfigBindings)
-        else state_or_model_cls
-    )
+    model_cls = _resolve_bound_model_cls(state_or_model_cls)
     current_error = _current_config_error(
         model_cls,
         form_gui_state=form_gui_state,
@@ -1939,6 +1968,60 @@ def config_value(
     if current_error is not None:
         return None
     value, _ = _validate_payload_with_error(model_cls, form_gui_state())
+    return value
+
+
+def config_commit_button(
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
+    *,
+    form_gui_state: Any,
+    json_gui_state: Any,
+    committed_state: Any,
+    set_committed_state: Callable[[dict[str, Any]], None],
+    label: str = "Apply config",
+) -> Any:
+    """Build a button that snapshots a valid draft into committed state."""
+    model_cls = _resolve_bound_model_cls(state_or_model_cls)
+    current_error = _current_config_error(
+        model_cls,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    )
+    draft_payload = _order_payload_for_model(model_cls, form_gui_state())
+    committed_payload = _order_payload_for_model(model_cls, committed_state())
+    is_dirty = draft_payload != committed_payload
+    is_disabled = current_error is not None or not is_dirty
+    tooltip: str | None = None
+    if current_error is not None:
+        tooltip = "Fix config errors before applying."
+    elif not is_dirty:
+        tooltip = "No unapplied config changes."
+
+    return mo.ui.button(
+        value=0,
+        label=label,
+        disabled=is_disabled,
+        tooltip=tooltip,
+        on_click=lambda value: (
+            set_committed_state(draft_payload),
+            (0 if value is None else int(value)) + 1,
+        )[1],
+    )
+
+
+def config_committed_value(
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
+    *,
+    committed_state: Any,
+) -> ModelT | None:
+    """Validate and return the current committed config value."""
+    model_cls = _resolve_bound_model_cls(state_or_model_cls)
+    value, validation_error = _validate_payload_with_error(
+        model_cls,
+        _order_payload_for_model(model_cls, committed_state()),
+    )
+    if value is None or validation_error is not None:
+        return None
     return value
 
 
@@ -1959,11 +2042,7 @@ def config_json_output(
     Returns:
         A `mo.json(...)` view when valid, otherwise an invalid-config output.
     """
-    model_cls = (
-        state_or_model_cls.model_cls
-        if isinstance(state_or_model_cls, ConfigBindings)
-        else state_or_model_cls
-    )
+    model_cls = _resolve_bound_model_cls(state_or_model_cls)
     current_error = _current_config_error(
         model_cls,
         form_gui_state=form_gui_state,
@@ -1999,11 +2078,7 @@ def config_require_valid(
     Returns:
         The validated model instance.
     """
-    model_cls = (
-        state_or_model_cls.model_cls
-        if isinstance(state_or_model_cls, ConfigBindings)
-        else state_or_model_cls
-    )
+    model_cls = _resolve_bound_model_cls(state_or_model_cls)
     value = config_value(
         model_cls,
         form_gui_state=form_gui_state,
@@ -2114,6 +2189,7 @@ def _build_model_gui(
     nested_layout = _nested_model_layout(
         nested_sections,
         multiple_open=nested_models_multiple_open,
+        current_level=current_level,
     )
     if nested_layout is not None:
         direct_controls.append(nested_layout)
@@ -2222,6 +2298,7 @@ def _build_model_config_gui(
     nested_layout = _nested_model_layout(
         nested_sections,
         multiple_open=nested_models_multiple_open,
+        current_level=current_level,
     )
     if nested_layout is not None:
         direct_controls.append(nested_layout)
@@ -2682,6 +2759,7 @@ def _nested_model_layout(
     sections: list[tuple[str, Any]],
     *,
     multiple_open: bool,
+    current_level: int,
 ) -> Any | None:
     if not sections:
         return None
@@ -2689,19 +2767,38 @@ def _nested_model_layout(
     labels = _disambiguate_labels([label for label, _ in sections])
     if len(sections) == 1:
         label, content = sections[0]
-        return mo.vstack(
+        layout = mo.vstack(
             [
                 mo.md(f"**{label}**"),
                 mo.callout(content, kind="neutral"),
             ],
             align="stretch",
         )
+        return _indent_nested_layout(layout, current_level=current_level)
 
     items = {
         label: content
         for label, (_, content) in zip(labels, sections, strict=False)
     }
-    return mo.accordion(items, multiple=multiple_open, lazy=False)
+    layout = mo.accordion(items, multiple=multiple_open, lazy=False)
+    return _indent_nested_layout(layout, current_level=current_level)
+
+
+def _indent_nested_layout(layout: Any, *, current_level: int) -> Any:
+    if current_level <= 0:
+        return layout
+    indent_rem = min(0.85 * current_level, 2.55)
+    return mo.Html(
+        (
+            '<div style="'
+            f"margin-left: {indent_rem:.2f}rem; "
+            "padding-left: 0.75rem; "
+            "border-left: 1px solid rgba(127, 127, 127, 0.28);"
+            '">'
+            f"{layout.text}"
+            "</div>"
+        )
+    )
 
 
 def _order_payload_for_model(

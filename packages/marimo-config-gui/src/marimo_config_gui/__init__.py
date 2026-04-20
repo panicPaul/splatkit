@@ -2,7 +2,10 @@
 
 from marimo_config_gui._pydantic import (
     ConfigBindings,
+    create_committed_config_state,
     create_config_state,
+    config_commit_button,
+    config_committed_value,
     config_error,
     PydanticGui,
     PydanticJsonGui,
@@ -21,7 +24,10 @@ __all__ = [
     "PydanticGui",
     "PydanticJsonGui",
     "ConfigBindings",
+    "create_committed_config_state",
     "create_config_state",
+    "config_commit_button",
+    "config_committed_value",
     "config_gui",
     "config_form",
     "config_json",
