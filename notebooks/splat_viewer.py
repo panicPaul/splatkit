@@ -7,17 +7,23 @@ app = marimo.App(width="medium")
 
 with app.setup:
     import ctypes
+    import importlib
     import signal
     import sys
-    from typing import Literal
+    from enum import Enum
+    from typing import cast
 
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_backends.fastergs as sk_fastergs
     import splatkit_backends.gsplat as sk_gsplat
-    import splatkit_backends.stoch3dgs as sk_stoch
     import torch
+    from marimo_config_gui import (
+        config_error,
+        config_form,
+        config_value,
+        create_config_state,
+    )
     from marimo_3dv import (
         CameraState,
         RenderResult,
@@ -26,19 +32,53 @@ with app.setup:
         ViewerState,
         apply_viewer_pipeline_config,
         cleanup_before_splat_reload,
-        form_gui,
         gs_backend_bundle,
         pick_splat_load_config,
         splat_load_form,
         viewer_pipeline_controls_gui,
     )
-    from pydantic import BaseModel
-    from splatkit_backends.inria import register as register_inria
+    from pydantic import BaseModel, Field
 
-    sk_fastergs.register()
     sk_gsplat.register()
-    sk_stoch.register()
-    register_inria()
+
+    def register_optional_backend(module_name: str) -> bool:
+        """Register a backend package when its optional dependency is present."""
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            return False
+        module.register()
+        return True
+
+    register_optional_backend("splatkit_backends.fastgs")
+    register_optional_backend("splatkit_backends.fastergs")
+    register_optional_backend("splatkit_backends.stoch3dgs")
+    register_optional_backend("splatkit_backends.inria")
+
+    def available_gaussian_backends() -> list[str]:
+        """List registered backends that accept GaussianScene3D."""
+        return sorted(
+            backend_name
+            for backend_name, registered_backend in sk.BACKEND_REGISTRY.items()
+            if any(
+                issubclass(sk.GaussianScene3D, accepted_scene_type)
+                for accepted_scene_type in registered_backend.accepted_scene_types
+            )
+        )
+
+    BACKEND_OPTIONS = available_gaussian_backends()
+    BackendChoice = Enum(
+        "BackendChoice",
+        {
+            (
+                backend.upper()
+                .replace("-", "_")
+                .replace(".", "_")
+            ): backend
+            for backend in (BACKEND_OPTIONS or [""])
+        },
+        type=str,
+    )
 
     def _install_linux_parent_death_signal() -> None:
         if sys.platform != "linux":
@@ -53,16 +93,53 @@ with app.setup:
 
 @app.cell
 def _():
-    class BackendConfig(BaseModel):
-        backend: Literal["gsplat", "inria", "fastergs", "stoch3dgs"] = "gsplat"
-
-    backend_form = form_gui(
+    (
+        backend_form_gui_state,
+        backend_json_gui_state,
+        backend_bindings,
+    ) = create_config_state(
         BackendConfig,
         value=BackendConfig(),
+    )
+    return backend_bindings, backend_form_gui_state, backend_json_gui_state
+
+
+@app.class_definition
+class BackendConfig(BaseModel):
+    backend: BackendChoice = Field(
+        default=BackendChoice(BACKEND_OPTIONS[0] if BACKEND_OPTIONS else ""),
+        description="Registered Gaussian backend used for rendering this scene.",
+    )
+
+
+@app.cell
+def _(backend_bindings, backend_form_gui_state):
+    backend_form = config_form(
+        backend_bindings,
+        form_gui_state=backend_form_gui_state,
         label="Backend",
-        live_update=True,
     )
     return (backend_form,)
+
+
+@app.cell
+def _(backend_bindings, backend_form_gui_state, backend_json_gui_state):
+    backend_error = config_error(
+        backend_bindings,
+        form_gui_state=backend_form_gui_state,
+        json_gui_state=backend_json_gui_state,
+    )
+    return (backend_error,)
+
+
+@app.cell
+def _(backend_bindings, backend_form_gui_state, backend_json_gui_state):
+    backend_config = config_value(
+        backend_bindings,
+        form_gui_state=backend_form_gui_state,
+        json_gui_state=backend_json_gui_state,
+    )
+    return (backend_config,)
 
 
 @app.cell(hide_code=True)
@@ -82,8 +159,8 @@ def _():
 
 
 @app.cell
-def _(backend_form, viewer_controls_gui):
-    mo.vstack([backend_form, viewer_controls_gui])
+def _(backend_error, backend_form, viewer_controls_gui):
+    mo.vstack([backend_error, backend_form, viewer_controls_gui])
     return
 
 
@@ -168,7 +245,7 @@ def rasterize_scene(
     camera: CameraState,
     scene: SplatScene | None,
     *,
-    backend: Literal["gsplat", "inria", "fastergs", "stoch3dgs"] = "gsplat",
+    backend: str = "gsplat",
 ) -> RenderResult:
     """Render a splat scene through splatkit."""
     if scene is None:
@@ -207,10 +284,13 @@ def rasterize_scene(
 
     metadata = {}
     if backend == "gsplat":
-        metadata = {
-            "projected_means": render_output.projected_means[0],
-            "projected_conics": render_output.projected_conics[0],
-        }
+        projected_means = getattr(render_output, "projected_means", None)
+        projected_conics = getattr(render_output, "projected_conics", None)
+        if projected_means is not None and projected_conics is not None:
+            metadata = {
+                "projected_means": projected_means[0],
+                "projected_conics": projected_conics[0],
+            }
     return RenderResult(image=image_uint8, metadata=metadata)
 
 
@@ -248,12 +328,18 @@ def _(backend_bundle, pipeline_result, viewer_state):
 
 
 @app.cell
-def _(backend_form, pipeline_result, viewer_controls_gui, viewer_state):
+def _(backend_config, pipeline_result, viewer_controls_gui, viewer_state):
     cache = {"config_json": None, "render_fn": None}
 
     def render_frame(camera_state):
+        if backend_config is None or not backend_config.backend.value:
+            return np.full(
+                (camera_state.height, camera_state.width, 3),
+                245,
+                dtype=np.uint8,
+            )
         combined_config = viewer_controls_gui.value
-        backend = backend_form.value.backend
+        backend = cast(str, backend_config.backend.value)
         config_json = f"{backend}:{combined_config.model_dump_json()}"
         if cache["render_fn"] is None or config_json != cache["config_json"]:
             pipeline_config = apply_viewer_pipeline_config(

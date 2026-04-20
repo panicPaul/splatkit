@@ -47,6 +47,16 @@ class InriaRenderOptions(RenderOptions):
     far_plane: float = 1000.0
 
 
+def _normalized_quaternions(scene: GaussianScene3D) -> Tensor:
+    """Return unit quaternions for rasterizers that expect normalized input."""
+    quaternion_norms = torch.linalg.vector_norm(
+        scene.quaternion_orientation,
+        dim=-1,
+        keepdim=True,
+    ).clamp_min(torch.finfo(scene.quaternion_orientation.dtype).eps)
+    return scene.quaternion_orientation / quaternion_norms
+
+
 def _camera_to_world_to_view(cam_to_world: Tensor) -> Tensor:
     return torch.linalg.inv(cam_to_world).transpose(0, 1).contiguous()
 
@@ -188,7 +198,7 @@ def _render_single_camera(
         shs=shs if shs.numel() else None,
         colors_precomp=colors_precomp if colors_precomp.numel() else None,
         scales=torch.exp(scene.log_scales),
-        rotations=scene.quaternion_orientation,
+        rotations=_normalized_quaternions(scene),
         cov3D_precomp=None,
     )
     rgb = render.permute(1, 2, 0).contiguous()
