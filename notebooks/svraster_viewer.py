@@ -14,7 +14,7 @@ with app.setup:
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_backends.svraster as sk_svraster
+    import splatkit_adapter_backends.svraster as sk_svraster
     import torch
     from marimo_3dv import (
         CameraState,

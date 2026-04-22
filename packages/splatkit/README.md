@@ -97,13 +97,13 @@ Checkpoints are saved as directories containing `config.json`, `metadata.json`, 
 
 We provide some official backend adapters, but they are not special from the point of view of `splatkit`.
 The intended design is that researchers can write their own backend packages, local experiment modules, or lab-specific adapters against the same contracts and registry.
-Using `splatkit_backends.*` is a convenience, not a requirement.
+Using `splatkit_adapter_backends.*` is a convenience, not a requirement.
 
 Typical usage:
 
 ```python
 import splatkit as sk
-import splatkit_backends.gsplat as sk_gsplat
+import splatkit_adapter_backends.gsplat as sk_gsplat
 
 sk_gsplat.register()
 

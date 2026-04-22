@@ -7,7 +7,7 @@ import pytest
 import torch
 from beartype.roar import BeartypeCallHintParamViolation
 from splatkit.core import BACKEND_REGISTRY, RenderOptions, render
-from splatkit_backends.fastgs import (
+from splatkit_adapter_backends.fastgs import (
     FastGSRenderOptions,
     FastGSRenderOutput,
     register,
@@ -142,7 +142,7 @@ def test_render_fastgs_returns_expected_shapes(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_backends.fastgs.renderer._import_fastgs_runtime",
+        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _FakeRasterizer),
     )
 
@@ -169,7 +169,7 @@ def test_render_fastgs_accepts_empty_metric_map(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_backends.fastgs.renderer._import_fastgs_runtime",
+        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _EmptyMetricMapRasterizer),
     )
 
@@ -186,7 +186,7 @@ def test_render_fastgs_normalizes_quaternions(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_backends.fastgs.renderer._import_fastgs_runtime",
+        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _QuaternionCheckingRasterizer),
     )
     unnormalized_scene = type(cuda_scene)(
@@ -287,7 +287,7 @@ def test_generic_render_fastgs_returns_backend_specific_signals(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_backends.fastgs.renderer._import_fastgs_runtime",
+        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _FakeRasterizer),
     )
 

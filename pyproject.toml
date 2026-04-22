@@ -11,7 +11,7 @@ dependencies = [
     "torch>=2.11.0",
     # Editable dependencies
     "splatkit[all]",
-    "splatkit-backends[all]",
+    "splatkit-adapter-backends[all]",
     "splatkit-native-backends",
     "marimo-config-gui>=0.1.0",
     "marimo-3dv>=0.1.1",
@@ -44,7 +44,7 @@ new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
 marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
 marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
 splatkit = { path = "packages/splatkit", editable = true }
-splatkit-backends = { path = "packages/splatkit-backends", editable = true }
+splatkit-adapter-backends = { path = "packages/splatkit-adapter-backends", editable = true }
 splatkit-native-backends = { path = "packages/splatkit-native-backends", editable = true }
 diff-gaussian-rasterization-fastgs = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
@@ -206,7 +206,7 @@ cu130 = ["cu130"]
 
 [tool.pixi.pypi-dependencies]
 marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
-splatkit-backends = { path = "packages/splatkit-backends", editable = true }
+splatkit-adapter-backends = { path = "packages/splatkit-adapter-backends", editable = true }
 splatkit-native-backends = { path = "packages/splatkit-native-backends", editable = true }
 marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
 diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }

@@ -287,7 +287,7 @@ def test_traced_native_code_no_longer_imports_upstream_runtime() -> None:
         / "splatkit-native-backends"
         / "src"
         / "splatkit_native_backends"
-        / "stoch3dgs_native"
+        / "stoch3dgs"
         / "renderer.py",
     ]
     forbidden_terms = ("import threedgrut", "from threedgrut", "import threedgrt_tracer", "from threedgrt_tracer")

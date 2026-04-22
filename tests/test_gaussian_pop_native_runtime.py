@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from splatkit_native_backends.gaussian_pop_native.runtime import render
+from splatkit_native_backends.gaussian_pop.runtime import render
 
 
 def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
@@ -19,19 +19,30 @@ def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float,
 
 @pytest.mark.cuda
 def test_gaussian_pop_runtime_keeps_rgb_gradients_with_score(
-    cuda_scene,
+    cuda_visible_scene,
     cuda_camera,
 ) -> None:
     width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
         cuda_camera
     )
     cam_to_world = cuda_camera.cam_to_world[0]
-    center_positions = cuda_scene.center_position.detach().clone().requires_grad_(True)
-    log_scales = cuda_scene.log_scales.detach().clone().requires_grad_(True)
-    rotations = cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
-    opacities = cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
-    sh0 = cuda_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
-    shrest = cuda_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
+    center_positions = (
+        cuda_visible_scene.center_position.detach().clone().requires_grad_(True)
+    )
+    log_scales = cuda_visible_scene.log_scales.detach().clone().requires_grad_(True)
+    rotations = (
+        cuda_visible_scene.quaternion_orientation.detach().clone().requires_grad_(True)
+    )
+    opacities = (
+        cuda_visible_scene.logit_opacity[:, None]
+        .detach()
+        .clone()
+        .requires_grad_(True)
+    )
+    sh0 = cuda_visible_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
+    shrest = (
+        cuda_visible_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
+    )
 
     result = render(
         center_positions,
@@ -52,15 +63,18 @@ def test_gaussian_pop_runtime_keeps_rgb_gradients_with_score(
         center_y=center_y,
         bg_color=torch.zeros(3, device=center_positions.device),
         proper_antialiasing=False,
-        active_sh_bases=int(cuda_scene.feature.shape[1]),
+        active_sh_bases=int(cuda_visible_scene.feature.shape[1]),
         return_depth=False,
         return_gaussian_impact_score=True,
     )
     result.image.sum().backward()
 
     assert result.gaussian_impact_score is not None
-    assert result.gaussian_impact_score.shape == (cuda_scene.center_position.shape[0],)
+    assert result.gaussian_impact_score.shape == (
+        cuda_visible_scene.center_position.shape[0],
+    )
     assert not result.gaussian_impact_score.requires_grad
+    assert result.image.abs().sum() > 0
     for grad in (
         center_positions.grad,
         log_scales.grad,
@@ -75,19 +89,30 @@ def test_gaussian_pop_runtime_keeps_rgb_gradients_with_score(
 
 @pytest.mark.cuda
 def test_gaussian_pop_runtime_keeps_depth_gradients_with_score(
-    cuda_scene,
+    cuda_visible_scene,
     cuda_camera,
 ) -> None:
     width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
         cuda_camera
     )
     cam_to_world = cuda_camera.cam_to_world[0]
-    center_positions = cuda_scene.center_position.detach().clone().requires_grad_(True)
-    log_scales = cuda_scene.log_scales.detach().clone().requires_grad_(True)
-    rotations = cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
-    opacities = cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
-    sh0 = cuda_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
-    shrest = cuda_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
+    center_positions = (
+        cuda_visible_scene.center_position.detach().clone().requires_grad_(True)
+    )
+    log_scales = cuda_visible_scene.log_scales.detach().clone().requires_grad_(True)
+    rotations = (
+        cuda_visible_scene.quaternion_orientation.detach().clone().requires_grad_(True)
+    )
+    opacities = (
+        cuda_visible_scene.logit_opacity[:, None]
+        .detach()
+        .clone()
+        .requires_grad_(True)
+    )
+    sh0 = cuda_visible_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
+    shrest = (
+        cuda_visible_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
+    )
 
     result = render(
         center_positions,
@@ -108,7 +133,7 @@ def test_gaussian_pop_runtime_keeps_depth_gradients_with_score(
         center_y=center_y,
         bg_color=torch.zeros(3, device=center_positions.device),
         proper_antialiasing=False,
-        active_sh_bases=int(cuda_scene.feature.shape[1]),
+        active_sh_bases=int(cuda_visible_scene.feature.shape[1]),
         return_depth=True,
         return_gaussian_impact_score=True,
     )
@@ -117,6 +142,7 @@ def test_gaussian_pop_runtime_keeps_depth_gradients_with_score(
 
     assert result.gaussian_impact_score is not None
     assert not result.gaussian_impact_score.requires_grad
+    assert result.depth.abs().sum() > 0
     for grad in (
         center_positions.grad,
         log_scales.grad,

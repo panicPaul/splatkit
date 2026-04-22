@@ -5,18 +5,18 @@ from typing import cast
 import pytest
 import torch
 from splatkit.core import render
-from splatkit_backends.gsplat import GsplatRenderOutput, render_gsplat
-from splatkit_native_backends.faster_gs_depth_native import (
+from splatkit_adapter_backends.gsplat import GsplatRenderOutput, render_gsplat
+from splatkit_native_backends.faster_gs_depth import (
     FasterGSDepthNativeDepthRenderOutput,
     FasterGSDepthNativeRenderOutput,
     register,
-    render_faster_gs_depth_native,
+    render_faster_gs_depth,
 )
-from splatkit_native_backends.faster_gs_native import (
+from splatkit_native_backends.faster_gs import (
     FasterGSNativeRenderOutput,
     render_faster_gs_native,
 )
-from splatkit_native_backends.faster_gs_native import (
+from splatkit_native_backends.faster_gs import (
     register as register_root,
 )
 
@@ -29,7 +29,7 @@ register_root()
 def test_depth_backend_returns_depth(cuda_scene, cuda_camera) -> None:
     output = cast(
         FasterGSDepthNativeDepthRenderOutput,
-        render_faster_gs_depth_native(
+        render_faster_gs_depth(
             cuda_scene,
             cuda_camera,
             return_depth=True,
@@ -50,7 +50,7 @@ def test_depth_backend_rgb_path_matches_root_backend(
 ) -> None:
     depth_backend_output = cast(
         FasterGSDepthNativeRenderOutput,
-        render_faster_gs_depth_native(cuda_scene, cuda_camera),
+        render_faster_gs_depth(cuda_scene, cuda_camera),
     )
     root_output = cast(
         FasterGSNativeRenderOutput,
@@ -73,7 +73,7 @@ def test_depth_backend_matches_gsplat_expected_depth(
 ) -> None:
     depth_backend_output = cast(
         FasterGSDepthNativeDepthRenderOutput,
-        render_faster_gs_depth_native(
+        render_faster_gs_depth(
             cuda_scene,
             cuda_camera,
             return_depth=True,
@@ -107,7 +107,7 @@ def test_generic_render_dispatches_to_depth_backend(
         render(
             cuda_scene,
             cuda_camera,
-            backend="faster_gs_depth_native",
+            backend="faster_gs_depth",
             return_depth=True,
         ),
     )

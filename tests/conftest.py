@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 import torch
 from splatkit.core import (
@@ -123,6 +125,22 @@ def cuda_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required for gsplat backend tests.")
     return cpu_scene.to(torch.device("cuda"))
+
+
+@pytest.fixture
+def cpu_visible_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
+    return replace(
+        cpu_scene,
+        center_position=cpu_scene.center_position
+        + torch.tensor([0.0, 0.0, 5.0], dtype=torch.float32),
+    )
+
+
+@pytest.fixture
+def cuda_visible_scene(cpu_visible_scene: GaussianScene3D) -> GaussianScene3D:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for gsplat backend tests.")
+    return cpu_visible_scene.to(torch.device("cuda"))
 
 
 @pytest.fixture

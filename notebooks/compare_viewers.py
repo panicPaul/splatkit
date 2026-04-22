@@ -15,12 +15,12 @@ with app.setup:
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_backends.fastergs as sk_fastergs
-    import splatkit_backends.fastgs as sk_fastgs
-    import splatkit_backends.gsplat as sk_gsplat
-    import splatkit_backends.inria as sk_inria
-    import splatkit_backends.stoch3dgs as sk_stoch
-    import splatkit_backends.svraster as sk_svraster
+    import splatkit_adapter_backends.fastergs as sk_fastergs
+    import splatkit_adapter_backends.fastgs as sk_fastgs
+    import splatkit_adapter_backends.gsplat as sk_gsplat
+    import splatkit_adapter_backends.inria as sk_inria
+    import splatkit_adapter_backends.stoch3dgs as sk_stoch
+    import splatkit_adapter_backends.svraster as sk_svraster
     import torch
     from marimo_3dv import (
         CameraState,

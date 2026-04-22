@@ -123,7 +123,7 @@ those pieces easier to share and compare without forcing them into one monolith.
 
 - `splatkit`: the stripped-down core package for contracts, traits,
   registration, and shared optional modules over time.
-- `splatkit-backends`: a separate package containing wrappers for commonly used
+- `splatkit-adapter-backends`: a separate package containing wrappers for commonly used
   backend implementations.
 - `marimo-3dv`: today a separate third-party package in this repo, eventually
   intended to become part of the broader splatkit ecosystem as the notebook/UI
@@ -151,7 +151,7 @@ once.
 ```text
 packages/
   splatkit/                Minimal core contracts and shared abstractions
-  splatkit-backends/       Official backend adapters and wrappers
+  splatkit-adapter-backends/       Official backend adapters and wrappers
 third_party/
   marimo-3dv/              Viewer and marimo utility layer
   diff-gaussian-rasterization/  Forked Inria rasterizer
@@ -167,7 +167,7 @@ notebooks/                 Monorepo-level examples
   registration, and shared runtime helpers, with opt-in extras like
   `viewer`, `training`, `eval`, and `all`; the viewer stack remains separate
   from `all` for now
-- `splatkit-backends`: wrappers around commonly used implementations such as
+- `splatkit-adapter-backends`: wrappers around commonly used implementations such as
   `gsplat`, the local Inria path, and the local `Stoch3DGS` path, with
   per-backend extras plus `all`
 - `marimo-3dv`: utilities for `marimo`, desktop viewers, and auto-generated GUI
@@ -179,15 +179,15 @@ Typical package install paths:
 pip install splatkit
 pip install "splatkit[viewer]"
 pip install "splatkit[all]"
-pip install "splatkit-backends[gsplat]"
-pip install "splatkit-backends[inria]"
-pip install "splatkit-backends[stoch3dgs]"
-pip install "splatkit-backends[all]"
+pip install "splatkit-adapter-backends[gsplat]"
+pip install "splatkit-adapter-backends[inria]"
+pip install "splatkit-adapter-backends[stoch3dgs]"
+pip install "splatkit-adapter-backends[all]"
 ```
 
 ## Supported Backends
 
-Currently registered backends in `splatkit-backends`:
+Currently registered backends in `splatkit-adapter-backends`:
 
 | Backend name | Scene type | Alpha | Depth | Normals | 2D projections | Projective intersection transforms | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -237,7 +237,7 @@ Recommended install flow for the backend:
 
 ```bash
 git submodule update --init --recursive
-uv pip install -e './packages/splatkit-backends[stoch3dgs,cu130]'
+uv pip install -e './packages/splatkit-adapter-backends[stoch3dgs,cu130]'
 ```
 
 If OptiX headers are still missing after a recursive submodule update, inspect:
@@ -254,7 +254,7 @@ threedgrt_tracer/dependencies/optix-dev
 
 ## Versioning
 
-`packages/splatkit` and `packages/splatkit-backends` now derive their published
+`packages/splatkit` and `packages/splatkit-adapter-backends` now derive their published
 versions from Git tags via `hatch-vcs`.
 
 - tagged commits build stable versions like `0.1.0`
@@ -272,22 +272,22 @@ Recommended pinning flow for colleagues:
 
 ```bash
 pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit"
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-backends"
+pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-adapter-backends"
 ```
 
 Both packages also expose their installed version at runtime via
-`splatkit.__version__` and `splatkit_backends.__version__`.
+`splatkit.__version__` and `splatkit_adapter_backends.__version__`.
 
 For local monorepo development, `uv` keeps these sources editable:
 
 - `packages/splatkit`
-- `packages/splatkit-backends`
+- `packages/splatkit-adapter-backends`
 - `third_party/marimo-3dv`
 - `third_party/diff-gaussian-rasterization`
 - `third_party/faster-gaussian-splatting/FasterGSCudaBackend`
 
 The workspace root is a development environment package. It depends on
-`splatkit[all]`, `splatkit-backends[all]`, `marimo`, `marimo-3dv`, `torch`,
+`splatkit[all]`, `splatkit-adapter-backends[all]`, `marimo`, `marimo-3dv`, `torch`,
 `ruff`, and `ty`, rather than depending on individual backend wheels directly.
 
 Development note: we tried making `packages/*` true `uv` workspace members, but

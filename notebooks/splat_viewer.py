@@ -9,15 +9,15 @@ with app.setup:
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_backends.fastergs as sk_fastergs
-    import splatkit_backends.fastgs as sk_fastgs
-    import splatkit_backends.gsplat as sk_gsplat
-    import splatkit_backends.inria as sk_inria
-    import splatkit_backends.stoch3dgs as sk_stoch
-    import splatkit_native_backends.faster_gs_depth_native as skn_fastergs_depth
-    import splatkit_native_backends.faster_gs_native as skn_fastergs
-    import splatkit_native_backends.gaussian_pop_native as skn_gaussian_pop
-    import splatkit_native_backends.stoch3dgs_native as skn_stoch
+    import splatkit_adapter_backends.fastergs as sk_fastergs
+    import splatkit_adapter_backends.fastgs as sk_fastgs
+    import splatkit_adapter_backends.gsplat as sk_gsplat
+    import splatkit_adapter_backends.inria as sk_inria
+    import splatkit_adapter_backends.stoch3dgs as sk_stoch
+    import splatkit_native_backends.faster_gs_depth as skn_fastergs_depth
+    import splatkit_native_backends.faster_gs as skn_fastergs
+    import splatkit_native_backends.gaussian_pop as skn_gaussian_pop
+    import splatkit_native_backends.stoch3dgs as skn_stoch
     import torch
     from marimo_3dv import (
         CameraState,

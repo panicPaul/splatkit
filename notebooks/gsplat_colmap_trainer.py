@@ -13,7 +13,7 @@ with app.setup:
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_backends.gsplat as sk_gsplat
+    import splatkit_adapter_backends.gsplat as sk_gsplat
     import torch
     import torch.nn.functional as F
     from marimo_config_gui import (
@@ -46,7 +46,7 @@ def _():
 
     Minimal 3DGS training notebook for COLMAP reconstructions using
     `splatkit` data loading + initialization and
-    `splatkit-backends.gsplat` rendering.
+    `splatkit-adapter-backends.gsplat` rendering.
 
     This omits densification by design and keeps the loop explicit to stress
     backend behavior.

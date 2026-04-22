@@ -3425,8 +3425,8 @@ requires-dist = [
 provides-extras = ["all", "cu128", "cu130", "data", "eval", "training", "viewer"]
 
 [[package]]
-name = "splatkit-backends"
-source = { editable = "packages/splatkit-backends" }
+name = "splatkit-adapter-backends"
+source = { editable = "packages/splatkit-adapter-backends" }
 dependencies = [
     { name = "beartype" },
     { name = "jaxtyping" },
@@ -3464,8 +3464,8 @@ requires-dist = [
     { name = "threedgrut", marker = "extra == 'all'", editable = "third_party/Stoch3DGS" },
     { name = "threedgrut", marker = "extra == 'stoch3dgs'", editable = "third_party/Stoch3DGS" },
     { name = "torch", specifier = ">=2.11.0" },
-    { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "splatkit-backends", extra = "cu128" } },
-    { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "splatkit-backends", extra = "cu130" } },
+    { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "splatkit-adapter-backends", extra = "cu128" } },
+    { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "splatkit-adapter-backends", extra = "cu130" } },
 ]
 provides-extras = ["all", "cu128", "cu130", "fastergs", "fastgs", "gsplat", "inria", "stoch3dgs", "svraster"]
 
@@ -3480,7 +3480,7 @@ dependencies = [
     { name = "marimo-config-gui" },
     { name = "ruff" },
     { name = "splatkit", extra = ["all"] },
-    { name = "splatkit-backends", extra = ["all"] },
+    { name = "splatkit-adapter-backends", extra = ["all"] },
     { name = "splatkit-native-backends" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra != 'extra-24-splatkit-dev-environment-cu128' and extra != 'extra-24-splatkit-dev-environment-cu130')" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-24-splatkit-dev-environment-cu128'" },
@@ -3504,7 +3504,7 @@ requires-dist = [
     { name = "marimo-config-gui", editable = "packages/marimo-config-gui" },
     { name = "ruff", specifier = ">=0.15.10" },
     { name = "splatkit", extras = ["all"], editable = "packages/splatkit" },
-    { name = "splatkit-backends", extras = ["all"], editable = "packages/splatkit-backends" },
+    { name = "splatkit-adapter-backends", extras = ["all"], editable = "packages/splatkit-adapter-backends" },
     { name = "splatkit-native-backends", editable = "packages/splatkit-native-backends" },
     { name = "torch", specifier = ">=2.11.0" },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "splatkit-dev-environment", extra = "cu128" } },

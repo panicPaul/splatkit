@@ -10,7 +10,7 @@ with app.setup:
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_native_backends.gaussian_pop_native as skn_gaussian_pop
+    import splatkit_native_backends.gaussian_pop as skn_gaussian_pop
     import threading
     import torch
     from marimo_3dv import (
@@ -23,6 +23,7 @@ with app.setup:
         apply_viewer_pipeline_config,
         cleanup_before_splat_reload,
         gs_backend_bundle,
+        link_viewer_states,
         pick_splat_load_config,
         viewer_pipeline_controls_gui,
     )
@@ -34,6 +35,8 @@ with app.setup:
     )
 
     skn_gaussian_pop.register()
+    active_link = {"handle": None}
+    active_render_observer = {"widget": None, "callback": None}
 
 
 @app.cell
@@ -107,14 +110,37 @@ def _(view_mode_options):
 
 @app.cell
 def _():
-    score_bucket_count = mo.ui.slider(
-        start=5,
-        stop=200,
-        step=1,
-        value=50,
-        label="Score buckets",
+    score_plot_points = mo.ui.slider(
+        start=500,
+        stop=20000,
+        step=500,
+        value=5000,
+        label="Plotted points",
     )
-    return (score_bucket_count,)
+    return (score_plot_points,)
+
+
+@app.cell
+def _():
+    score_filter_threshold = mo.ui.number(
+        start=0.0,
+        step=1e-4,
+        value=1e-3,
+        label="Score threshold",
+        full_width=True,
+    )
+    return (score_filter_threshold,)
+
+
+@app.cell
+def _():
+    keep_mode = mo.ui.dropdown(
+        ["higher", "lower"],
+        value="higher",
+        label="Keep",
+        full_width=True,
+    )
+    return (keep_mode,)
 
 
 @app.cell(hide_code=True)
@@ -137,14 +163,22 @@ def _():
 def _(
     colormap,
     invert_colormap,
+    keep_mode,
     normalization_bias,
     normalization_percent,
-    score_bucket_count,
+    score_filter_threshold,
+    score_plot_points,
     view_mode,
     viewer_controls_gui,
 ):
     selectors = mo.hstack(
-        [view_mode, colormap, score_bucket_count],
+        [view_mode, colormap, score_plot_points],
+        widths="equal",
+        align="start",
+        gap=1.0,
+    )
+    filter_controls = mo.hstack(
+        [score_filter_threshold, keep_mode],
         widths="equal",
         align="start",
         gap=1.0,
@@ -156,9 +190,17 @@ def _(
         gap=1.0,
     )
     mo.vstack(
-        [selectors, normalization_controls, viewer_controls_gui],
+        [selectors, filter_controls, normalization_controls, viewer_controls_gui],
         gap=0.75,
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ### Full Scene
+    """)
     return
 
 
@@ -171,24 +213,28 @@ def _(viewer):
 @app.cell(hide_code=True)
 def _():
     mo.md("""
+    ### Filtered Scene
+    """)
+    return
+
+
+@app.cell
+def _(filtered_viewer):
+    filtered_viewer
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
     ## Score Distribution
     """)
     return
 
 
 @app.cell
-def _():
-    score_refresh = mo.ui.refresh(
-        options=[0.25, 0.5, 1.0, 2.0],
-        default_interval=0.5,
-        label="Live refresh (s)",
-    )
-    return (score_refresh,)
-
-
-@app.cell
-def _(score_histogram, score_refresh):
-    mo.vstack([score_refresh, score_histogram], gap=0.75)
+def _(score_plot):
+    score_plot
     return
 
 
@@ -307,45 +353,86 @@ def depth_to_image(
 
 
 @app.function
-def score_histogram_chart(score_values, *, num_buckets: int = 50):
-    """Build an Altair histogram for the current Gaussian impact scores."""
+def score_filter_mask(
+    score_values,
+    *,
+    min_score: float = 1e-3,
+    keep_mode: str = "higher",
+    require_positive: bool = True,
+):
+    """Return a boolean mask for score filtering."""
+    flattened_scores = np.asarray(score_values, dtype=np.float32).reshape(-1)
+    finite_mask = np.isfinite(flattened_scores)
+    threshold = float(max(0.0, min_score))
+    if keep_mode == "lower":
+        threshold_mask = flattened_scores <= threshold
+    else:
+        threshold_mask = flattened_scores >= threshold
+    mask = finite_mask & threshold_mask
+    if require_positive:
+        mask &= flattened_scores > 0.0
+    return flattened_scores, mask, threshold
+
+
+@app.function
+def score_scatter_chart(
+    score_values,
+    *,
+    max_points: int = 5000,
+    min_score: float = 1e-3,
+    keep_mode: str = "higher",
+):
+    """Build a sorted Altair scatterplot for the current impact scores."""
     if score_values is None:
         return mo.callout(
             "Move the viewer to render the current POP scores.",
             kind="info",
         )
 
-    flattened = np.asarray(score_values, dtype=np.float32).reshape(-1)
-    finite_scores = flattened[np.isfinite(flattened)]
-    if finite_scores.size == 0:
+    flattened_scores, mask, threshold = score_filter_mask(
+        score_values,
+        min_score=min_score,
+        keep_mode=keep_mode,
+        require_positive=True,
+    )
+    finite_scores = flattened_scores[np.isfinite(flattened_scores)]
+    total_score_count = finite_scores.size
+    positive_scores = flattened_scores[mask]
+    if positive_scores.size == 0:
         return mo.callout(
-            "The current render did not produce any finite Gaussian scores.",
+            "The current render did not produce any positive scores matching the filter.",
             kind="warn",
         )
 
-    counts, bin_edges = np.histogram(
-        finite_scores,
-        bins=max(1, int(num_buckets)),
+    sorted_scores = np.sort(positive_scores)[::-1]
+    target_points = min(max(1, int(max_points)), int(sorted_scores.size))
+    sampled_indices = np.linspace(
+        0,
+        sorted_scores.size - 1,
+        num=target_points,
+        dtype=np.int64,
     )
+    sampled_scores = sorted_scores[sampled_indices]
     rows = [
         {
-            "score_start": float(bin_edges[index]),
-            "score_end": float(bin_edges[index + 1]),
-            "count": int(counts[index]),
+            "rank": int(rank_index) + 1,
+            "score": float(score),
         }
-        for index in range(len(counts))
+        for rank_index, score in zip(sampled_indices, sampled_scores, strict=True)
     ]
     chart = (
         alt.Chart(alt.Data(values=rows))
-        .mark_bar(color="#0f766e")
+        .mark_circle(color="#0f766e", opacity=0.45, size=16)
         .encode(
-            x=alt.X("score_start:Q", title="Score"),
-            x2="score_end:Q",
-            y=alt.Y("count:Q", title="Number of gaussians"),
+            x=alt.X("rank:Q", title="Gaussian rank (sorted descending by score)"),
+            y=alt.Y(
+                "score:Q",
+                title="Score",
+                scale=alt.Scale(type="log"),
+            ),
             tooltip=[
-                alt.Tooltip("score_start:Q", title="Score from"),
-                alt.Tooltip("score_end:Q", title="Score to"),
-                alt.Tooltip("count:Q", title="Gaussians"),
+                alt.Tooltip("rank:Q", title="Gaussian rank"),
+                alt.Tooltip("score:Q", title="Score"),
             ],
         )
         .properties(height=320)
@@ -353,8 +440,11 @@ def score_histogram_chart(score_values, *, num_buckets: int = 50):
     return mo.vstack(
         [
             mo.md(
-                f"Showing `{finite_scores.size:,}` Gaussian POP scores "
-                "from the latest viewer render."
+                f"Showing `{positive_scores.size:,}` positive Gaussian POP scores "
+                f"out of `{total_score_count:,}` from the latest viewer render. "
+                f"`Keep` is set to `{keep_mode}` with threshold `{threshold:.3g}`. "
+                f"The scatterplot shows `{target_points:,}` sampled points "
+                "sorted by score in descending order on a log-scaled y-axis."
             ),
             chart,
         ],
@@ -362,10 +452,48 @@ def score_histogram_chart(score_values, *, num_buckets: int = 50):
     )
 
 
+@app.function
+def filter_scene_by_scores(
+    scene: SplatScene | None,
+    score_values: np.ndarray | None,
+    *,
+    threshold: float,
+    keep_mode: str,
+) -> SplatScene | None:
+    """Filter a scene by the latest per-Gaussian score values."""
+    if scene is None or score_values is None:
+        return None
+
+    flattened_scores, mask, _threshold = score_filter_mask(
+        score_values,
+        min_score=threshold,
+        keep_mode=keep_mode,
+        require_positive=True,
+    )
+    if flattened_scores.shape[0] != int(scene.center_positions.shape[0]):
+        return None
+    if not np.any(mask):
+        return None
+
+    torch_mask = torch.from_numpy(mask).to(
+        device=scene.center_positions.device,
+        dtype=torch.bool,
+    )
+    return SplatScene(
+        center_positions=scene.center_positions[torch_mask],
+        log_half_extents=scene.log_half_extents[torch_mask],
+        quaternion_orientation=scene.quaternion_orientation[torch_mask],
+        spherical_harmonics=scene.spherical_harmonics[torch_mask],
+        opacity_logits=scene.opacity_logits[torch_mask],
+        sh_degree=scene.sh_degree,
+    )
+
+
 @app.cell
 def _():
     viewer_state = ViewerState(camera_convention="opencv")
-    return (viewer_state,)
+    filtered_viewer_state = ViewerState(camera_convention="opencv")
+    return filtered_viewer_state, viewer_state
 
 
 @app.cell
@@ -412,12 +540,17 @@ def _(load_bindings, load_form_gui_state, load_json_gui_state):
 
 
 @app.cell
-def _(load_config, viewer_state):
+def _(filtered_viewer_state, load_config, viewer_state):
     if mo.running_in_notebook():
         cleanup_before_splat_reload(
             viewer_state,
             close_existing_viewer=True,
             empty_cuda_cache=True,
+        )
+        cleanup_before_splat_reload(
+            filtered_viewer_state,
+            close_existing_viewer=True,
+            empty_cuda_cache=False,
         )
         scene = (
             None
@@ -487,7 +620,7 @@ def rasterize_scene(
     render_output = sk.render(
         backend_scene,
         backend_camera.to(scene.center_positions.device),
-        backend="gaussian_pop_native",
+        backend="gaussian_pop",
         return_depth=view_mode == "depth",
         return_gaussian_impact_score=True,
     )
@@ -527,6 +660,12 @@ def _(scene, viewer_pipeline, viewer_state):
 
 
 @app.cell
+def _(filtered_viewer_state, scene, viewer_pipeline):
+    filtered_pipeline_result = viewer_pipeline.build(scene, filtered_viewer_state)
+    return (filtered_pipeline_result,)
+
+
+@app.cell
 def _(backend_bundle, pipeline_result, viewer_state):
     viewer_controls = viewer_pipeline_controls_gui(
         viewer_state,
@@ -545,6 +684,12 @@ def _():
 
 
 @app.cell
+def _():
+    render_revision_state, set_render_revision_state = mo.state(0)
+    return render_revision_state, set_render_revision_state
+
+
+@app.cell
 def _(
     colormap,
     invert_colormap,
@@ -557,7 +702,7 @@ def _(
     viewer_controls_gui,
     viewer_state,
 ):
-    cache = {"config_json": None, "render_fn": None}
+    main_viewer_cache = {"config_json": None, "render_fn": None}
 
     def render_frame(camera_state):
         combined_config = viewer_controls_gui.value
@@ -572,7 +717,10 @@ def _(
             f"{selected_invert_colormap}:"
             f"{combined_config.model_dump_json()}"
         )
-        if cache["render_fn"] is None or config_json != cache["config_json"]:
+        if (
+            main_viewer_cache["render_fn"] is None
+            or config_json != main_viewer_cache["config_json"]
+        ):
             pipeline_config = apply_viewer_pipeline_config(
                 viewer_state,
                 combined_config,
@@ -592,12 +740,12 @@ def _(
                     score_store["values"] = score_values
                 return render_result
 
-            cache["render_fn"] = pipeline_result.bind(
+            main_viewer_cache["render_fn"] = pipeline_result.bind(
                 pipeline_config,
                 backend_fn=backend_fn,
             )
-            cache["config_json"] = config_json
-        return cache["render_fn"](camera_state).image
+            main_viewer_cache["config_json"] = config_json
+        return main_viewer_cache["render_fn"](camera_state).image
 
     viewer = Viewer(
         render_frame,
@@ -608,15 +756,140 @@ def _(
 
 
 @app.cell
-def _(score_bucket_count, score_refresh, score_store, score_store_lock):
-    _ = score_refresh.value
+def _(
+    colormap,
+    filtered_pipeline_result,
+    filtered_viewer_state,
+    invert_colormap,
+    keep_mode,
+    normalization_bias,
+    normalization_percent,
+    score_filter_threshold,
+    score_store,
+    score_store_lock,
+    view_mode,
+    viewer_controls_gui,
+):
+    filtered_viewer_cache = {"config_json": None, "render_fn": None}
+
+    def render_filtered(camera_state):
+        combined_config = viewer_controls_gui.value
+        selected_colormap = colormap.value
+        selected_invert_colormap = invert_colormap.value
+        selected_quantile_bias = normalization_bias.value
+        selected_quantile_percent = normalization_percent.value
+        selected_view_mode = view_mode.value
+        selected_keep_mode = keep_mode.value
+        selected_threshold = score_filter_threshold.value or 0.0
+        config_json = (
+            f"{selected_view_mode}:{selected_colormap}:"
+            f"{selected_quantile_percent}:{selected_quantile_bias}:"
+            f"{selected_invert_colormap}:{selected_keep_mode}:"
+            f"{selected_threshold}:{combined_config.model_dump_json()}"
+        )
+        if (
+            filtered_viewer_cache["render_fn"] is None
+            or config_json != filtered_viewer_cache["config_json"]
+        ):
+            pipeline_config = apply_viewer_pipeline_config(
+                filtered_viewer_state,
+                combined_config,
+            )
+
+            def backend_fn(camera, compiled_view):
+                with score_store_lock:
+                    score_values = score_store["values"]
+                filtered_scene = filter_scene_by_scores(
+                    compiled_view,
+                    score_values,
+                    threshold=selected_threshold,
+                    keep_mode=selected_keep_mode,
+                )
+                render_result, _ = rasterize_scene(
+                    camera,
+                    filtered_scene,
+                    view_mode=selected_view_mode,
+                    colormap=selected_colormap,
+                    quantile_percent=selected_quantile_percent,
+                    quantile_bias=selected_quantile_bias,
+                    invert_colormap=selected_invert_colormap,
+                )
+                return render_result
+
+            filtered_viewer_cache["render_fn"] = filtered_pipeline_result.bind(
+                pipeline_config,
+                backend_fn=backend_fn,
+            )
+            filtered_viewer_cache["config_json"] = config_json
+        return filtered_viewer_cache["render_fn"](camera_state).image
+
+    filtered_viewer = Viewer(
+        render_filtered,
+        state=filtered_viewer_state,
+    )
+    return (filtered_viewer,)
+
+
+@app.cell
+def _(filtered_viewer_state, viewer_state):
+    if active_link["handle"] is not None:
+        active_link["handle"].close()
+        active_link["handle"] = None
+
+    active_link["handle"] = link_viewer_states(
+        viewer_state,
+        filtered_viewer_state,
+        fields=(
+            "camera_state",
+            "show_axes",
+            "show_horizon",
+            "show_origin",
+            "show_stats",
+        ),
+        bidirectional=True,
+    )
+    return
+
+
+@app.cell
+def _(filtered_viewer, set_render_revision_state, viewer):
+    previous_widget = active_render_observer["widget"]
+    previous_callback = active_render_observer["callback"]
+    if previous_widget is not None and previous_callback is not None:
+        previous_widget.unobserve(previous_callback, names=["render_revision"])
+
+    widget = viewer.anywidget()
+
+    def _on_render_revision(change):
+        set_render_revision_state(int(change["new"]))
+        filtered_viewer.rerender()
+
+    widget.observe(_on_render_revision, names=["render_revision"])
+    active_render_observer["widget"] = widget
+    active_render_observer["callback"] = _on_render_revision
+    set_render_revision_state(int(widget.render_revision))
+    return
+
+
+@app.cell
+def _(
+    keep_mode,
+    render_revision_state,
+    score_filter_threshold,
+    score_plot_points,
+    score_store,
+    score_store_lock,
+):
+    _ = render_revision_state()
     with score_store_lock:
         score_values = score_store["values"]
-    score_histogram = score_histogram_chart(
+    score_plot = score_scatter_chart(
         score_values,
-        num_buckets=score_bucket_count.value,
+        max_points=score_plot_points.value,
+        min_score=score_filter_threshold.value or 0.0,
+        keep_mode=keep_mode.value,
     )
-    return (score_histogram,)
+    return (score_plot,)
 
 
 if __name__ == "__main__":

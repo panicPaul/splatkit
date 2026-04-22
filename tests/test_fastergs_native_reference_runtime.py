@@ -8,10 +8,10 @@ from textwrap import dedent
 
 import pytest
 import torch
-from splatkit_native_backends.faster_gs_depth_native.runtime import (
+from splatkit_native_backends.faster_gs_depth.runtime import (
     render as render_depth,
 )
-from splatkit_native_backends.faster_gs_native.runtime import render
+from splatkit_native_backends.faster_gs.runtime import render
 
 
 def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
@@ -34,7 +34,7 @@ def _subprocess_env() -> dict[str, str]:
     repo_root = _repo_root()
     pythonpath_parts = [
         str(repo_root / "packages" / "splatkit-native-backends" / "src"),
-        str(repo_root / "packages" / "splatkit-backends" / "src"),
+        str(repo_root / "packages" / "splatkit-adapter-backends" / "src"),
         str(repo_root / "packages" / "splatkit" / "src"),
     ]
     existing = os.environ.get("PYTHONPATH")
@@ -169,7 +169,7 @@ def test_render_matches_reference_cuda_backend(cuda_scene, cuda_camera) -> None:
             import torch
             from FasterGSCudaBackend import RasterizerSettings, diff_rasterize
             from splatkit.core import CameraState, GaussianScene3D
-            from splatkit_native_backends.faster_gs_native.runtime import render
+            from splatkit_native_backends.faster_gs.runtime import render
 
             scene = GaussianScene3D(
                 center_position=torch.tensor(
@@ -273,7 +273,7 @@ def test_render_gradients_match_reference_cuda_backend(
             import torch
             from FasterGSCudaBackend import RasterizerSettings, diff_rasterize
             from splatkit.core import CameraState, GaussianScene3D
-            from splatkit_native_backends.faster_gs_native.runtime import render
+            from splatkit_native_backends.faster_gs.runtime import render
 
             scene = GaussianScene3D(
                 center_position=torch.tensor(

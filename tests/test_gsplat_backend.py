@@ -8,7 +8,7 @@ from splatkit.core import (
     RenderWithDepthProjectiveIntersectionTransforms,
     render,
 )
-from splatkit_backends.gsplat import (
+from splatkit_adapter_backends.gsplat import (
     GsplatAlphaRenderOutput,
     GsplatRenderOptions,
     GsplatRenderOutput,

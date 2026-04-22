@@ -5,8 +5,8 @@ from typing import cast
 import pytest
 import torch
 from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_native_backends.stoch3dgs_native import renderer as stoch3dgs_native_renderer
-from splatkit_native_backends.stoch3dgs_native import (
+from splatkit_native_backends.stoch3dgs import renderer as stoch3dgs_native_renderer
+from splatkit_native_backends.stoch3dgs import (
     Stoch3DGSNativeRenderOptions,
     Stoch3DGSNativeRenderOutput,
     register,
@@ -140,10 +140,10 @@ def test_generic_render_dispatches_to_stoch3dgs_native(
 
     output = cast(
         Stoch3DGSNativeRenderOutput,
-        render(cuda_scene, cuda_camera, backend="stoch3dgs_native"),
+        render(cuda_scene, cuda_camera, backend="stoch3dgs_traced"),
     )
 
-    assert BACKEND_REGISTRY["stoch3dgs_native"].name == "stoch3dgs_native"
+    assert BACKEND_REGISTRY["stoch3dgs_traced"].name == "stoch3dgs_traced"
     assert output.depth.shape == (1, 32, 32)
 
 

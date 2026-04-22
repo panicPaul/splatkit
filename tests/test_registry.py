@@ -7,7 +7,7 @@ from splatkit.core import (
     RenderOptions,
     render,
 )
-from splatkit_backends.gsplat import (
+from splatkit_adapter_backends.gsplat import (
     GsplatRenderOptions,
     render_gsplat,
     render_gsplat_2dgs,

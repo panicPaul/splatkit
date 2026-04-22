@@ -5,14 +5,14 @@ from typing import cast
 import pytest
 import torch
 from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_backends.fastergs import (
+from splatkit_adapter_backends.fastergs import (
     FasterGSRenderOutput,
     render_fastergs,
 )
-from splatkit_backends.fastergs import (
+from splatkit_adapter_backends.fastergs import (
     register as register_fastergs,
 )
-from splatkit_native_backends.faster_gs_native import (
+from splatkit_native_backends.faster_gs import (
     FasterGSNativeRenderOutput,
     register,
     render_faster_gs_native,
@@ -46,10 +46,10 @@ def test_generic_render_dispatches_to_faster_gs_native(
 ) -> None:
     output = cast(
         FasterGSNativeRenderOutput,
-        render(cuda_scene, cuda_camera, backend="faster_gs_native"),
+        render(cuda_scene, cuda_camera, backend="faster_gs"),
     )
 
-    assert BACKEND_REGISTRY["faster_gs_native"].name == "faster_gs_native"
+    assert BACKEND_REGISTRY["faster_gs"].name == "faster_gs"
     assert output.render.shape == (1, 32, 32, 3)
 
 
@@ -109,4 +109,3 @@ def test_render_faster_gs_native_rejects_2d_projections(
             cpu_camera,
             return_2d_projections=True,
         )
-

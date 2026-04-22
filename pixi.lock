@@ -317,7 +317,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c8/60/4ea0d6df0b497d51bf2ef87eaab0eb26f8bc3b3313c012da5df3383cced9/yourdfpy-0.0.60-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/4b/e3678b4e776db00f9f7b2fe58e547e8928ef32727d7a1ff01dea010f3f13/zstandard-0.25.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: ./packages/splatkit
-      - pypi: ./packages/splatkit-backends
+      - pypi: ./packages/splatkit-adapter-backends
       - pypi: ./third_party/diff-gaussian-rasterization
       - pypi: ./third_party/faster-gaussian-splatting/FasterGSCudaBackend
       - pypi: ./third_party/marimo-3dv
@@ -665,7 +665,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c8/60/4ea0d6df0b497d51bf2ef87eaab0eb26f8bc3b3313c012da5df3383cced9/yourdfpy-0.0.60-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/4b/e3678b4e776db00f9f7b2fe58e547e8928ef32727d7a1ff01dea010f3f13/zstandard-0.25.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: ./packages/splatkit
-      - pypi: ./packages/splatkit-backends
+      - pypi: ./packages/splatkit-adapter-backends
       - pypi: ./third_party/diff-gaussian-rasterization
       - pypi: ./third_party/faster-gaussian-splatting/FasterGSCudaBackend
       - pypi: ./third_party/marimo-3dv
@@ -987,7 +987,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c8/60/4ea0d6df0b497d51bf2ef87eaab0eb26f8bc3b3313c012da5df3383cced9/yourdfpy-0.0.60-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/4b/e3678b4e776db00f9f7b2fe58e547e8928ef32727d7a1ff01dea010f3f13/zstandard-0.25.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: ./packages/splatkit
-      - pypi: ./packages/splatkit-backends
+      - pypi: ./packages/splatkit-adapter-backends
       - pypi: ./third_party/diff-gaussian-rasterization
       - pypi: ./third_party/faster-gaussian-splatting/FasterGSCudaBackend
       - pypi: ./third_party/marimo-3dv
@@ -5696,8 +5696,8 @@ packages:
   - torch>=2.11.0 ; extra == 'cu130'
   - marimo-3dv @ file:///home/schlack/Repositories/splatkit/third_party/marimo-3dv ; extra == 'viewer'
   requires_python: '>=3.11'
-- pypi: ./packages/splatkit-backends
-  name: splatkit-backends
+- pypi: ./packages/splatkit-adapter-backends
+  name: splatkit-adapter-backends
   version: 0.1.0a0
   sha256: cdb5a81f4fbbbf4415d82fdc5301415c9360def7bd5f637913f64f9c45d31290
   requires_dist:
