@@ -14,10 +14,10 @@ with app.setup:
     import splatkit_adapter_backends.gsplat as sk_gsplat
     import splatkit_adapter_backends.inria as sk_inria
     import splatkit_adapter_backends.stoch3dgs as sk_stoch
-    import splatkit_native_backends.faster_gs_depth as skn_fastergs_depth
-    import splatkit_native_backends.faster_gs as skn_fastergs
-    import splatkit_native_backends.gaussian_pop as skn_gaussian_pop
-    import splatkit_native_backends.stoch3dgs as skn_stoch
+    import splatkit_native_3dgrt.stoch3dgs as skn_stoch
+    import splatkit_native_faster_gs.faster_gs as skn_fastergs
+    import splatkit_native_faster_gs.faster_gs_depth as skn_fastergs_depth
+    import splatkit_native_faster_gs.gaussian_pop as skn_gaussian_pop
     import torch
     from marimo_3dv import (
         CameraState,
@@ -426,7 +426,7 @@ def rasterize_scene(
     camera: CameraState,
     scene: SplatScene | None,
     *,
-    backend: str = "gsplat",
+    backend: str = "adapter.gsplat",
     view_mode: str = "image",
     colormap: str = "viridis",
     quantile_percent: float = 90.0,
@@ -460,7 +460,9 @@ def rasterize_scene(
         "backend": backend,
         "return_alpha": view_mode == "alpha",
         "return_depth": view_mode == "depth",
-        "return_2d_projections": backend == "gsplat" and view_mode == "image",
+        "return_2d_projections": (
+            backend == "adapter.gsplat" and view_mode == "image"
+        ),
     }
     render_output = sk.render(
         backend_scene,
@@ -488,7 +490,7 @@ def rasterize_scene(
         image_uint8 = (image * 255).astype(np.uint8)
 
     metadata = {}
-    if backend == "gsplat" and view_mode == "image":
+    if backend == "adapter.gsplat" and view_mode == "image":
         projected_means = getattr(render_output, "projected_means", None)
         projected_conics = getattr(render_output, "projected_conics", None)
         if projected_means is not None and projected_conics is not None:

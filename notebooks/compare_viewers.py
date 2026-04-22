@@ -20,7 +20,7 @@ with app.setup:
     import splatkit_adapter_backends.gsplat as sk_gsplat
     import splatkit_adapter_backends.inria as sk_inria
     import splatkit_adapter_backends.stoch3dgs as sk_stoch
-    import splatkit_adapter_backends.svraster as sk_svraster
+    import splatkit_native_svraster.svraster as sk_svraster
     import torch
     from marimo_3dv import (
         CameraState,

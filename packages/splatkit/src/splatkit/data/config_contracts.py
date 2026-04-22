@@ -115,6 +115,13 @@ class MaterializationConfig(DataConfigBase):
 class DatasetRuntimeConfig(DataConfigBase):
     """Runtime knobs for prepared dataset construction."""
 
+    camera_sensor_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional camera sensor id to materialize when a SceneDataset "
+            "contains multiple camera streams."
+        ),
+    )
     split: SplitConfig | None = Field(
         default_factory=SplitConfig,
         description=(
@@ -189,6 +196,13 @@ class DatasetConfig(DataConfigBase, ABC):
 class FrameDatasetConfig(DataConfigBase):
     """Legacy dataset-side configuration for prepared frame loading."""
 
+    camera_sensor_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional camera sensor id to materialize when a SceneDataset "
+            "contains multiple camera streams."
+        ),
+    )
     split: SplitConfig | None = Field(
         default_factory=SplitConfig,
         description=(

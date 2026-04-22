@@ -15,7 +15,13 @@ from splatkit.core.contracts import (
     SparseVoxelScene,
 )
 from splatkit.core.registry import BACKEND_REGISTRY, register_backend
-from splatkit.data.contracts import DatasetFrame, PointCloudState, SceneDataset
+from splatkit.data.contracts import (
+    CameraSensorDataset,
+    DatasetFrame,
+    PathCameraImageSource,
+    PointCloudState,
+    SceneDataset,
+)
 from splatkit.densification import (
     DensificationContext,
     DensificationRenderRequirements,
@@ -262,14 +268,14 @@ def build_dataset(tmp_path: Path) -> SceneDataset:
     frames = (
         DatasetFrame(
             frame_id="0",
-            image_path=image_a,
+            sensor_id="camera",
             camera_index=0,
             width=1,
             height=1,
         ),
         DatasetFrame(
             frame_id="1",
-            image_path=image_b,
+            sensor_id="camera",
             camera_index=1,
             width=1,
             height=1,
@@ -278,16 +284,26 @@ def build_dataset(tmp_path: Path) -> SceneDataset:
     cam_to_world = (
         torch.eye(4, dtype=torch.float32).unsqueeze(0).repeat(2, 1, 1)
     )
-    return SceneDataset(
+    camera_sensor = CameraSensorDataset(
+        sensor_id="camera",
+        kind="camera",
         frames=frames,
+        timestamps_us=(None, None),
         camera=CameraState(
             width=torch.tensor([1, 1], dtype=torch.int64),
             height=torch.tensor([1, 1], dtype=torch.int64),
             fov_degrees=torch.tensor([60.0, 60.0], dtype=torch.float32),
             cam_to_world=cam_to_world,
         ),
+        image_source=PathCameraImageSource(
+            frame_paths={"0": image_a, "1": image_b}
+        ),
+    )
+    return SceneDataset(
+        sensors=(camera_sensor,),
         source_format="colmap",
-        root_path=tmp_path,
+        default_camera_sensor_id="camera",
+        source_uris=(str(tmp_path),),
         point_cloud=PointCloudState(
             points=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float32),
             colors=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float32),
@@ -531,6 +547,12 @@ def test_checkpoint_metadata_records_reproducibility_fields(
     assert metadata.backend_name == "unit_test_backend"
     assert f"{MODULE_NAME}.rgb_l2_loss" in metadata.import_paths
     assert metadata.dataset_summary["num_frames"] == 2
+    assert metadata.dataset_summary["source_format"] == "colmap"
+    assert metadata.dataset_summary["source_uris"] == [str(tmp_path)]
+    assert metadata.dataset_summary["available_camera_sensor_ids"] == [
+        "camera"
+    ]
+    assert metadata.dataset_summary["default_camera_sensor_id"] == "camera"
 
 
 def test_export_ply_omits_scene_payload_for_gaussian_scene(

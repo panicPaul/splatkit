@@ -165,9 +165,9 @@ def test_render_stoch3dgs_beartype_rejects_wrong_options(
 
 
 def test_registry_contains_stoch3dgs() -> None:
-    assert "stoch3dgs" in BACKEND_REGISTRY
+    assert "adapter.stoch3dgs" in BACKEND_REGISTRY
     assert isinstance(
-        BACKEND_REGISTRY["stoch3dgs"].default_options,
+        BACKEND_REGISTRY["adapter.stoch3dgs"].default_options,
         Stoch3DGSRenderOptions,
     )
 
@@ -196,7 +196,7 @@ def test_generic_render_stoch3dgs_returns_depth(
         render(
             cuda_scene,
             cuda_camera,
-            backend="stoch3dgs",
+            backend="adapter.stoch3dgs",
             return_depth=True,
         ),
     )

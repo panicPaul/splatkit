@@ -168,6 +168,7 @@ def build_dataloader(
     """Build the camera-batched dataloader."""
     frame_dataset = FrameDataset(
         dataset,
+        camera_sensor_id=config.batching.camera_sensor_id,
         preparation=_build_preparation(config),
         materialization_stage=config.batching.materialization_stage,
         materialization_mode=config.batching.materialization_mode,

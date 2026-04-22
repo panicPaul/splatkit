@@ -88,9 +88,11 @@ def _dataset_summary(dataset: SceneDataset) -> dict[str, Any]:
     return {
         "num_frames": dataset.num_frames,
         "source_format": dataset.source_format,
-        "root_path": None
-        if dataset.root_path is None
-        else str(dataset.root_path),
+        "source_uris": None
+        if dataset.source_uris is None
+        else list(dataset.source_uris),
+        "available_camera_sensor_ids": list(dataset.available_camera_sensor_ids),
+        "default_camera_sensor_id": dataset.default_camera_sensor_id,
         "has_point_cloud": dataset.point_cloud is not None,
     }
 

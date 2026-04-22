@@ -5,8 +5,8 @@ from typing import cast
 import pytest
 import torch
 from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_native_backends.stoch3dgs import renderer as stoch3dgs_native_renderer
-from splatkit_native_backends.stoch3dgs import (
+from splatkit_native_3dgrt.stoch3dgs import renderer as stoch3dgs_native_renderer
+from splatkit_native_3dgrt.stoch3dgs import (
     Stoch3DGSNativeRenderOptions,
     Stoch3DGSNativeRenderOutput,
     register,
@@ -98,7 +98,7 @@ def test_render_stoch3dgs_native_returns_full_surface(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_native_backends.traced_native_core.runtime.state._make_tracer_wrapper",
+        "splatkit_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: _FakeOptixTracer(),
     )
 
@@ -134,16 +134,16 @@ def test_generic_render_dispatches_to_stoch3dgs_native(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_native_backends.traced_native_core.runtime.state._make_tracer_wrapper",
+        "splatkit_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: _FakeOptixTracer(),
     )
 
     output = cast(
         Stoch3DGSNativeRenderOutput,
-        render(cuda_scene, cuda_camera, backend="stoch3dgs_traced"),
+        render(cuda_scene, cuda_camera, backend="3dgrt.stoch3dgs"),
     )
 
-    assert BACKEND_REGISTRY["stoch3dgs_traced"].name == "stoch3dgs_traced"
+    assert BACKEND_REGISTRY["3dgrt.stoch3dgs"].name == "3dgrt.stoch3dgs"
     assert output.depth.shape == (1, 32, 32)
 
 
@@ -174,7 +174,7 @@ def test_render_stoch3dgs_native_builds_bvh_with_contiguous_fields(
     stoch3dgs_native_renderer._STATE_TOKEN_CACHE.clear()
     tracer = _ContiguityCheckingOptixTracer()
     monkeypatch.setattr(
-        "splatkit_native_backends.traced_native_core.runtime.state._make_tracer_wrapper",
+        "splatkit_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: tracer,
     )
 

@@ -11,19 +11,32 @@ Official backend adapters for `splatkit`.
 These official adapters are examples and conveniences, not privileged integrations.
 `splatkit` is designed so you can write and register your own backend packages without depending on this repository.
 
+SVRaster is no longer part of this package. It now lives in the
+`splatkit-native-svraster` family package.
+
+## Upstream References
+
+- GraphDeco / Inria 3D Gaussian Splatting: https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/
+- gsplat: https://docs.gsplat.studio/main/
+- FasterGS: https://fhahlbohm.github.io/faster-gaussian-splatting/
+- FastGS: https://fastgs.github.io/
+- Stoch3DGS: https://xupaya.github.io/stoch3DGS/
+
+The backend subpackages under `src/splatkit_adapter_backends/` include short
+local READMEs pointing back to the upstream backend each adapter wraps.
+
 ## Supported Backends
 
 Currently registered backends in this package:
 
 | Backend name | Scene type | Alpha | Depth | Normals | 2D projections | Projective intersection transforms | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `fastgs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB plus backend-specific FastGS refinement signals |
-| `gsplat_2dgs` | `GaussianScene2D` | ✅ | ✅ | ❌ | ❌ | ✅ | 2D Gaussian backend via `gsplat.rasterization_2dgs` |
-| `fastergs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB-only FasterGS adapter |
-| `gsplat` | `GaussianScene3D` | ✅ | ✅ | ❌ | ✅ | ❌ | 3D Gaussian backend via `gsplat.rasterization` |
-| `inria` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | GraphDeco/Inria rasterizer adapter |
-| `stoch3dgs` | `GaussianScene3D` | ✅ | ✅ | ❌ | ❌ | ❌ | Stochastic 3DGRT adapter |
-| `svraster` | `SparseVoxelScene` | ❌ | ✅ | ❌ | ❌ | ❌ | Sparse voxel rasterization backend |
+| `adapter.fastgs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB plus backend-specific FastGS refinement signals |
+| `adapter.fastergs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB-only FasterGS adapter |
+| `adapter.gsplat` | `GaussianScene3D` | ✅ | ✅ | ❌ | ✅ | ❌ | 3D Gaussian backend via `gsplat.rasterization` |
+| `adapter.gsplat_2dgs` | `GaussianScene2D` | ✅ | ✅ | ❌ | ❌ | ✅ | 2D Gaussian backend via `gsplat.rasterization_2dgs` |
+| `adapter.inria` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | GraphDeco/Inria rasterizer adapter |
+| `adapter.stoch3dgs` | `GaussianScene3D` | ✅ | ✅ | ❌ | ❌ | ❌ | Stochastic 3DGRT adapter |
 
 Capability notes:
 - `alpha`: per-pixel accumulated opacity/transmittance output.
@@ -37,7 +50,6 @@ Current extras:
 - `fastgs`: installs the local `FastGS` rasterizer runtime dependency
 - `fastergs`: installs the local `faster-gaussian-splatting` runtime dependency
 - `inria`: installs the local `diff-gaussian-rasterization` runtime dependency
-- `svraster`: installs the local `new_svraster_cuda` runtime dependency
 - `stoch3dgs`: installs the local `Stoch3DGS` runtime dependency
 - `all`: installs all officially supported backend runtime dependencies
 
@@ -70,12 +82,6 @@ With the Inria backend dependency:
 
 ```bash
 pip install "splatkit-adapter-backends[inria]"
-```
-
-With the SV Raster backend dependency:
-
-```bash
-pip install "splatkit-adapter-backends[svraster]"
 ```
 
 With the Stoch3DGS backend dependency:
@@ -113,7 +119,7 @@ import splatkit_adapter_backends.gsplat as sk_gsplat
 
 sk_gsplat.register()
 
-output = sk.render(scene, camera, backend="gsplat")
+output = sk.render(scene, camera, backend="adapter.gsplat")
 ```
 
 `splatkit_adapter_backends.gsplat` currently also auto-registers on import for compatibility, but `register()` is the intended public pattern.
@@ -172,7 +178,6 @@ src/splatkit_adapter_backends/
   gsplat/
   inria/
   stoch3dgs/
-  svraster/
 ```
 
 In the monorepo, this package lives under `packages/splatkit-adapter-backends`.

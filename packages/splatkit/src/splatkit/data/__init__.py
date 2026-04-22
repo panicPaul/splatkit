@@ -35,6 +35,7 @@ from splatkit.data.config import (
     ColmapDatasetConfig,
     MipNerf360IndoorDatasetConfig,
     MipNerf360OutdoorDatasetConfig,
+    NCoreDatasetConfig,
 )
 from splatkit.data.config_contracts import (
     DatasetConfig,
@@ -53,12 +54,18 @@ from splatkit.data.contracts import (
     HasMask,
     HorizonAdjustmentSpec,
     ImagePreparationSpec,
+    NCoreCameraImageSource,
     MaterializationMode,
     MaterializationStage,
+    CameraImageSource,
+    CameraSensorDataset,
+    DatasetSensor,
+    PathCameraImageSource,
     PointCloudState,
     PreparedFrameBatch,
     PreparedFrameSample,
     ResizeSpec,
+    SensorKind,
     SceneDataset,
 )
 from splatkit.data.loaders.colmap import load_colmap_dataset
@@ -70,6 +77,7 @@ from splatkit.data.loaders.must3r import (
     resolve_must3r_checkpoints,
     run_must3r_dataset,
 )
+from splatkit.data.loaders.ncore import load_ncore_dataset
 from splatkit.data.pipes import (
     CachePipeConfig,
     HorizonAlignPipeConfig,
@@ -81,7 +89,7 @@ from splatkit.data.pipes import (
 )
 from splatkit.data.postprocess import adjust_dataset_horizon
 
-DatasetFormat = Literal["colmap", "must3r"]
+DatasetFormat = Literal["colmap", "must3r", "ncore"]
 
 
 def _infer_dataset_format(path: Path) -> DatasetFormat:
@@ -106,6 +114,11 @@ def _load_scene_from_config(config: DatasetConfig) -> SceneDataset:
             config.path,
             image_root=config.image_root,
             undistort_output_dir=config.undistort_output_dir,
+        )
+    elif isinstance(config, NCoreDatasetConfig):
+        dataset = load_ncore_dataset(
+            config.component_group_paths,
+            camera_sensor_id=config.camera_sensor_id,
         )
     else:
         raise ValueError(f"Unsupported dataset config type {type(config)!r}.")
@@ -144,6 +157,7 @@ def _compile_runtime_frame_config(config: DatasetConfig) -> FrameDatasetConfig:
             raise ValueError(f"Unsupported prepare pipe {type(pipe)!r}.")
 
     return FrameDatasetConfig(
+        camera_sensor_id=config.runtime.camera_sensor_id,
         split=config.runtime.split,
         materialization=config.runtime.materialization,
         image_preparation=image_preparation,
@@ -185,6 +199,11 @@ def load_dataset(
         return load_colmap_dataset(resolved_path, **kwargs)
     if resolved_format == "must3r":
         return load_must3r_dataset(resolved_path, **kwargs)
+    if resolved_format == "ncore":
+        raise ValueError(
+            "Raw path loading does not support ncore datasets. "
+            "Use NCoreDatasetConfig instead."
+        )
     raise ValueError(f"Unsupported dataset format {resolved_format!r}.")
 
 
@@ -196,6 +215,9 @@ __all__ = [
     "DatasetFrame",
     "DatasetRuntimeConfig",
     "DecodedFrameSample",
+    "CameraImageSource",
+    "CameraSensorDataset",
+    "DatasetSensor",
     "FrameDataset",
     "FrameDatasetConfig",
     "HasCamera",
@@ -211,15 +233,19 @@ __all__ = [
     "MaterializationStage",
     "MipNerf360IndoorDatasetConfig",
     "MipNerf360OutdoorDatasetConfig",
+    "NCoreCameraImageSource",
+    "NCoreDatasetConfig",
     "Must3rCheckpointPaths",
     "Must3rRuntime",
     "NormalizePipeConfig",
+    "PathCameraImageSource",
     "PointCloudState",
     "PreparePipeConfig",
     "PreparedFrameBatch",
     "PreparedFrameSample",
     "ResizePipeConfig",
     "ResizeSpec",
+    "SensorKind",
     "SceneDataset",
     "SourcePipeConfig",
     "SplitConfig",
@@ -229,6 +255,7 @@ __all__ = [
     "load_colmap_dataset",
     "load_dataset",
     "load_must3r_dataset",
+    "load_ncore_dataset",
     "resolve_must3r_checkpoints",
     "run_must3r_dataset",
 ]

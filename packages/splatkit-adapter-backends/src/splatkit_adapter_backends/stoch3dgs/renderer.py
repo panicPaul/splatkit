@@ -352,7 +352,7 @@ def render_stoch3dgs(
 def register() -> None:
     """Register the Stoch3DGS backend in the global splatkit registry."""
     register_backend(
-        name="stoch3dgs",
+        name="adapter.stoch3dgs",
         default_options=Stoch3DGSRenderOptions(),
         accepted_scene_types=(GaussianScene3D,),
         supported_outputs=_SUPPORTED_OUTPUTS,

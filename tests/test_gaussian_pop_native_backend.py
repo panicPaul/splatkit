@@ -6,17 +6,17 @@ from typing import cast
 import pytest
 import torch
 from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_native_backends.faster_gs_depth import (
+from splatkit_native_faster_gs.faster_gs_depth import (
     FasterGSDepthNativeDepthRenderOutput,
     register as register_depth,
     render_faster_gs_depth,
 )
-from splatkit_native_backends.faster_gs import (
+from splatkit_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     register as register_root,
     render_faster_gs_native,
 )
-from splatkit_native_backends.gaussian_pop import (
+from splatkit_native_faster_gs.gaussian_pop import (
     GaussianPopNativeDepthGaussianImpactScoreRenderOutput,
     GaussianPopNativeGaussianImpactScoreRenderOutput,
     register,
@@ -162,13 +162,16 @@ def test_generic_render_dispatches_to_gaussian_pop_backend(
         render(
             cuda_visible_scene,
             cuda_camera,
-            backend="gaussian_pop",
+            backend="faster_gs.gaussian_pop",
             return_depth=True,
             return_gaussian_impact_score=True,
         ),
     )
 
-    assert BACKEND_REGISTRY["gaussian_pop"].name == "gaussian_pop"
+    assert (
+        BACKEND_REGISTRY["faster_gs.gaussian_pop"].name
+        == "faster_gs.gaussian_pop"
+    )
     assert output.render.shape == (1, 32, 32, 3)
     assert output.depth.shape == (1, 32, 32)
     assert output.gaussian_impact_score.shape == (

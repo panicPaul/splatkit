@@ -21,13 +21,13 @@ from splatkit_adapter_backends.gsplat.shared import (
 def register() -> None:
     """Register the gsplat backends in the global splatkit registry."""
     register_backend(
-        name="gsplat",
+        name="adapter.gsplat",
         default_options=GsplatRenderOptions(),
         accepted_scene_types=(GaussianScene3D,),
         supported_outputs=SUPPORTED_OUTPUTS_3D,
     )(render_gsplat)
     register_backend(
-        name="gsplat_2dgs",
+        name="adapter.gsplat_2dgs",
         default_options=GsplatRenderOptions(),
         accepted_scene_types=(GaussianScene2D,),
         supported_outputs=SUPPORTED_OUTPUTS_2D,

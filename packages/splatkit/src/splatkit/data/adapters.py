@@ -29,9 +29,7 @@ from splatkit.data.contracts import (
     SceneDataset,
 )
 from splatkit.data.preprocess import (
-    load_image_rgb,
     prepare_decoded_image_and_camera,
-    prepare_image_and_camera,
 )
 
 
@@ -112,6 +110,7 @@ class FrameDataset(Dataset[PreparedFrameSample]):
         dataset: SceneDataset,
         *,
         config: FrameDatasetConfig | None = None,
+        camera_sensor_id: str | None = None,
         preparation: ImagePreparationSpec | None = None,
         materialization_stage: MaterializationStage = "decoded",
         materialization_mode: MaterializationMode = "eager",
@@ -119,7 +118,11 @@ class FrameDataset(Dataset[PreparedFrameSample]):
     ) -> None:
         self.dataset = dataset
         self.config = config
+        resolved_camera_sensor_id = camera_sensor_id
         if config is not None:
+            resolved_camera_sensor_id = (
+                resolved_camera_sensor_id or config.camera_sensor_id
+            )
             self.preparation = _build_preparation(config.image_preparation)
             resolved_materialization = config.materialization
             if resolved_materialization is None:
@@ -132,8 +135,11 @@ class FrameDataset(Dataset[PreparedFrameSample]):
                 self.materialization_num_workers = (
                     resolved_materialization.num_workers
                 )
+            self.camera_stream = dataset.resolve_camera_sensor(
+                resolved_camera_sensor_id
+            )
             self.indices = _resolve_split_indices(
-                dataset.num_frames,
+                len(self.camera_stream.frames),
                 config.split,
             )
         else:
@@ -141,7 +147,10 @@ class FrameDataset(Dataset[PreparedFrameSample]):
             self.materialization_stage = materialization_stage
             self.materialization_mode = materialization_mode
             self.materialization_num_workers = materialization_num_workers
-            self.indices = tuple(range(dataset.num_frames))
+            self.camera_stream = dataset.resolve_camera_sensor(
+                resolved_camera_sensor_id
+            )
+            self.indices = tuple(range(len(self.camera_stream.frames)))
         self._decoded_samples: list[DecodedFrameSample | None] | None = None
         self._prepared_samples: list[PreparedFrameSample | None] | None = None
 
@@ -172,10 +181,10 @@ class FrameDataset(Dataset[PreparedFrameSample]):
 
     def _decode_sample(self, index: int) -> DecodedFrameSample:
         dataset_index = self.indices[index]
-        frame = self.dataset.frames[dataset_index]
-        camera = _select_camera(self.dataset.camera, frame.camera_index)
+        frame = self.camera_stream.frames[dataset_index]
+        camera = _select_camera(self.camera_stream.camera, frame.camera_index)
         image = torch.from_numpy(
-            np.array(load_image_rgb(frame.image_path), copy=True)
+            np.array(self.camera_stream.image_source.load_rgb(frame), copy=True)
         )
         return DecodedFrameSample(
             frame=frame,
@@ -233,10 +242,13 @@ class FrameDataset(Dataset[PreparedFrameSample]):
             frame = decoded_sample.frame
         else:
             dataset_index = self.indices[index]
-            frame = self.dataset.frames[dataset_index]
-            camera = _select_camera(self.dataset.camera, frame.camera_index)
-            image, prepared_camera = prepare_image_and_camera(
-                frame.image_path,
+            frame = self.camera_stream.frames[dataset_index]
+            camera = _select_camera(self.camera_stream.camera, frame.camera_index)
+            image = torch.from_numpy(
+                np.array(self.camera_stream.image_source.load_rgb(frame), copy=True)
+            )
+            image, prepared_camera = prepare_decoded_image_and_camera(
+                image,
                 camera,
                 self.preparation,
             )

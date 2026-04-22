@@ -101,8 +101,59 @@ class MipNerf360OutdoorDatasetConfig(ColmapDatasetConfig):
     )
 
 
+class NCoreDatasetConfig(DatasetConfig):
+    """Default end-to-end ncore dataset spec."""
+
+    kind: Literal["ncore"] = Field(
+        default="ncore",
+        description="Dataset source family handled by this concrete config.",
+    )
+    component_group_paths: tuple[Path, ...] = Field(
+        description=(
+            "Ordered ncore component-group paths used to discover sensors "
+            "and optional point-cloud sources."
+        )
+    )
+    camera_sensor_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional default camera sensor id to bind at load time when the "
+            "ncore source contains multiple camera streams."
+        ),
+    )
+    runtime: DatasetRuntimeConfig = Field(
+        default_factory=DatasetRuntimeConfig,
+        description=(
+            "Runtime split, camera selection, and materialization settings "
+            "applied after the scene is loaded."
+        ),
+    )
+    source_pipes: tuple[HorizonAlignPipeConfig] = Field(
+        default=(HorizonAlignPipeConfig(),),
+        description=(
+            "Ordered source-phase pipes applied to the raw loaded scene before "
+            "prepared dataset construction."
+        ),
+    )
+    cache_pipes: tuple[ResizePipeConfig] = Field(
+        default=(ResizePipeConfig(width_target=1980),),
+        description=(
+            "Ordered cache-phase pipes compiled into cached sample "
+            "materialization behavior."
+        ),
+    )
+    prepare_pipes: tuple[NormalizePipeConfig] = Field(
+        default=(NormalizePipeConfig(),),
+        description=(
+            "Ordered prepare-phase pipes applied to training-facing samples "
+            "after loading and cache-time transforms."
+        ),
+    )
+
+
 __all__ = [
     "ColmapDatasetConfig",
     "MipNerf360IndoorDatasetConfig",
     "MipNerf360OutdoorDatasetConfig",
+    "NCoreDatasetConfig",
 ]

@@ -43,7 +43,7 @@ import splatkit as sk
 scene = sk.GaussianScene3D(...)
 camera = sk.CameraState(...)
 
-output = sk.render(scene, camera, backend="gsplat")
+output = sk.render(scene, camera, backend="adapter.gsplat")
 image = output.render
 ```
 
@@ -66,7 +66,7 @@ dataset = sk.load_dataset(
     )
 )
 config = sk.TrainingConfig(
-    render=sk.RenderPipelineSpec(backend="gsplat"),
+    render=sk.RenderPipelineSpec(backend="adapter.gsplat"),
     loss=sk.LossConfig(
         target=sk.CallableSpec(target="my_project.losses.rgb_l2_loss")
     ),
@@ -107,7 +107,7 @@ import splatkit_adapter_backends.gsplat as sk_gsplat
 
 sk_gsplat.register()
 
-output = sk.render(scene, camera, backend="gsplat")
+output = sk.render(scene, camera, backend="adapter.gsplat")
 ```
 
 Backend packages should:

@@ -274,9 +274,9 @@ def test_render_fastgs_beartype_rejects_wrong_options(
 
 
 def test_registry_contains_fastgs() -> None:
-    assert "fastgs" in BACKEND_REGISTRY
+    assert "adapter.fastgs" in BACKEND_REGISTRY
     assert isinstance(
-        BACKEND_REGISTRY["fastgs"].default_options,
+        BACKEND_REGISTRY["adapter.fastgs"].default_options,
         FastGSRenderOptions,
     )
 
@@ -296,7 +296,7 @@ def test_generic_render_fastgs_returns_backend_specific_signals(
         render(
             cuda_scene,
             cuda_camera,
-            backend="fastgs",
+            backend="adapter.fastgs",
         ),
     )
     assert output.viewspace_points.shape == (1, 3, 4)

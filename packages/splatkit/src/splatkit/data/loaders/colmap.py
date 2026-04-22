@@ -14,8 +14,10 @@ from torch import Tensor
 
 from splatkit.core.contracts import CameraState
 from splatkit.data.contracts import (
+    CameraSensorDataset,
     DatasetFrame,
     HorizonAdjustmentSpec,
+    PathCameraImageSource,
     PointCloudState,
     SceneDataset,
     horizontal_fov_degrees,
@@ -33,6 +35,7 @@ _CAMERA_MODELS = {
     name: num_params for name, num_params in _CAMERA_MODEL_IDS.values()
 }
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+_COLMAP_CAMERA_SENSOR_ID = "camera"
 
 
 @dataclass(frozen=True)
@@ -381,6 +384,7 @@ def _build_scene_dataset(
     undistorted_images: dict[int, tuple[Path, Float[Tensor, " 3 3"]]] | None,
 ) -> SceneDataset:
     frames: list[DatasetFrame] = []
+    frame_paths: dict[str, Path] = {}
     widths: list[int] = []
     heights: list[int] = []
     fov_degrees: list[float] = []
@@ -415,12 +419,13 @@ def _build_scene_dataset(
         frames.append(
             DatasetFrame(
                 frame_id=str(image.image_id),
-                image_path=image_path,
+                sensor_id=_COLMAP_CAMERA_SENSOR_ID,
                 camera_index=camera_index,
                 width=camera.width,
                 height=camera.height,
             )
         )
+        frame_paths[str(image.image_id)] = image_path
 
     point_cloud = None
     if points:
@@ -440,8 +445,11 @@ def _build_scene_dataset(
             ),
         )
 
-    return SceneDataset(
+    camera_sensor = CameraSensorDataset(
+        sensor_id=_COLMAP_CAMERA_SENSOR_ID,
+        kind="camera",
         frames=tuple(frames),
+        timestamps_us=tuple(frame.timestamp_us for frame in frames),
         camera=CameraState(
             width=torch.tensor(widths, dtype=torch.int64),
             height=torch.tensor(heights, dtype=torch.int64),
@@ -450,8 +458,14 @@ def _build_scene_dataset(
             intrinsics=torch.stack(intrinsics, dim=0),
             camera_convention="opencv",
         ),
+        image_source=PathCameraImageSource(frame_paths=frame_paths),
+    )
+
+    return SceneDataset(
+        sensors=(camera_sensor,),
         source_format="colmap",
-        root_path=source_root,
+        default_camera_sensor_id=_COLMAP_CAMERA_SENSOR_ID,
+        source_uris=(str(source_root),),
         point_cloud=point_cloud,
     )
 

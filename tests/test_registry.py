@@ -15,11 +15,11 @@ from splatkit_adapter_backends.gsplat import (
 
 
 def test_registry_contains_gsplat() -> None:
-    assert "gsplat" in BACKEND_REGISTRY
+    assert "adapter.gsplat" in BACKEND_REGISTRY
 
 
 def test_registry_contains_gsplat_2dgs() -> None:
-    assert "gsplat_2dgs" in BACKEND_REGISTRY
+    assert "adapter.gsplat_2dgs" in BACKEND_REGISTRY
 
 
 def test_render_unknown_backend_raises(cpu_scene, cpu_camera) -> None:
@@ -30,8 +30,8 @@ def test_render_unknown_backend_raises(cpu_scene, cpu_camera) -> None:
 def test_render_rejects_unsupported_output_request(
     cpu_scene, cpu_camera
 ) -> None:
-    original = BACKEND_REGISTRY["gsplat"]
-    BACKEND_REGISTRY["gsplat"] = type(original)(
+    original = BACKEND_REGISTRY["adapter.gsplat"]
+    BACKEND_REGISTRY["adapter.gsplat"] = type(original)(
         name=original.name,
         render_fn=original.render_fn,
         default_options=original.default_options,
@@ -45,11 +45,11 @@ def test_render_rejects_unsupported_output_request(
             render(
                 cpu_scene,
                 cpu_camera,
-                backend="gsplat",
+                backend="adapter.gsplat",
                 return_2d_projections=True,
             )
     finally:
-        BACKEND_REGISTRY["gsplat"] = original
+        BACKEND_REGISTRY["adapter.gsplat"] = original
 
 
 def test_render_rejects_unsupported_gaussian_impact_score_request(
@@ -61,21 +61,21 @@ def test_render_rejects_unsupported_gaussian_impact_score_request(
         render(
             cpu_scene,
             cpu_camera,
-            backend="gsplat",
+            backend="adapter.gsplat",
             return_gaussian_impact_score=True,
         )
 
 
 def test_render_beartype_rejects_wrong_scene(cpu_camera) -> None:
     with pytest.raises(BeartypeCallHintParamViolation):
-        render(cast(Any, "not-a-scene"), cpu_camera, backend="gsplat")
+        render(cast(Any, "not-a-scene"), cpu_camera, backend="adapter.gsplat")
 
 
 def test_render_rejects_incompatible_scene_type(
     cpu_sparse_voxel_scene, cpu_camera
 ) -> None:
     with pytest.raises(ValueError, match="does not accept scene type"):
-        render(cpu_sparse_voxel_scene, cpu_camera, backend="gsplat")
+        render(cpu_sparse_voxel_scene, cpu_camera, backend="adapter.gsplat")
 
 
 def test_render_gsplat_beartype_rejects_wrong_options(
@@ -91,10 +91,10 @@ def test_render_gsplat_beartype_rejects_wrong_options(
 
 def test_render_default_options_type() -> None:
     assert isinstance(
-        BACKEND_REGISTRY["gsplat"].default_options, GsplatRenderOptions
+        BACKEND_REGISTRY["adapter.gsplat"].default_options, GsplatRenderOptions
     )
     assert isinstance(
-        BACKEND_REGISTRY["gsplat_2dgs"].default_options,
+        BACKEND_REGISTRY["adapter.gsplat_2dgs"].default_options,
         GsplatRenderOptions,
     )
 

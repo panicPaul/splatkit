@@ -12,7 +12,7 @@ from splatkit_adapter_backends.fastergs import (
 from splatkit_adapter_backends.fastergs import (
     register as register_fastergs,
 )
-from splatkit_native_backends.faster_gs import (
+from splatkit_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     register,
     render_faster_gs_native,
@@ -46,10 +46,10 @@ def test_generic_render_dispatches_to_faster_gs_native(
 ) -> None:
     output = cast(
         FasterGSNativeRenderOutput,
-        render(cuda_scene, cuda_camera, backend="faster_gs"),
+        render(cuda_scene, cuda_camera, backend="faster_gs.core"),
     )
 
-    assert BACKEND_REGISTRY["faster_gs"].name == "faster_gs"
+    assert BACKEND_REGISTRY["faster_gs.core"].name == "faster_gs.core"
     assert output.render.shape == (1, 32, 32, 3)
 
 

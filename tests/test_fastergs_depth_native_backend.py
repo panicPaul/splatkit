@@ -6,17 +6,17 @@ import pytest
 import torch
 from splatkit.core import render
 from splatkit_adapter_backends.gsplat import GsplatRenderOutput, render_gsplat
-from splatkit_native_backends.faster_gs_depth import (
+from splatkit_native_faster_gs.faster_gs_depth import (
     FasterGSDepthNativeDepthRenderOutput,
     FasterGSDepthNativeRenderOutput,
     register,
     render_faster_gs_depth,
 )
-from splatkit_native_backends.faster_gs import (
+from splatkit_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     render_faster_gs_native,
 )
-from splatkit_native_backends.faster_gs import (
+from splatkit_native_faster_gs.faster_gs import (
     register as register_root,
 )
 
@@ -107,7 +107,7 @@ def test_generic_render_dispatches_to_depth_backend(
         render(
             cuda_scene,
             cuda_camera,
-            backend="faster_gs_depth",
+            backend="faster_gs.depth",
             return_depth=True,
         ),
     )

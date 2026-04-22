@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from splatkit_native_backends.gaussian_pop.runtime import render
+from splatkit_native_faster_gs.gaussian_pop.runtime import render
 
 
 def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:

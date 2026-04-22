@@ -335,7 +335,7 @@ def render_fastgs(
 def register() -> None:
     """Register the FastGS backend in the global splatkit registry."""
     register_backend(
-        name="fastgs",
+        name="adapter.fastgs",
         default_options=FastGSRenderOptions(),
         accepted_scene_types=(GaussianScene3D,),
         supported_outputs=_SUPPORTED_OUTPUTS,

@@ -49,6 +49,7 @@ class BatchingConfig(TrainingConfigBase):
 
     batch_size: int = Field(default=1, ge=1)
     shuffle: bool = True
+    camera_sensor_id: str | None = None
     materialization_stage: MaterializationStage = "decoded"
     materialization_mode: MaterializationMode = "eager"
     materialization_num_workers: int | None = 0

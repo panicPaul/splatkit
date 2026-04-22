@@ -296,7 +296,7 @@ def render_inria(
 def register() -> None:
     """Register the Inria backend in the global splatkit registry."""
     register_backend(
-        name="inria",
+        name="adapter.inria",
         default_options=InriaRenderOptions(),
         accepted_scene_types=(GaussianScene3D,),
         supported_outputs=_SUPPORTED_OUTPUTS,

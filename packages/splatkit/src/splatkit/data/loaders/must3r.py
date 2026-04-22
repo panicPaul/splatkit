@@ -15,8 +15,10 @@ from beartype import beartype
 
 from splatkit.core.contracts import CameraState
 from splatkit.data.contracts import (
+    CameraSensorDataset,
     DatasetFrame,
     HorizonAdjustmentSpec,
+    PathCameraImageSource,
     PointCloudState,
     SceneDataset,
     horizontal_fov_degrees,
@@ -24,6 +26,7 @@ from splatkit.data.contracts import (
 from splatkit.data.postprocess import adjust_dataset_horizon
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+_MUST3R_CAMERA_SENSOR_ID = "camera"
 
 
 @dataclass(frozen=True)
@@ -223,6 +226,7 @@ def _scene_dataset_from_arrays(
     heights: list[int] = []
     fov_degrees: list[float] = []
     frames: list[DatasetFrame] = []
+    frame_paths: dict[str, Path] = {}
     tensor_intrinsics = torch.as_tensor(intrinsics, dtype=torch.float32)
     for index, (path, intrinsics_matrix) in enumerate(
         zip(image_paths, tensor_intrinsics, strict=True)
@@ -237,14 +241,18 @@ def _scene_dataset_from_arrays(
         frames.append(
             DatasetFrame(
                 frame_id=str(index),
-                image_path=path,
+                sensor_id=_MUST3R_CAMERA_SENSOR_ID,
                 camera_index=index,
                 width=width,
                 height=height,
             )
         )
-    return SceneDataset(
+        frame_paths[str(index)] = path
+    camera_sensor = CameraSensorDataset(
+        sensor_id=_MUST3R_CAMERA_SENSOR_ID,
+        kind="camera",
         frames=tuple(frames),
+        timestamps_us=tuple(frame.timestamp_us for frame in frames),
         camera=CameraState(
             width=torch.tensor(widths, dtype=torch.int64),
             height=torch.tensor(heights, dtype=torch.int64),
@@ -253,8 +261,13 @@ def _scene_dataset_from_arrays(
             intrinsics=tensor_intrinsics,
             camera_convention="opencv",
         ),
+        image_source=PathCameraImageSource(frame_paths=frame_paths),
+    )
+    return SceneDataset(
+        sensors=(camera_sensor,),
         source_format="must3r",
-        root_path=source_root,
+        default_camera_sensor_id=_MUST3R_CAMERA_SENSOR_ID,
+        source_uris=(str(source_root),),
         point_cloud=point_cloud,
     )
 

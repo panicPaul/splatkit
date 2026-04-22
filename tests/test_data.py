@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+import types
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,8 +10,13 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
+from splatkit.core.contracts import CameraState
 from splatkit.data import (
+    CameraSensorDataset,
     ColmapDatasetConfig,
+    DatasetFrame,
+    DatasetRuntimeConfig,
+    DatasetSensor,
     FrameDataset,
     HorizonAdjustmentSpec,
     HorizonAlignPipeConfig,
@@ -18,14 +24,19 @@ from splatkit.data import (
     MaterializationConfig,
     MipNerf360IndoorDatasetConfig,
     MipNerf360OutdoorDatasetConfig,
+    NCoreDatasetConfig,
     NormalizePipeConfig,
+    PathCameraImageSource,
     ResizePipeConfig,
     ResizeSpec,
     SceneDataset,
+    SplitConfig,
+    adjust_dataset_horizon,
     collate_frame_samples,
     load_colmap_dataset,
     load_dataset,
     load_must3r_dataset,
+    load_ncore_dataset,
     resolve_must3r_checkpoints,
     run_must3r_dataset,
 )
@@ -116,6 +127,153 @@ def _write_images(root: Path) -> None:
     _write_rgb_image(image_dir / "001.png", (0, 255, 0), (16, 12))
 
 
+def _image_path_for_frame(dataset: SceneDataset, frame: object) -> Path:
+    camera_sensor = dataset.resolve_camera_sensor()
+    image_source = camera_sensor.image_source
+    assert isinstance(image_source, PathCameraImageSource)
+    return image_source.path_for_frame(frame)
+
+
+def _build_camera_sensor(
+    *,
+    sensor_id: str,
+    frame_colors: tuple[tuple[int, int, int], ...],
+    root: Path,
+    base_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> CameraSensorDataset:
+    frame_paths: dict[str, Path] = {}
+    frames = []
+    cam_to_world = []
+    for index, color in enumerate(frame_colors):
+        frame_id = f"{sensor_id}_{index}"
+        path = root / f"{frame_id}.png"
+        _write_rgb_image(path, color, (4, 3))
+        frame_paths[frame_id] = path
+        frames.append(
+            {
+                "frame_id": frame_id,
+                "sensor_id": sensor_id,
+                "camera_index": index,
+                "width": 4,
+                "height": 3,
+                "timestamp_us": index * 10,
+            }
+        )
+        transform = torch.eye(4, dtype=torch.float32)
+        transform[:3, 3] = torch.tensor(
+            [
+                base_translation[0] + index,
+                base_translation[1],
+                base_translation[2],
+            ],
+            dtype=torch.float32,
+        )
+        cam_to_world.append(transform)
+    dataset_frames = tuple(
+        DatasetFrame(
+            frame_id=frame["frame_id"],
+            sensor_id=frame["sensor_id"],
+            camera_index=frame["camera_index"],
+            width=frame["width"],
+            height=frame["height"],
+            timestamp_us=frame["timestamp_us"],
+        )
+        for frame in frames
+    )
+    return CameraSensorDataset(
+        sensor_id=sensor_id,
+        kind="camera",
+        frames=dataset_frames,
+        timestamps_us=tuple(frame.timestamp_us for frame in dataset_frames),
+        camera=CameraState(
+            width=torch.tensor([4] * len(dataset_frames), dtype=torch.int64),
+            height=torch.tensor([3] * len(dataset_frames), dtype=torch.int64),
+            fov_degrees=torch.tensor(
+                [60.0] * len(dataset_frames), dtype=torch.float32
+            ),
+            cam_to_world=torch.stack(cam_to_world, dim=0),
+            intrinsics=torch.tensor(
+                [
+                    [[2.0, 0.0, 2.0], [0.0, 2.0, 1.5], [0.0, 0.0, 1.0]]
+                ]
+                * len(dataset_frames),
+                dtype=torch.float32,
+            ),
+        ),
+        image_source=PathCameraImageSource(frame_paths=frame_paths),
+    )
+
+
+@dataclass(frozen=True)
+class _MemoryImageSource:
+    images: dict[str, np.ndarray]
+
+    def load_rgb(self, frame: DatasetFrame) -> np.ndarray:
+        return self.images[frame.frame_id]
+
+
+@dataclass(frozen=True)
+class _DummyNCoreReader:
+    images: dict[str, np.ndarray]
+
+    def load_rgb(self, *, frame_id: str) -> np.ndarray:
+        return self.images[frame_id]
+
+
+def _make_ncore_sensor(
+    *,
+    sensor_id: str,
+    colors: tuple[tuple[int, int, int], ...],
+    base_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> dict[str, object]:
+    images = {
+        f"{sensor_id}_{index}": np.full((3, 4, 3), color, dtype=np.uint8)
+        for index, color in enumerate(colors)
+    }
+    frames = [
+        {
+            "frame_id": frame_id,
+            "timestamp_us": index * 100,
+            "width": 4,
+            "height": 3,
+        }
+        for index, frame_id in enumerate(images)
+    ]
+    cam_to_world = []
+    for index in range(len(images)):
+        transform = torch.eye(4, dtype=torch.float32)
+        transform[:3, 3] = torch.tensor(
+            [
+                base_translation[0] + index,
+                base_translation[1],
+                base_translation[2],
+            ],
+            dtype=torch.float32,
+        )
+        cam_to_world.append(transform)
+    return {
+        "sensor_id": sensor_id,
+        "kind": "camera",
+        "frames": frames,
+        "camera": CameraState(
+            width=torch.tensor([4] * len(images), dtype=torch.int64),
+            height=torch.tensor([3] * len(images), dtype=torch.int64),
+            fov_degrees=torch.tensor(
+                [60.0] * len(images), dtype=torch.float32
+            ),
+            cam_to_world=torch.stack(cam_to_world, dim=0),
+            intrinsics=torch.tensor(
+                [
+                    [[2.0, 0.0, 2.0], [0.0, 2.0, 1.5], [0.0, 0.0, 1.0]]
+                ]
+                * len(images),
+                dtype=torch.float32,
+            ),
+        ),
+        "reader": _DummyNCoreReader(images=images),
+    }
+
+
 def test_load_colmap_dataset_from_text(tmp_path: Path) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path)
@@ -124,7 +282,8 @@ def test_load_colmap_dataset_from_text(tmp_path: Path) -> None:
     assert dataset.num_frames == 2
     assert dataset.point_cloud is not None
     assert dataset.camera.intrinsics is not None
-    assert dataset.frames[0].image_path.name == "000.png"
+    assert dataset.default_camera_sensor_id == "camera"
+    assert _image_path_for_frame(dataset, dataset.frames[0]).name == "000.png"
     assert dataset.camera.cam_to_world.shape == (2, 4, 4)
 
 
@@ -156,8 +315,9 @@ def test_load_colmap_dataset_can_undistort_into_cache(tmp_path: Path) -> None:
         undistort_output_dir=undistorted_dir,
     )
     assert dataset.num_frames == 2
-    assert dataset.frames[0].image_path.parent == undistorted_dir
-    assert dataset.frames[0].image_path.exists()
+    image_path = _image_path_for_frame(dataset, dataset.frames[0])
+    assert image_path.parent == undistorted_dir
+    assert image_path.exists()
 
 
 def test_torch_frame_dataset_resizes_and_collates(tmp_path: Path) -> None:
@@ -235,6 +395,7 @@ def test_colmap_dataset_config_exposes_all_default_pipe_phases() -> None:
     payload = config.model_dump(mode="json")
 
     assert payload["runtime"] == {
+        "camera_sensor_id": None,
         "split": {"target": "train", "every_n": 8, "train_ratio": None},
         "materialization": {
             "stage": "decoded",
@@ -324,6 +485,256 @@ def test_load_dataset_applies_source_pipes_from_config(tmp_path: Path) -> None:
 
     assert isinstance(dataset, FrameDataset)
     assert dataset.dataset.world_up is not None
+
+
+def test_scene_dataset_compatibility_properties_use_default_camera_sensor(
+    tmp_path: Path,
+) -> None:
+    front = _build_camera_sensor(
+        sensor_id="front",
+        frame_colors=((255, 0, 0),),
+        root=tmp_path,
+    )
+    rear = _build_camera_sensor(
+        sensor_id="rear",
+        frame_colors=((0, 255, 0), (0, 0, 255)),
+        root=tmp_path,
+        base_translation=(10.0, 0.0, 0.0),
+    )
+    lidar = DatasetSensor(
+        sensor_id="lidar_top",
+        kind="lidar",
+        frames=(),
+        timestamps_us=(),
+        metadata={"channels": 64},
+    )
+    dataset = SceneDataset(
+        sensors=(front, rear, lidar),
+        source_format="ncore",
+        default_camera_sensor_id="rear",
+        source_uris=(str(tmp_path / "group"),),
+    )
+
+    assert dataset.frames == rear.frames
+    assert dataset.camera == rear.camera
+    assert dataset.num_frames == 2
+    assert dataset.available_camera_sensor_ids == ("front", "rear")
+
+
+def test_scene_dataset_requires_default_for_multiple_camera_sensors(
+    tmp_path: Path,
+) -> None:
+    front = _build_camera_sensor(
+        sensor_id="front",
+        frame_colors=((255, 0, 0),),
+        root=tmp_path,
+    )
+    rear = _build_camera_sensor(
+        sensor_id="rear",
+        frame_colors=((0, 255, 0),),
+        root=tmp_path,
+    )
+
+    with pytest.raises(
+        ValueError, match="multiple camera sensors requires default"
+    ):
+        SceneDataset(
+            sensors=(front, rear),
+            source_format="ncore",
+            source_uris=(str(tmp_path / "group"),),
+        )
+
+
+def test_frame_dataset_supports_non_path_image_sources() -> None:
+    frame = DatasetFrame(
+        frame_id="memory_0",
+        sensor_id="memory_camera",
+        camera_index=0,
+        width=4,
+        height=3,
+        timestamp_us=42,
+    )
+    dataset = SceneDataset(
+        sensors=(
+            CameraSensorDataset(
+                sensor_id="memory_camera",
+                kind="camera",
+                frames=(frame,),
+                timestamps_us=(42,),
+                camera=CameraState(
+                    width=torch.tensor([4], dtype=torch.int64),
+                    height=torch.tensor([3], dtype=torch.int64),
+                    fov_degrees=torch.tensor([60.0], dtype=torch.float32),
+                    cam_to_world=torch.eye(4, dtype=torch.float32)[None],
+                ),
+                image_source=_MemoryImageSource(
+                    images={
+                        "memory_0": np.full(
+                            (3, 4, 3), 128, dtype=np.uint8
+                        )
+                    }
+                ),
+            ),
+        ),
+        source_format="ncore",
+        default_camera_sensor_id="memory_camera",
+    )
+
+    frame_dataset = FrameDataset(
+        dataset,
+        preparation=ImagePreparationSpec(normalize=False),
+    )
+    sample = frame_dataset[0]
+
+    assert sample.frame.sensor_id == "memory_camera"
+    assert sample.image.shape == (3, 4, 3)
+    assert torch.equal(
+        sample.image.to(torch.uint8),
+        torch.full((3, 4, 3), 128, dtype=torch.uint8),
+    )
+
+
+def test_adjust_dataset_horizon_updates_all_camera_sensors_consistently(
+    tmp_path: Path,
+) -> None:
+    front = _build_camera_sensor(
+        sensor_id="front",
+        frame_colors=((255, 0, 0),),
+        root=tmp_path,
+    )
+    rear = _build_camera_sensor(
+        sensor_id="rear",
+        frame_colors=((0, 255, 0),),
+        root=tmp_path,
+        base_translation=(2.0, 1.0, 0.0),
+    )
+    dataset = SceneDataset(
+        sensors=(front, rear),
+        source_format="ncore",
+        default_camera_sensor_id="front",
+        source_uris=(str(tmp_path / "group"),),
+    )
+
+    adjusted = adjust_dataset_horizon(
+        dataset,
+        HorizonAdjustmentSpec(enabled=True),
+    )
+
+    assert adjusted.world_up is not None
+    front_transform = (
+        adjusted.resolve_camera_sensor("front").camera.cam_to_world[0]
+        @ torch.linalg.inv(front.camera.cam_to_world[0])
+    )
+    rear_transform = (
+        adjusted.resolve_camera_sensor("rear").camera.cam_to_world[0]
+        @ torch.linalg.inv(rear.camera.cam_to_world[0])
+    )
+    assert torch.allclose(front_transform, rear_transform, atol=1e-5)
+
+
+def test_load_ncore_dataset_discovers_camera_and_inventory_sensors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_module = types.SimpleNamespace(
+        load_component_groups=lambda paths: (
+            {
+                "sensors": [
+                    _make_ncore_sensor(
+                        sensor_id="front",
+                        colors=((255, 0, 0),),
+                    ),
+                    _make_ncore_sensor(
+                        sensor_id="rear",
+                        colors=((0, 255, 0),),
+                        base_translation=(1.0, 0.0, 0.0),
+                    ),
+                    {
+                        "sensor_id": "lidar_top",
+                        "kind": "lidar",
+                        "frames": [
+                            {
+                                "frame_id": "scan_0",
+                                "timestamp_us": 100,
+                                "width": 0,
+                                "height": 0,
+                            }
+                        ],
+                        "metadata": {"channels": 64},
+                    },
+                ],
+                "point_cloud": {
+                    "points": [[0.0, 0.0, 0.0]],
+                    "colors": [[1.0, 0.0, 0.0]],
+                },
+            },
+        )
+    )
+    monkeypatch.setattr(
+        "splatkit.data.loaders.ncore._require_ncore",
+        lambda: fake_module,
+    )
+
+    dataset = load_ncore_dataset(
+        (tmp_path / "group_a",),
+        camera_sensor_id="front",
+    )
+
+    assert dataset.source_format == "ncore"
+    assert dataset.default_camera_sensor_id == "front"
+    assert dataset.available_camera_sensor_ids == ("front", "rear")
+    assert any(sensor.kind == "lidar" for sensor in dataset.sensors)
+    assert dataset.point_cloud is not None
+
+    frame_dataset = FrameDataset(
+        dataset,
+        camera_sensor_id="rear",
+        preparation=ImagePreparationSpec(normalize=False),
+    )
+    sample = frame_dataset[0]
+    assert sample.frame.sensor_id == "rear"
+    assert sample.image.shape == (3, 4, 3)
+
+
+def test_load_dataset_from_ncore_config_selects_runtime_camera_sensor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_module = types.SimpleNamespace(
+        load_component_groups=lambda paths: (
+            {
+                "sensors": [
+                    _make_ncore_sensor(
+                        sensor_id="front",
+                        colors=((255, 0, 0),),
+                    ),
+                    _make_ncore_sensor(
+                        sensor_id="rear",
+                        colors=((0, 255, 0),),
+                    ),
+                ]
+            },
+        )
+    )
+    monkeypatch.setattr(
+        "splatkit.data.loaders.ncore._require_ncore",
+        lambda: fake_module,
+    )
+
+    dataset = load_dataset(
+        NCoreDatasetConfig(
+            component_group_paths=(tmp_path / "group_a",),
+            camera_sensor_id="front",
+            runtime=DatasetRuntimeConfig(
+                camera_sensor_id="rear",
+                split=SplitConfig(target="all", every_n=None, train_ratio=None),
+            ),
+        )
+    )
+
+    assert isinstance(dataset, FrameDataset)
+    assert dataset.dataset.default_camera_sensor_id == "front"
+    assert dataset[0].frame.sensor_id == "rear"
 
 
 def test_load_must3r_dataset_from_json(tmp_path: Path) -> None:

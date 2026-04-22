@@ -14,7 +14,7 @@ with app.setup:
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_adapter_backends.svraster as sk_svraster
+    import splatkit_native_svraster.svraster as sk_svraster
     import torch
     from marimo_3dv import (
         CameraState,
@@ -146,7 +146,7 @@ def rasterize_scene(
     render_output = sk.render(
         scene,
         backend_camera.to(scene.octpath.device),
-        backend="svraster",
+        backend="svraster.core",
     )
     synchronize_after_render(scene)
     image = render_output.render[0].clamp(0.0, 1.0).cpu().numpy()
@@ -165,11 +165,6 @@ def _(scene, viewer_state):
 @app.cell
 def _(viewer):
     viewer
-    return
-
-
-@app.cell
-def _():
     return
 
 

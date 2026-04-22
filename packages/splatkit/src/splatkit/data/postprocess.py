@@ -8,7 +8,11 @@ import torch
 from jaxtyping import Float
 from torch import Tensor
 
-from splatkit.data.contracts import HorizonAdjustmentSpec, SceneDataset
+from splatkit.data.contracts import (
+    CameraSensorDataset,
+    HorizonAdjustmentSpec,
+    SceneDataset,
+)
 from splatkit.data.pipes import HorizonAlignPipeConfig, register_source_pipe
 
 
@@ -87,13 +91,17 @@ def adjust_dataset_horizon(
     """Rotate and translate dataset geometry into a canonical up-aligned frame."""
     if not spec.enabled:
         return dataset
+    if not dataset.camera_sensors:
+        return dataset
 
-    estimated_up = _estimate_world_up(dataset.camera.cam_to_world)
-    focus_point, focus_success = _estimate_focus_point(
-        dataset.camera.cam_to_world
+    all_cam_to_world = torch.cat(
+        [sensor.camera.cam_to_world for sensor in dataset.camera_sensors],
+        dim=0,
     )
+    estimated_up = _estimate_world_up(all_cam_to_world)
+    focus_point, focus_success = _estimate_focus_point(all_cam_to_world)
     if not focus_success:
-        focus_point = dataset.camera.cam_to_world[:, :3, 3].mean(dim=0)
+        focus_point = all_cam_to_world[:, :3, 3].mean(dim=0)
     rotation = _rotation_aligning_vectors(
         estimated_up.to(spec.target_up.device),
         spec.target_up,
@@ -102,8 +110,8 @@ def adjust_dataset_horizon(
 
     world_transform = torch.eye(
         4,
-        dtype=dataset.camera.cam_to_world.dtype,
-        device=dataset.camera.cam_to_world.device,
+        dtype=all_cam_to_world.dtype,
+        device=all_cam_to_world.device,
     )
     world_transform[:3, :3] = rotation
     world_transform[:3, 3] = translation
@@ -112,12 +120,22 @@ def adjust_dataset_horizon(
     if point_cloud is not None:
         point_cloud = point_cloud.transformed(rotation, translation)
 
+    transformed_sensors = tuple(
+        replace(
+            sensor,
+            camera=replace(
+                sensor.camera,
+                cam_to_world=world_transform @ sensor.camera.cam_to_world,
+            ),
+        )
+        if isinstance(sensor, CameraSensorDataset)
+        else sensor
+        for sensor in dataset.sensors
+    )
+
     return replace(
         dataset,
-        camera=replace(
-            dataset.camera,
-            cam_to_world=world_transform @ dataset.camera.cam_to_world,
-        ),
+        sensors=transformed_sensors,
         point_cloud=point_cloud,
         world_up=spec.target_up,
         focus_point=translation,

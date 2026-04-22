@@ -9,6 +9,7 @@ from splatkit.data.loaders.must3r import (
     resolve_must3r_checkpoints,
     run_must3r_dataset,
 )
+from splatkit.data.loaders.ncore import load_ncore_dataset
 
 __all__ = [
     "Must3rCheckpointPaths",
@@ -16,6 +17,7 @@ __all__ = [
     "SubprocessMust3rSlamRuntime",
     "load_colmap_dataset",
     "load_must3r_dataset",
+    "load_ncore_dataset",
     "resolve_must3r_checkpoints",
     "run_must3r_dataset",
 ]
