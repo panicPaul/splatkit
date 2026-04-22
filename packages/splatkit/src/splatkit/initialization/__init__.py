@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import torch
@@ -22,7 +22,8 @@ class InitializedModel:
     scene: Scene
     modules: dict[str, nn.Module]
     parameters: dict[str, nn.Parameter]
-    metadata: dict[str, Any]
+    buffers: dict[str, Tensor] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to(self, device: torch.device) -> InitializedModel:
         """Move the initialized model to a device."""
@@ -36,11 +37,16 @@ class InitializedModel:
             )
             for name, parameter in self.parameters.items()
         }
+        moved_buffers = {
+            name: buffer.detach().to(device)
+            for name, buffer in self.buffers.items()
+        }
         return replace(
             self,
             scene=self.scene.to(device),
             modules=moved_modules,
             parameters=moved_parameters,
+            buffers=moved_buffers,
         )
 
 
@@ -116,6 +122,7 @@ def initialize_gaussian_model_from_dataset(
     *,
     modules: dict[str, nn.Module] | None = None,
     parameters: dict[str, nn.Parameter] | None = None,
+    buffers: dict[str, Tensor] | None = None,
     metadata: dict[str, Any] | None = None,
     sh_degree: int = 0,
     initial_scale: float = 0.01,
@@ -136,6 +143,7 @@ def initialize_gaussian_model_from_dataset(
         scene=scene,
         modules=dict(modules or {}),
         parameters=dict(parameters or {}),
+        buffers=dict(buffers or {}),
         metadata=dict(metadata or {}),
     )
 

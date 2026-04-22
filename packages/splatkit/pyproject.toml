@@ -77,3 +77,7 @@ version-file = "src/splatkit/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/splatkit"]
+include = ["src/splatkit/assets/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/splatkit/assets/**", "src/splatkit/**/*.py"]

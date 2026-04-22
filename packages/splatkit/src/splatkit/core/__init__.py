@@ -9,6 +9,10 @@ from splatkit.core.capabilities import (
     HasProjectedConics,
     HasProjectedMeans,
     HasProjectiveIntersectionTransforms,
+    HasScreenSpaceDensificationSignals,
+    HasScreenSpaceRadii,
+    HasViewspacePoints,
+    HasVisibilityFilter,
     RenderWith2DProjections,
     RenderWithAlpha,
     RenderWithAlpha2DProjections,
@@ -48,6 +52,7 @@ from splatkit.core.registry import (
     RegisteredBackend,
     register_backend,
     render,
+    resolve_backend_trait,
 )
 
 __all__ = [
@@ -66,6 +71,10 @@ __all__ = [
     "HasProjectedConics",
     "HasProjectedMeans",
     "HasProjectiveIntersectionTransforms",
+    "HasScreenSpaceDensificationSignals",
+    "HasScreenSpaceRadii",
+    "HasViewspacePoints",
+    "HasVisibilityFilter",
     "OutputName",
     "RegisteredBackend",
     "RenderOptions",
@@ -94,4 +103,5 @@ __all__ = [
     "intrinsics_to_camera_params",
     "register_backend",
     "render",
+    "resolve_backend_trait",
 ]

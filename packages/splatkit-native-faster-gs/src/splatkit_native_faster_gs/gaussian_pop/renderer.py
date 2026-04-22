@@ -18,17 +18,17 @@ from splatkit.core.contracts import (
 from splatkit.core.registry import register_backend
 from torch import Tensor
 
-from splatkit_native_faster_gs.faster_gs_depth import (
-    render_faster_gs_depth,
-)
-from splatkit_native_faster_gs.faster_gs_depth.renderer import (
-    FasterGSDepthNativeRenderOptions,
-)
 from splatkit_native_faster_gs.faster_gs import render_faster_gs_native
 from splatkit_native_faster_gs.faster_gs.renderer import (
     FasterGSNativeRenderOptions,
     _split_sh_coefficients,
     _validate_inputs,
+)
+from splatkit_native_faster_gs.faster_gs_depth import (
+    render_faster_gs_depth,
+)
+from splatkit_native_faster_gs.faster_gs_depth.renderer import (
+    FasterGSDepthNativeRenderOptions,
 )
 from splatkit_native_faster_gs.gaussian_pop.runtime import (
     render as render_runtime,
@@ -85,7 +85,7 @@ class GaussianPopNativeRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
-    proper_antialiasing: bool = False
+    proper_antialiasing: bool = True
 
 
 @overload

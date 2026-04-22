@@ -117,11 +117,12 @@ class ParameterGroupConfig(TrainingConfigBase):
     """Optimization settings for one parameter selector."""
 
     selector: str
-    optimizer: Literal["adam", "sgd"] = "adam"
+    optimizer: str = "adam"
     lr: float = Field(gt=0.0)
     weight_decay: float = Field(default=0.0, ge=0.0)
     betas: tuple[float, float] = (0.9, 0.999)
     momentum: float = Field(default=0.0, ge=0.0)
+    optimizer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
 
 class OptimizationConfig(TrainingConfigBase):

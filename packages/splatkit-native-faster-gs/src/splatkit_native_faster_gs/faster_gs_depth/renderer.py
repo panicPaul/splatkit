@@ -18,14 +18,14 @@ from splatkit.core.contracts import (
 from splatkit.core.registry import register_backend
 from torch import Tensor
 
-from splatkit_native_faster_gs.faster_gs_depth.runtime import (
-    render as render_runtime,
-)
 from splatkit_native_faster_gs.faster_gs.renderer import (
     FasterGSNativeRenderOptions,
     _split_sh_coefficients,
     _validate_inputs,
     render_faster_gs_native,
+)
+from splatkit_native_faster_gs.faster_gs_depth.runtime import (
+    render as render_runtime,
 )
 
 _SUPPORTED_OUTPUTS = frozenset({"depth"})
@@ -56,7 +56,7 @@ class FasterGSDepthNativeRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
-    proper_antialiasing: bool = False
+    proper_antialiasing: bool = True
 
 
 @overload

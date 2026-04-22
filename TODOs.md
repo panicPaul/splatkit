@@ -1,1 +1,2 @@
 - Replace legacy slangtorch with slangpy
+- replace outer for loop in faster-gs with inner gsplat style for loop

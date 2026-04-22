@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, fields, replace
 from typing import Any
 
@@ -102,6 +102,24 @@ class _SceneOptimizerAdapter:
             optimizer.state[value] = new_state
         return replace(scene, **updates)
 
+    def reset_state(
+        self,
+        field_names: Sequence[str],
+        indices: Tensor,
+    ) -> None:
+        for name in field_names:
+            binding = self._bindings.get(name)
+            if binding is None:
+                continue
+            optimizer = binding.optimizer
+            group = optimizer.param_groups[0]
+            parameter = group["params"][0]
+            state = optimizer.state.get(parameter, {})
+            for key, value in state.items():
+                if key == "step" or not isinstance(value, Tensor):
+                    continue
+                value[indices] = 0
+
 
 def _is_per_splat_tensor(name: str, value: Any, num_splats: int) -> bool:
     return (
@@ -186,6 +204,34 @@ class GaussianFamilyOps:
     def scene_extent(self) -> float:
         return _gaussian_scene_extent(self.scene)
 
+    def _replace_scene(
+        self,
+        scene: GaussianScene,
+        updates: dict[str, Tensor],
+        state_transforms: dict[str, Callable[[str, Tensor], Tensor]],
+    ) -> None:
+        self._state.model = replace(
+            self._state.model,
+            scene=self._optimizer_adapter.replace_scene_fields(
+                scene,
+                updates,
+                state_transforms,
+            ),
+        )
+
+    def _tensor_field_names(self) -> tuple[str, ...]:
+        scene = self.scene
+        num_splats = int(scene.center_position.shape[0])
+        return tuple(
+            field_def.name
+            for field_def in fields(scene)
+            if _is_per_splat_tensor(
+                field_def.name,
+                getattr(scene, field_def.name),
+                num_splats,
+            )
+        )
+
     def clone(
         self,
         mask: Bool[Tensor, " num_splats"],
@@ -212,14 +258,7 @@ class GaussianFamilyOps:
                 [old_value, torch.zeros_like(old_value[local_mask])],
                 dim=0,
             )
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                state_transforms,
-            ),
-        )
+        self._replace_scene(scene, updates, state_transforms)
 
     def split(
         self,
@@ -304,14 +343,7 @@ class GaussianFamilyOps:
                     dim=0,
                 )
             )
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                state_transforms,
-            ),
-        )
+        self._replace_scene(scene, updates, state_transforms)
 
     def prune(self, keep_mask: Bool[Tensor, " num_splats"]) -> None:
         scene = self.scene
@@ -329,14 +361,7 @@ class GaussianFamilyOps:
             state_transforms[name] = lambda _key, old_value, local_keep=keep_mask: old_value[
                 local_keep
             ]
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                state_transforms,
-            ),
-        )
+        self._replace_scene(scene, updates, state_transforms)
 
     def reset_opacity(self, max_post_sigmoid_value: float) -> None:
         scene = self.scene
@@ -351,14 +376,78 @@ class GaussianFamilyOps:
                 scene.logit_opacity.requires_grad
             )
         }
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                {"logit_opacity": lambda _key, old_value: torch.zeros_like(old_value)},
-            ),
+        self._replace_scene(
+            scene,
+            updates,
+            {"logit_opacity": lambda _key, old_value: torch.zeros_like(old_value)},
         )
+
+    def copy_from_indices(
+        self,
+        target_indices: Int[Tensor, " num_targets"],
+        source_indices: Int[Tensor, " num_targets"],
+        field_overrides: dict[str, Tensor] | None = None,
+    ) -> None:
+        scene = self.scene
+        overrides = field_overrides or {}
+        updates: dict[str, Tensor] = {}
+        state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
+        for name in self._tensor_field_names():
+            value = getattr(scene, name)
+            copied = value.detach().clone()
+            copied[target_indices] = overrides.get(name, value[source_indices])
+            updates[name] = copied.requires_grad_(value.requires_grad)
+            state_transforms[name] = lambda _key, old_value: old_value
+        self._replace_scene(scene, updates, state_transforms)
+
+    def append_from_indices(
+        self,
+        source_indices: Int[Tensor, " num_sources"],
+        field_overrides: dict[str, Tensor] | None = None,
+    ) -> None:
+        scene = self.scene
+        overrides = field_overrides or {}
+        updates: dict[str, Tensor] = {}
+        state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
+        for name in self._tensor_field_names():
+            value = getattr(scene, name)
+            appended = overrides.get(name, value[source_indices])
+            updates[name] = torch.cat([value, appended], dim=0).detach().requires_grad_(
+                value.requires_grad
+            )
+            state_transforms[name] = (
+                lambda _key, old_value, local_indices=source_indices: torch.cat(
+                    [old_value, torch.zeros_like(old_value[local_indices])],
+                    dim=0,
+                )
+            )
+        self._replace_scene(scene, updates, state_transforms)
+
+    def reorder(self, order: Int[Tensor, " num_splats"]) -> None:
+        scene = self.scene
+        updates: dict[str, Tensor] = {}
+        state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
+        for name in self._tensor_field_names():
+            value = getattr(scene, name)
+            updates[name] = value[order].detach().requires_grad_(
+                value.requires_grad
+            )
+            state_transforms[name] = (
+                lambda _key, old_value, local_order=order: old_value[local_order]
+            )
+        self._replace_scene(scene, updates, state_transforms)
+
+    def reset_optimizer_state(
+        self,
+        indices: Int[Tensor, " num_selected"],
+        field_names: Sequence[str] | None = None,
+    ) -> None:
+        resolved_field_names = (
+            tuple(field_names)
+            if field_names is not None
+            else self._tensor_field_names()
+        )
+        self._optimizer_adapter.reset_state(resolved_field_names, indices)
 
     def decay_opacity(self, gamma: float) -> None:
         scene = self.scene

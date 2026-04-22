@@ -12,14 +12,20 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from splatkit.core.registry import BACKEND_REGISTRY, render
+from splatkit.core.registry import (
+    BACKEND_REGISTRY,
+    render,
+    resolve_backend_trait,
+)
 from splatkit.data.adapters import FrameDataset, collate_frame_samples
 from splatkit.data.contracts import (
     ImagePreparationSpec,
     PreparedFrameBatch,
+    PreparedFrameSample,
     ResizeSpec,
     SceneDataset,
 )
+from splatkit.densification.contracts import DensificationRuntime
 from splatkit.densification.runtime import (
     bind_densification,
     build_densification,
@@ -166,7 +172,15 @@ def build_dataloader(
     config: TrainingConfig,
 ) -> DataLoader[PreparedFrameBatch]:
     """Build the camera-batched dataloader."""
-    frame_dataset = FrameDataset(
+    frame_dataset = _build_frame_dataset(dataset, config)
+    return _build_dataloader_from_frame_dataset(frame_dataset, config)
+
+
+def _build_frame_dataset(
+    dataset: SceneDataset,
+    config: TrainingConfig,
+) -> FrameDataset:
+    return FrameDataset(
         dataset,
         camera_sensor_id=config.batching.camera_sensor_id,
         preparation=_build_preparation(config),
@@ -176,6 +190,12 @@ def build_dataloader(
             config.batching.materialization_num_workers
         ),
     )
+
+
+def _build_dataloader_from_frame_dataset(
+    frame_dataset: FrameDataset,
+    config: TrainingConfig,
+) -> DataLoader[PreparedFrameBatch]:
     return DataLoader(
         frame_dataset,
         batch_size=config.batching.batch_size,
@@ -238,14 +258,13 @@ def _validate_requested_outputs(config: TrainingConfig) -> None:
         )
 
 
-def build_render_fn(config: TrainingConfig) -> RenderFn:
-    """Build the stateless render pipeline."""
+def build_raw_render_fn(config: TrainingConfig) -> RenderFn:
+    """Build the stateless render pipeline before postprocessing."""
     _validate_requested_outputs(config)
     feature_fn = resolve_callable(config.render.feature_fn)
-    postprocess_fn = resolve_callable(config.render.postprocess_fn)
     options = _build_backend_options(config)
 
-    def render_fn(model: InitializedModel, camera: Any) -> Any:
+    def raw_render_fn(model: InitializedModel, camera: Any) -> Any:
         resolved_camera = camera
         if not hasattr(resolved_camera, "cam_to_world"):
             raise TypeError("Render camera must provide cam_to_world.")
@@ -270,11 +289,58 @@ def build_render_fn(config: TrainingConfig) -> RenderFn:
             ),
             options=options,
         )
+        return render_output
+
+    return raw_render_fn
+
+
+def build_render_fn(config: TrainingConfig) -> RenderFn:
+    """Build the stateless render pipeline."""
+    raw_render_fn = build_raw_render_fn(config)
+    postprocess_fn = resolve_callable(config.render.postprocess_fn)
+
+    def render_fn(model: InitializedModel, camera: Any) -> Any:
+        render_output = raw_render_fn(model, camera)
         if postprocess_fn is None:
             return render_output
-        return postprocess_fn(model, resolved_camera, render_output)
+        return postprocess_fn(model, camera, render_output)
 
     return render_fn
+
+
+class _TrainingDensificationRuntime(DensificationRuntime):
+    """Typed runtime services shared with densification methods."""
+
+    def __init__(
+        self,
+        *,
+        backend_name: str,
+        render_options: Any,
+        frame_dataset: FrameDataset,
+        raw_render_fn: RenderFn,
+        device: torch.device,
+    ) -> None:
+        self.backend_name = backend_name
+        self.render_options = render_options
+        self._frame_dataset = frame_dataset
+        self._raw_render_fn = raw_render_fn
+        self._device = device
+
+    def sample_views(self, count: int) -> tuple[PreparedFrameSample, ...]:
+        if count <= 0:
+            return ()
+        dataset_size = len(self._frame_dataset)
+        if dataset_size == 0:
+            return ()
+        sample_count = min(count, dataset_size)
+        indices = torch.randperm(dataset_size)[:sample_count].tolist()
+        return tuple(self._frame_dataset[index].to(self._device) for index in indices)
+
+    def render_raw(self, model: InitializedModel, camera: Any) -> Any:
+        return self._raw_render_fn(model, camera)
+
+    def resolve_trait(self, trait_type: type[Any]) -> Any:
+        return resolve_backend_trait(self.backend_name, trait_type)
 
 
 def _normalize_loss_result(result: Any) -> LossResult:
@@ -377,17 +443,36 @@ def _build_optimizer(
     parameters: Sequence[torch.Tensor],
 ) -> torch.optim.Optimizer:
     if config.optimizer == "adam":
+        adam_kwargs = {
+            "lr": config.lr,
+            "betas": config.betas,
+            "weight_decay": config.weight_decay,
+            **config.optimizer_kwargs,
+        }
         return torch.optim.Adam(
             list(parameters),
-            lr=config.lr,
-            betas=config.betas,
-            weight_decay=config.weight_decay,
+            **adam_kwargs,
         )
-    return torch.optim.SGD(
+    if config.optimizer == "sgd":
+        sgd_kwargs = {
+            "lr": config.lr,
+            "momentum": config.momentum,
+            "weight_decay": config.weight_decay,
+            **config.optimizer_kwargs,
+        }
+        return torch.optim.SGD(
+            list(parameters),
+            **sgd_kwargs,
+        )
+    optimizer_factory = resolve_target(config.optimizer)
+    if not callable(optimizer_factory):
+        raise TypeError(
+            f"Resolved optimizer {config.optimizer!r} is not callable."
+        )
+    return optimizer_factory(
         list(parameters),
         lr=config.lr,
-        momentum=config.momentum,
-        weight_decay=config.weight_decay,
+        **config.optimizer_kwargs,
     )
 
 
@@ -476,6 +561,7 @@ def train_step(
     loss_fn: LossFn,
     optimizers: Sequence[OptimizerBinding],
     densification: Any | None = None,
+    probe_runtime: DensificationRuntime | None = None,
     hooks: Sequence[TrainingHook] = (),
 ) -> dict[str, float]:
     """Run one optimization step."""
@@ -492,6 +578,7 @@ def train_step(
             render_output=render_output,
             loss_result=loss_result,
             optimizers=list(optimizers),
+            runtime=probe_runtime,
         )
         densification.pre_backward(densification_context)
     _call_pre_backward_hooks(
@@ -535,6 +622,7 @@ def train_step(
                 render_output=render_output,
                 loss_result=loss_result,
                 optimizers=list(optimizers),
+                runtime=probe_runtime,
             ),
             metrics,
         )
@@ -575,12 +663,23 @@ def run_training(
             config,
             densification.get_render_requirements(),
         )
-    dataloader = build_dataloader(dataset, config)
+    frame_dataset = _build_frame_dataset(dataset, config)
+    dataloader = _build_dataloader_from_frame_dataset(frame_dataset, config)
+    raw_render_fn = build_raw_render_fn(config)
     render_fn = build_render_fn(config)
     loss_fn = build_loss_fn(config)
     hooks = build_hooks(config)
     optimizers = build_optimizer_set(state, config)
     densification = bind_densification(densification, state, optimizers)
+    probe_runtime: DensificationRuntime | None = None
+    if densification is not None:
+        probe_runtime = _TrainingDensificationRuntime(
+            backend_name=config.render.backend,
+            render_options=_build_backend_options(config),
+            frame_dataset=frame_dataset,
+            raw_render_fn=raw_render_fn,
+            device=device,
+        )
     history: list[dict[str, float]] = []
     iterator = _cycle(dataloader)
     for _ in range(config.runtime.max_steps):
@@ -592,6 +691,7 @@ def run_training(
                 loss_fn=loss_fn,
                 optimizers=optimizers,
                 densification=densification,
+                probe_runtime=probe_runtime,
                 hooks=hooks,
             )
         )

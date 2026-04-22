@@ -194,6 +194,10 @@ def save_checkpoint_dir(
             name: _cpu_parameter(parameter)
             for name, parameter in state.model.parameters.items()
         },
+        "buffers": {
+            name: buffer.detach().cpu()
+            for name, buffer in state.model.buffers.items()
+        },
         "step": state.step,
     }
     torch.save(
@@ -230,6 +234,10 @@ def load_checkpoint_dir(path: str | Path) -> LoadedCheckpoint:
         scene=scene,
         modules=modules,
         parameters=parameters,
+        buffers={
+            name: buffer.detach().clone()
+            for name, buffer in payload.get("buffers", {}).items()
+        },
         metadata={"checkpoint_step": int(payload.get("step", 0))},
     )
     return LoadedCheckpoint(

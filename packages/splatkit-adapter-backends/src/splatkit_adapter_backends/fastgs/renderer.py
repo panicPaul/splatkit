@@ -8,6 +8,7 @@ from typing import Any
 import torch
 from beartype import beartype
 from jaxtyping import Bool, Float, Int
+from splatkit.densification.contracts import GaussianMetricAttribution
 from splatkit.core.contracts import (
     CameraState,
     GaussianScene3D,
@@ -28,7 +29,6 @@ class FastGSRenderOutput(RenderOutput):
     viewspace_points: Float[Tensor, " num_cams num_splats 4"]
     visibility_filter: Bool[Tensor, " num_cams num_splats"]
     radii: Int[Tensor, " num_cams num_splats"]
-    accum_metric_counts: Int[Tensor, " num_cams height width"]
 
 
 @beartype
@@ -140,6 +140,9 @@ def _build_rasterizer_settings(
     camera: CameraState,
     camera_index: int,
     options: FastGSRenderOptions,
+    *,
+    get_flag: bool,
+    metric_map: Int[Tensor, " flattened_pixels"],
 ) -> Any:
     intrinsics = camera.get_intrinsics()[camera_index]
     width = int(camera.width[camera_index].item())
@@ -176,12 +179,8 @@ def _build_rasterizer_settings(
         mult=options.mult,
         prefiltered=False,
         debug=options.debug,
-        get_flag=False,
-        metric_map=torch.zeros(
-            height * width,
-            device=scene.center_position.device,
-            dtype=torch.int32,
-        ),
+        get_flag=get_flag,
+        metric_map=metric_map,
     )
 
 
@@ -195,19 +194,38 @@ def _render_single_camera(
     options: FastGSRenderOptions,
     sh_coefficients_0: Float[Tensor, " num_splats 1 3"],
     sh_coefficients_rest: Float[Tensor, " num_splats sh_coeffs_minus_one 3"],
+    *,
+    get_flag: bool = False,
+    metric_map: Int[Tensor, " height width"] | None = None,
 ) -> tuple[
     Float[Tensor, " height width 3"],
     Float[Tensor, " num_splats 4"],
     Bool[Tensor, " num_splats"],
     Int[Tensor, " num_splats"],
-    Int[Tensor, " height width"],
+    Int[Tensor, " num_splats"],
 ]:
+    height = int(camera.height[camera_index].item())
+    width = int(camera.width[camera_index].item())
+    flattened_metric_map = (
+        torch.zeros(
+            height * width,
+            dtype=torch.int32,
+            device=scene.center_position.device,
+        )
+        if metric_map is None
+        else metric_map.reshape(-1).to(
+            device=scene.center_position.device,
+            dtype=torch.int32,
+        )
+    )
     settings = _build_rasterizer_settings(
         settings_type,
         scene,
         camera,
         camera_index,
         options,
+        get_flag=get_flag,
+        metric_map=flattened_metric_map,
     )
     rasterizer = rasterizer_type(raster_settings=settings)
     num_splats = int(scene.center_position.shape[0])
@@ -229,26 +247,71 @@ def _render_single_camera(
         rotations=_normalized_quaternions(scene).contiguous(),
         cov3D_precomp=None,
     )
-    height = int(camera.height[camera_index].item())
-    width = int(camera.width[camera_index].item())
     image = rendered_image.permute(1, 2, 0).contiguous().clamp(0.0, 1.0)
     radii = radii.to(dtype=torch.int32).contiguous()
     visibility_filter = radii > 0
     if accum_metric_counts.numel() == 0:
         metric_counts = torch.zeros(
-            (height, width),
+            (num_splats,),
             dtype=torch.int32,
             device=scene.center_position.device,
         )
-    elif accum_metric_counts.numel() == height * width:
-        metric_counts = accum_metric_counts.reshape(height, width).contiguous()
+    elif accum_metric_counts.numel() == num_splats:
+        metric_counts = accum_metric_counts.reshape(num_splats).contiguous()
     else:
         raise RuntimeError(
-            "FastGS returned an unexpected metric map size: "
+            "FastGS returned an unexpected metric attribution size: "
             f"got {accum_metric_counts.numel()} values for "
-            f"an image of shape ({height}, {width})."
+            f"{num_splats} Gaussians."
         )
     return image, viewspace_points, visibility_filter, radii, metric_counts
+
+
+@beartype
+@dataclass(frozen=True)
+class FastGSGaussianMetricAttribution(GaussianMetricAttribution):
+    """FastGS metric-map attribution trait provider."""
+
+    def attribute_metric_map(
+        self,
+        scene: GaussianScene3D,
+        camera: CameraState,
+        metric_map: Int[Tensor, " height width"],
+        *,
+        options: FastGSRenderOptions | None = None,
+    ) -> Float[Tensor, " num_splats"]:
+        if camera.cam_to_world.shape[0] != 1:
+            raise ValueError(
+                "FastGS metric attribution expects a single probe camera."
+            )
+        if metric_map.ndim != 2:
+            raise ValueError(
+                "FastGS metric attribution expects a 2D metric map with "
+                f"shape (height, width); got {tuple(metric_map.shape)}."
+            )
+        resolved_options = options or FastGSRenderOptions()
+        _validate_inputs(scene, camera)
+        sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)
+        settings_type, rasterizer_type = _import_fastgs_runtime()
+        (
+            _image,
+            _viewspace_point_tensor,
+            _visibility_filter,
+            _radii,
+            metric_counts,
+        ) = _render_single_camera(
+            rasterizer_type,
+            settings_type,
+            scene,
+            camera,
+            0,
+            resolved_options,
+            sh_coefficients_0,
+            sh_coefficients_rest,
+            get_flag=True,
+            metric_map=metric_map,
+        )
+        return metric_counts.to(dtype=scene.center_position.dtype)
 
 
 @beartype
@@ -298,7 +361,6 @@ def render_fastgs(
     viewspace_points: list[Float[Tensor, " num_splats 4"]] = []
     visibility_filters: list[Bool[Tensor, " num_splats"]] = []
     radii_per_camera: list[Int[Tensor, " num_splats"]] = []
-    metric_counts_per_camera: list[Int[Tensor, " height width"]] = []
 
     for camera_index in range(camera.cam_to_world.shape[0]):
         (
@@ -306,7 +368,7 @@ def render_fastgs(
             viewspace_point_tensor,
             visibility_filter,
             radii,
-            accum_metric_counts,
+            _metric_counts,
         ) = _render_single_camera(
             rasterizer_type,
             settings_type,
@@ -321,14 +383,12 @@ def render_fastgs(
         viewspace_points.append(viewspace_point_tensor)
         visibility_filters.append(visibility_filter)
         radii_per_camera.append(radii)
-        metric_counts_per_camera.append(accum_metric_counts)
 
     return FastGSRenderOutput(
         render=torch.stack(renders, dim=0),
         viewspace_points=torch.stack(viewspace_points, dim=0),
         visibility_filter=torch.stack(visibility_filters, dim=0),
         radii=torch.stack(radii_per_camera, dim=0),
-        accum_metric_counts=torch.stack(metric_counts_per_camera, dim=0),
     )
 
 
@@ -339,4 +399,5 @@ def register() -> None:
         default_options=FastGSRenderOptions(),
         accepted_scene_types=(GaussianScene3D,),
         supported_outputs=_SUPPORTED_OUTPUTS,
+        trait_providers=(FastGSGaussianMetricAttribution(),),
     )(render_fastgs)

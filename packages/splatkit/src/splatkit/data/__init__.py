@@ -46,7 +46,10 @@ from splatkit.data.config_contracts import (
     SplitConfig,
 )
 from splatkit.data.contracts import (
+    CameraImageSource,
+    CameraSensorDataset,
     DatasetFrame,
+    DatasetSensor,
     DecodedFrameSample,
     HasCamera,
     HasDepth,
@@ -54,19 +57,16 @@ from splatkit.data.contracts import (
     HasMask,
     HorizonAdjustmentSpec,
     ImagePreparationSpec,
-    NCoreCameraImageSource,
     MaterializationMode,
     MaterializationStage,
-    CameraImageSource,
-    CameraSensorDataset,
-    DatasetSensor,
+    NCoreCameraImageSource,
     PathCameraImageSource,
     PointCloudState,
     PreparedFrameBatch,
     PreparedFrameSample,
     ResizeSpec,
-    SensorKind,
     SceneDataset,
+    SensorKind,
 )
 from splatkit.data.loaders.colmap import load_colmap_dataset
 from splatkit.data.loaders.must3r import (
@@ -88,6 +88,10 @@ from splatkit.data.pipes import (
     apply_source_pipe,
 )
 from splatkit.data.postprocess import adjust_dataset_horizon
+from splatkit.data.samples import (
+    get_sample_scene_path,
+    resolve_colmap_scene_path,
+)
 
 DatasetFormat = Literal["colmap", "must3r", "ncore"]
 
@@ -209,15 +213,15 @@ def load_dataset(
 
 __all__ = [
     "CachePipeConfig",
+    "CameraImageSource",
+    "CameraSensorDataset",
     "ColmapDatasetConfig",
     "DatasetConfig",
     "DatasetFormat",
     "DatasetFrame",
     "DatasetRuntimeConfig",
-    "DecodedFrameSample",
-    "CameraImageSource",
-    "CameraSensorDataset",
     "DatasetSensor",
+    "DecodedFrameSample",
     "FrameDataset",
     "FrameDatasetConfig",
     "HasCamera",
@@ -233,10 +237,10 @@ __all__ = [
     "MaterializationStage",
     "MipNerf360IndoorDatasetConfig",
     "MipNerf360OutdoorDatasetConfig",
-    "NCoreCameraImageSource",
-    "NCoreDatasetConfig",
     "Must3rCheckpointPaths",
     "Must3rRuntime",
+    "NCoreCameraImageSource",
+    "NCoreDatasetConfig",
     "NormalizePipeConfig",
     "PathCameraImageSource",
     "PointCloudState",
@@ -245,17 +249,19 @@ __all__ = [
     "PreparedFrameSample",
     "ResizePipeConfig",
     "ResizeSpec",
-    "SensorKind",
     "SceneDataset",
+    "SensorKind",
     "SourcePipeConfig",
     "SplitConfig",
     "SubprocessMust3rSlamRuntime",
     "adjust_dataset_horizon",
     "collate_frame_samples",
+    "get_sample_scene_path",
     "load_colmap_dataset",
     "load_dataset",
     "load_must3r_dataset",
     "load_ncore_dataset",
+    "resolve_colmap_scene_path",
     "resolve_must3r_checkpoints",
     "run_must3r_dataset",
 ]

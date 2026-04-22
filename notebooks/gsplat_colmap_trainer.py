@@ -6,7 +6,8 @@ __generated_with = "0.23.1"
 app = marimo.App(width="full")
 
 with app.setup:
-    from dataclasses import replace
+    import os
+    from dataclasses import asdict, replace
     from pathlib import Path
     from typing import Literal
 
@@ -26,6 +27,7 @@ with app.setup:
     )
     from PIL import Image
     from pydantic import BaseModel, Field
+    from splatkit.benchmarks import benchmark_dataloader
     from splatkit.data import (
         DatasetRuntimeConfig,
         MaterializationConfig,
@@ -211,12 +213,12 @@ def _(benchmark_button, build_trainer_bundle, config, dataset):
             )
             _ = mo.callout(
                 (
-                    f"Benchmark done. Initialization: {dataloader_benchmark['initialization_ms']:.2f} ms. "
-                    f"Warmup: {dataloader_benchmark['warmup_ms_per_batch']:.2f} ms/batch "
-                    f"(steps={dataloader_benchmark['warmup_steps']}). "
-                    f"Measured: {dataloader_benchmark['ms_per_batch']:.2f} ms/batch, "
-                    f"{dataloader_benchmark['iters_per_sec']:.2f} it/s "
-                    f"(steps={dataloader_benchmark['measured_steps']})."
+                    f"Benchmark done. Initialization: {dataloader_benchmark.initialization_ms:.2f} ms. "
+                    f"Warmup: {dataloader_benchmark.warmup_ms_per_batch:.2f} ms/batch "
+                    f"(steps={dataloader_benchmark.warmup_steps}). "
+                    f"Measured: {dataloader_benchmark.mean_ms_per_batch:.2f} ms/batch, "
+                    f"{dataloader_benchmark.iters_per_sec:.2f} it/s "
+                    f"(steps={dataloader_benchmark.measured_steps})."
                 ),
                 kind="success",
             )
@@ -225,7 +227,7 @@ def _(benchmark_button, build_trainer_bundle, config, dataset):
 
 @app.cell
 def _(dataloader_benchmark):
-    dataloader_benchmark
+    None if dataloader_benchmark is None else asdict(dataloader_benchmark)
     return
 
 
@@ -237,7 +239,7 @@ def _(config, load_dataset_from_config):
 
 @app.cell
 def _(dataloader_benchmark):
-    dataloader_benchmark
+    None if dataloader_benchmark is None else asdict(dataloader_benchmark)
     return
 
 
@@ -276,7 +278,12 @@ def _():
 def _():
     def _default_data_config() -> MipNerf360IndoorDatasetConfig:
         return MipNerf360IndoorDatasetConfig(
-            path=Path("/home/schlack/Documents/3DGS_scenes/360/garden/images"),
+            path=Path(
+                os.environ.get(
+                    "SPLATKIT_COLMAP_ROOT",
+                    str(sk.get_sample_scene_path()),
+                )
+            ),
             runtime=DatasetRuntimeConfig(
                 split=None,
                 materialization=MaterializationConfig(
@@ -364,81 +371,6 @@ def move_batch_to_device(batch, device: torch.device):
         images=batch.images.to(device),
         camera=camera_device,
     )
-
-
-@app.function
-def benchmark_dataloader(
-    dataloader, warmup_steps: int = 10, measured_steps: int = 100
-):
-    """Benchmark dataloader iteration speed with warmup + timed steps."""
-    if measured_steps <= 0:
-        return {
-            "initialization_ms": 0.0,
-            "warmup_steps": int(warmup_steps),
-            "measured_steps": 0,
-            "warmup_ms_per_batch": 0.0,
-            "ms_per_batch": 0.0,
-            "iters_per_sec": 0.0,
-        }
-
-    import time
-
-    init_start = time.perf_counter()
-    iterator = iter(dataloader)
-    try:
-        _ = next(iterator)
-    except StopIteration:
-        initialization_ms = (time.perf_counter() - init_start) * 1000.0
-        return {
-            "initialization_ms": float(initialization_ms),
-            "warmup_steps": int(warmup_steps),
-            "measured_steps": 0,
-            "warmup_ms_per_batch": 0.0,
-            "ms_per_batch": 0.0,
-            "iters_per_sec": 0.0,
-        }
-    initialization_ms = (time.perf_counter() - init_start) * 1000.0
-
-    warmup_iter = tqdm(
-        range(max(0, warmup_steps)),
-        desc="dataloader warmup",
-        leave=False,
-    )
-    warmup_start = time.perf_counter()
-    for _ in warmup_iter:
-        try:
-            _ = next(iterator)
-        except StopIteration:
-            iterator = iter(dataloader)
-            _ = next(iterator)
-    warmup_ms = (time.perf_counter() - warmup_start) * 1000.0
-
-    start = time.perf_counter()
-    measured_iter = tqdm(
-        range(measured_steps),
-        desc="dataloader timed",
-        leave=False,
-    )
-    for _ in measured_iter:
-        try:
-            _ = next(iterator)
-        except StopIteration:
-            iterator = iter(dataloader)
-            _ = next(iterator)
-    elapsed = time.perf_counter() - start
-
-    warmup_time = warmup_ms / max(1, warmup_steps)
-    mean_ms = (elapsed / measured_steps) * 1000.0
-    return {
-        "initialization_ms": float(initialization_ms),
-        "warmup_steps": warmup_steps,
-        "measured_steps": measured_steps,
-        "warmup_ms_per_batch": float(warmup_time),
-        "ms_per_batch": float(mean_ms),
-        "iters_per_sec": float(
-            measured_steps / elapsed if elapsed > 0 else 0.0
-        ),
-    }
 
 
 @app.function

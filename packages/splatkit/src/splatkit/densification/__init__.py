@@ -6,13 +6,16 @@ from splatkit.densification.collectors import (
     SparseVoxelGradientCollector,
 )
 from splatkit.densification.contracts import (
+    BaseDensificationMethod,
     BaseDensificationComponent,
     DensificationCollector,
     DensificationContext,
     DensificationMethod,
     DensificationPass,
     DensificationRenderRequirements,
+    DensificationRuntime,
     DensificationSignals,
+    GaussianMetricAttribution,
     Schedule,
 )
 from splatkit.densification.families import (
@@ -53,6 +56,7 @@ from splatkit.densification.runtime import (
 __all__ = [
     "MCMC",
     "AbsGS",
+    "BaseDensificationMethod",
     "BaseDensificationComponent",
     "ComposedDensificationMethod",
     "DensificationCollector",
@@ -60,12 +64,14 @@ __all__ = [
     "DensificationMethod",
     "DensificationPass",
     "DensificationRenderRequirements",
+    "DensificationRuntime",
     "DensificationSignals",
     "FastGS",
     "FieldBehavior",
     "GaussianClonePass",
     "GaussianFamilyOps",
     "GaussianJitterPass",
+    "GaussianMetricAttribution",
     "GaussianOpacityDecayPass",
     "GaussianPruneOpacityPass",
     "GaussianResetOpacityPass",

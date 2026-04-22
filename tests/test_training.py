@@ -34,6 +34,7 @@ from splatkit.training import (
     LoadedCheckpoint,
     LossResult,
     TrainingConfig,
+    build_raw_render_fn,
     build_inference_pipeline,
     build_loss_fn,
     build_optimizer_set,
@@ -141,6 +142,15 @@ def apply_color_mlp(
     feature = scene.feature.clone()
     feature[:, 0, :] = lifted_dc
     return replace(scene, feature=feature)
+
+
+def one_render_postprocess(
+    model: InitializedModel,
+    camera: CameraState,
+    render_output: RenderOutput,
+) -> RenderOutput:
+    del model, camera
+    return replace(render_output, render=torch.ones_like(render_output.render))
 
 
 class CountingHook:
@@ -463,6 +473,28 @@ def test_train_step_supports_direct_densification_injection(
 
     assert densification.post_optimizer_count == 1
     assert state.model.scene.feature.shape[0] == 2
+
+
+def test_build_raw_render_fn_skips_postprocess(tmp_path: Path) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.render.postprocess_fn = CallableSpec(
+        target=f"{MODULE_NAME}.one_render_postprocess"
+    )
+    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    batch = next(iter(build_dataset_loader(dataset, config)))
+    raw_render_fn = build_raw_render_fn(config)
+    render_fn = build_render_fn(config)
+
+    raw_output = raw_render_fn(model, batch.camera)
+    postprocessed_output = render_fn(model, batch.camera)
+
+    assert not torch.equal(raw_output.render, postprocessed_output.render)
+    assert torch.allclose(
+        postprocessed_output.render,
+        torch.ones_like(postprocessed_output.render),
+    )
 
 
 def test_run_training_merges_densification_render_requirements(

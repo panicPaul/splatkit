@@ -7,6 +7,7 @@ app = marimo.App(width="full")
 
 with app.setup:
     import ctypes
+    import os
     import signal
     import sys
     from pathlib import Path
@@ -35,11 +36,17 @@ with app.setup:
 def _():
     class DatasetConfig(BaseModel):
         colmap_root: Path = Path(
-            "/home/schlack/Documents/3DGS_scenes/360/garden"
+            os.environ.get(
+                "SPLATKIT_COLMAP_ROOT",
+                str(sk.get_sample_scene_path()),
+            )
         )
         write_undistorted_cache: bool = False
         undistort_output_dir: Path = Path(
-            "/home/schlack/Documents/3DGS_scenes/360/garden/undistorted"
+            os.environ.get(
+                "SPLATKIT_COLMAP_UNDISTORTED",
+                str(sk.get_sample_scene_path() / "undistorted"),
+            )
         )
         apply_horizon_adjustment: bool = True
 

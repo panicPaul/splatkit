@@ -9,6 +9,7 @@ from splatkit.densification.contracts import (
     DensificationContext,
     DensificationMethod,
     DensificationRenderRequirements,
+    DensificationRuntime,
 )
 from splatkit.densification.families import build_family_ops
 
@@ -92,6 +93,7 @@ def make_context(
     render_output: Any,
     loss_result: Any,
     optimizers: list[Any],
+    runtime: DensificationRuntime | None = None,
 ) -> DensificationContext:
     """Create a densification context for the current step."""
     return DensificationContext(
@@ -101,6 +103,7 @@ def make_context(
         loss_result=loss_result,
         step=state.step,
         optimizers=optimizers,
+        runtime=runtime,
     )
 
 

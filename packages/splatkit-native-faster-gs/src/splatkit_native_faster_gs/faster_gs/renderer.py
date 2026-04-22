@@ -36,7 +36,7 @@ class FasterGSNativeRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
-    proper_antialiasing: bool = False
+    proper_antialiasing: bool = True
 
 
 @beartype

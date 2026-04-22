@@ -3498,6 +3498,7 @@ adapter-backends = [
 ]
 all = [
     { name = "splatkit-adapter-backends", extra = ["all"] },
+    { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
     { name = "splatkit-native-svraster" },
@@ -3506,12 +3507,14 @@ all-backends = [
     { name = "splatkit-adapter-backends", extra = ["all"] },
 ]
 all-native = [
+    { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
     { name = "splatkit-native-svraster" },
 ]
 all-unrestricted = [
     { name = "splatkit-adapter-backends", extra = ["all"] },
+    { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
 ]
@@ -3520,6 +3523,7 @@ cu128 = [
 ]
 cu128-dev = [
     { name = "splatkit-adapter-backends", extra = ["all"], marker = "extra == 'extra-24-splatkit-dev-environment-cu128-dev' or (extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130-dev')" },
+    { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
     { name = "splatkit-native-svraster" },
@@ -3530,10 +3534,14 @@ cu130 = [
 ]
 cu130-dev = [
     { name = "splatkit-adapter-backends", extra = ["all"], marker = "extra == 'extra-24-splatkit-dev-environment-cu130-dev' or (extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128-dev' and extra == 'extra-24-splatkit-dev-environment-cu130')" },
+    { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
     { name = "splatkit-native-svraster" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+]
+gaussian-training = [
+    { name = "splatkit-gaussian-training" },
 ]
 native-3dgrt = [
     { name = "splatkit-native-3dgrt" },
@@ -3559,6 +3567,12 @@ requires-dist = [
     { name = "splatkit-adapter-backends", extras = ["all"], marker = "extra == 'all-unrestricted'", editable = "packages/splatkit-adapter-backends" },
     { name = "splatkit-adapter-backends", extras = ["all"], marker = "extra == 'cu128-dev'", editable = "packages/splatkit-adapter-backends" },
     { name = "splatkit-adapter-backends", extras = ["all"], marker = "extra == 'cu130-dev'", editable = "packages/splatkit-adapter-backends" },
+    { name = "splatkit-gaussian-training", marker = "extra == 'all'", editable = "packages/splatkit-gaussian-training" },
+    { name = "splatkit-gaussian-training", marker = "extra == 'all-native'", editable = "packages/splatkit-gaussian-training" },
+    { name = "splatkit-gaussian-training", marker = "extra == 'all-unrestricted'", editable = "packages/splatkit-gaussian-training" },
+    { name = "splatkit-gaussian-training", marker = "extra == 'cu128-dev'", editable = "packages/splatkit-gaussian-training" },
+    { name = "splatkit-gaussian-training", marker = "extra == 'cu130-dev'", editable = "packages/splatkit-gaussian-training" },
+    { name = "splatkit-gaussian-training", marker = "extra == 'gaussian-training'", editable = "packages/splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt", marker = "extra == 'all'", editable = "packages/splatkit-native-3dgrt" },
     { name = "splatkit-native-3dgrt", marker = "extra == 'all-native'", editable = "packages/splatkit-native-3dgrt" },
     { name = "splatkit-native-3dgrt", marker = "extra == 'all-unrestricted'", editable = "packages/splatkit-native-3dgrt" },
@@ -3583,7 +3597,32 @@ requires-dist = [
     { name = "torch", marker = "extra == 'cu130-dev'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "splatkit-dev-environment", extra = "cu130-dev" } },
     { name = "ty", specifier = ">=0.0.29" },
 ]
-provides-extras = ["adapter-backends", "native-faster-gs", "native-3dgrt", "native-svraster", "all-backends", "all-native", "all-unrestricted", "all", "cu128", "cu130", "cu128-dev", "cu130-dev"]
+provides-extras = ["adapter-backends", "native-faster-gs", "native-3dgrt", "native-svraster", "gaussian-training", "all-backends", "all-native", "all-unrestricted", "all", "cu128", "cu130", "cu128-dev", "cu130-dev"]
+
+[[package]]
+name = "splatkit-gaussian-training"
+source = { editable = "packages/splatkit-gaussian-training" }
+dependencies = [
+    { name = "beartype" },
+    { name = "fastergscudabackend" },
+    { name = "jaxtyping" },
+    { name = "splatkit" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130-dev') or (extra == 'extra-24-splatkit-dev-environment-cu128-dev' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128-dev' and extra == 'extra-24-splatkit-dev-environment-cu130-dev') or (extra != 'extra-24-splatkit-dev-environment-cu128' and extra != 'extra-24-splatkit-dev-environment-cu128-dev' and extra != 'extra-24-splatkit-dev-environment-cu130' and extra != 'extra-24-splatkit-dev-environment-cu130-dev')" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-24-splatkit-dev-environment-cu128' or extra == 'extra-24-splatkit-dev-environment-cu128-dev'" },
+    { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-24-splatkit-dev-environment-cu130' or extra == 'extra-24-splatkit-dev-environment-cu130-dev'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beartype", specifier = ">=0.22.9" },
+    { name = "fastergscudabackend", editable = "third_party/faster-gaussian-splatting/FasterGSCudaBackend" },
+    { name = "jaxtyping", specifier = ">=0.3.9" },
+    { name = "splatkit", editable = "packages/splatkit" },
+    { name = "torch", specifier = ">=2.11.0" },
+    { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "splatkit-gaussian-training", extra = "cu128" } },
+    { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "splatkit-gaussian-training", extra = "cu130" } },
+]
+provides-extras = ["all", "cu128", "cu130"]
 
 [[package]]
 name = "splatkit-native-3dgrt"

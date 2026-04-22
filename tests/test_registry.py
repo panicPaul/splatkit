@@ -1,12 +1,17 @@
-from typing import Any, cast
+from typing import Any, Protocol, cast, runtime_checkable
 
 import pytest
 from beartype.roar import BeartypeCallHintParamViolation
 from splatkit.core import (
     BACKEND_REGISTRY,
+    CameraState,
+    GaussianScene3D,
     RenderOptions,
+    RenderOutput,
     render,
+    resolve_backend_trait,
 )
+from splatkit.core.registry import register_backend
 from splatkit_adapter_backends.gsplat import (
     GsplatRenderOptions,
     render_gsplat,
@@ -108,3 +113,54 @@ def test_render_gsplat_2dgs_beartype_rejects_wrong_options(
             cpu_camera,
             options=RenderOptions(),  # type: ignore[arg-type]
         )
+
+
+@runtime_checkable
+class _HasRegistryTrait(Protocol):
+    def ping(self) -> str: ...
+
+
+class _RegistryTraitProvider:
+    def ping(self) -> str:
+        return "ok"
+
+
+def test_resolve_backend_trait_returns_registered_provider() -> None:
+    backend_name = "unit_test_registry_trait_backend"
+
+    @register_backend(
+        name=backend_name,
+        default_options=RenderOptions(),
+        accepted_scene_types=(GaussianScene3D,),
+        trait_providers=(_RegistryTraitProvider(),),
+    )
+    def _render_unit_test_registry_trait_backend(
+        scene: GaussianScene3D,
+        camera: CameraState,
+        *,
+        return_alpha: bool = False,
+        return_depth: bool = False,
+        return_gaussian_impact_score: bool = False,
+        return_normals: bool = False,
+        return_2d_projections: bool = False,
+        return_projective_intersection_transforms: bool = False,
+        options: RenderOptions | None = None,
+    ) -> RenderOutput:
+        del (
+            scene,
+            camera,
+            return_alpha,
+            return_depth,
+            return_gaussian_impact_score,
+            return_normals,
+            return_2d_projections,
+            return_projective_intersection_transforms,
+            options,
+        )
+        raise AssertionError("render should not be called in this test")
+
+    try:
+        trait = resolve_backend_trait(backend_name, _HasRegistryTrait)
+        assert trait.ping() == "ok"
+    finally:
+        BACKEND_REGISTRY.pop(backend_name, None)

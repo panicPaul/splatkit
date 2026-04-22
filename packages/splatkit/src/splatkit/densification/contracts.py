@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar, runtime_checkable
+
+from jaxtyping import Float
+from torch import Tensor
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,7 @@ class DensificationContext:
     loss_result: Any
     step: int
     optimizers: Sequence[Any]
+    runtime: DensificationRuntime | None = None
 
 
 @dataclass
@@ -88,6 +94,38 @@ class DensificationSignals:
 
     local: dict[str, Any] = field(default_factory=dict)
     global_: dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class GaussianMetricAttribution(Protocol):
+    """Backend-provided attribution from probe metrics to Gaussians."""
+
+    def attribute_metric_map(
+        self,
+        scene: Any,
+        camera: Any,
+        metric_map: Any,
+        *,
+        options: Any | None = None,
+    ) -> Float[Tensor, " num_splats"]:
+        """Attribute a probe metric map to per-Gaussian weights."""
+
+
+@runtime_checkable
+class DensificationRuntime(Protocol):
+    """Runtime services available to densification methods."""
+
+    backend_name: str
+    render_options: Any
+
+    def sample_views(self, count: int) -> tuple[Any, ...]:
+        """Sample prepared probe views from the active training dataset."""
+
+    def render_raw(self, model: Any, camera: Any) -> Any:
+        """Render through the active backend before postprocessing."""
+
+    def resolve_trait(self, trait_type: type[T]) -> T:
+        """Resolve a runtime-checkable backend trait provider."""
 
 
 class DensificationCollector(Protocol):
@@ -215,13 +253,82 @@ class BaseDensificationComponent:
         del context, signals, metrics
 
 
+class BaseDensificationMethod:
+    """Convenience base class with no-op lifecycle hooks for full methods."""
+
+    expected_scene_families: tuple[str, ...] = ()
+
+    def get_render_requirements(self) -> DensificationRenderRequirements:
+        return DensificationRenderRequirements()
+
+    def bind(
+        self,
+        state: Any,
+        optimizers: Sequence[Any],
+        family_ops: Any,
+    ) -> None:
+        del state, optimizers, family_ops
+
+    def pre_backward(self, context: DensificationContext) -> None:
+        del context
+
+    def post_backward(self, context: DensificationContext) -> None:
+        del context
+
+    def post_optimizer_step(self, context: DensificationContext) -> None:
+        del context
+
+    def after_step(
+        self,
+        context: DensificationContext,
+        metrics: dict[str, float],
+    ) -> None:
+        del context, metrics
+
+    def require_runtime_trait(
+        self,
+        context: DensificationContext,
+        trait_type: type[T],
+    ) -> T:
+        """Resolve a required runtime trait with a precise error."""
+        if context.runtime is None:
+            raise RuntimeError(
+                f"{type(self).__name__} requires densification runtime "
+                f"trait {trait_type.__name__}, but no densification runtime "
+                "was provided."
+            )
+        return context.runtime.resolve_trait(trait_type)
+
+    def require_render_output_trait(
+        self,
+        context: DensificationContext,
+        trait_type: type[T],
+    ) -> T:
+        """Validate that the current render output satisfies a trait."""
+        try:
+            if isinstance(context.render_output, trait_type):
+                return context.render_output
+        except TypeError as exc:
+            raise TypeError(
+                "Render-output trait checks require a runtime-checkable "
+                f"trait protocol or concrete type, got {trait_type!r}."
+            ) from exc
+        raise TypeError(
+            f"{type(self).__name__} requires render outputs satisfying "
+            f"{trait_type.__name__}."
+        )
+
+
 __all__ = [
+    "BaseDensificationMethod",
     "BaseDensificationComponent",
+    "DensificationRuntime",
     "DensificationCollector",
     "DensificationContext",
     "DensificationMethod",
     "DensificationPass",
     "DensificationRenderRequirements",
     "DensificationSignals",
+    "GaussianMetricAttribution",
     "Schedule",
 ]

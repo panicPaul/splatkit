@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 import pytest
 import torch
 from beartype.roar import BeartypeCallHintParamViolation
-from splatkit.core import BACKEND_REGISTRY, RenderOptions, render
+from splatkit.core import (
+    BACKEND_REGISTRY,
+    RenderOptions,
+    render,
+    resolve_backend_trait,
+)
+from splatkit.densification import GaussianMetricAttribution
 from splatkit_adapter_backends.fastgs import (
     FastGSRenderOptions,
     FastGSRenderOutput,
@@ -67,7 +73,7 @@ class _FakeRasterizer:
         )
         radii = torch.tensor([3, 0, 2], device=means3D.device, dtype=torch.int32)
         counts = torch.arange(
-            height * width,
+            means3D.shape[0],
             device=means3D.device,
             dtype=torch.int32,
         )
@@ -155,8 +161,6 @@ def test_render_fastgs_returns_expected_shapes(
     assert output.visibility_filter.dtype == torch.bool
     assert output.radii.shape == (1, 3)
     assert output.radii.dtype == torch.int32
-    assert output.accum_metric_counts.shape == (1, 32, 32)
-    assert output.accum_metric_counts.dtype == torch.int32
     assert torch.equal(
         output.visibility_filter[0],
         torch.tensor([True, False, True], device=output.render.device),
@@ -165,19 +169,79 @@ def test_render_fastgs_returns_expected_shapes(
 
 @pytest.mark.backend
 @pytest.mark.cuda
-def test_render_fastgs_accepts_empty_metric_map(
+def test_fastgs_metric_attribution_returns_per_gaussian_counts(
+    cuda_scene, cuda_camera, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
+        lambda: (_FakeSettings, _FakeRasterizer),
+    )
+    provider = resolve_backend_trait(
+        "adapter.fastgs",
+        GaussianMetricAttribution,
+    )
+    single_camera = replace(
+        cuda_camera,
+        width=cuda_camera.width[:1],
+        height=cuda_camera.height[:1],
+        fov_degrees=cuda_camera.fov_degrees[:1],
+        cam_to_world=cuda_camera.cam_to_world[:1],
+        intrinsics=(
+            None
+            if cuda_camera.intrinsics is None
+            else cuda_camera.intrinsics[:1]
+        ),
+    )
+    metric_counts = provider.attribute_metric_map(
+        cuda_scene,
+        single_camera,
+        torch.ones((32, 32), device=cuda_scene.center_position.device, dtype=torch.int32),
+        options=FastGSRenderOptions(),
+    )
+
+    assert metric_counts.shape == (3,)
+    assert metric_counts.dtype == cuda_scene.center_position.dtype
+    assert torch.equal(
+        metric_counts.to(dtype=torch.int32),
+        torch.tensor([0, 1, 2], device=metric_counts.device, dtype=torch.int32),
+    )
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_fastgs_metric_attribution_accepts_empty_metric_map(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
         "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _EmptyMetricMapRasterizer),
     )
+    provider = resolve_backend_trait(
+        "adapter.fastgs",
+        GaussianMetricAttribution,
+    )
+    single_camera = replace(
+        cuda_camera,
+        width=cuda_camera.width[:1],
+        height=cuda_camera.height[:1],
+        fov_degrees=cuda_camera.fov_degrees[:1],
+        cam_to_world=cuda_camera.cam_to_world[:1],
+        intrinsics=(
+            None
+            if cuda_camera.intrinsics is None
+            else cuda_camera.intrinsics[:1]
+        ),
+    )
+    metric_counts = provider.attribute_metric_map(
+        cuda_scene,
+        single_camera,
+        torch.zeros((32, 32), device=cuda_scene.center_position.device, dtype=torch.int32),
+        options=FastGSRenderOptions(),
+    )
 
-    output = cast(FastGSRenderOutput, render_fastgs(cuda_scene, cuda_camera))
-
-    assert output.accum_metric_counts.shape == (1, 32, 32)
-    assert output.accum_metric_counts.dtype == torch.int32
-    assert torch.count_nonzero(output.accum_metric_counts).item() == 0
+    assert metric_counts.shape == (3,)
+    assert metric_counts.dtype == cuda_scene.center_position.dtype
+    assert torch.count_nonzero(metric_counts).item() == 0
 
 
 @pytest.mark.backend
