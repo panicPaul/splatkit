@@ -13,7 +13,7 @@ from splatkit_native_backends.faster_gs_native.runtime.types import (
     SortResult,
 )
 
-_PREPROCESS_OUTPUT_COUNT = 9
+_PREPROCESS_OUTPUT_COUNT = 10
 _SORT_OUTPUT_COUNT = 4
 _BLEND_OUTPUT_COUNT = 6
 _RENDER_OUTPUT_COUNT = (

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 import torch
-from FasterGSCudaBackend import RasterizerSettings, diff_rasterize
 from splatkit_native_backends.faster_gs_native.runtime import (
     blend,
     preprocess,
@@ -25,42 +24,6 @@ def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float,
         float(intrinsics[1, 1].item()),
         float(intrinsics[0, 2].item()),
         float(intrinsics[1, 2].item()),
-    )
-
-
-def _reference_render(
-    scene,
-    camera_state,
-    *,
-    proper_antialiasing: bool = False,
-) -> torch.Tensor:
-    cam_to_world = camera_state.cam_to_world[0]
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        camera_state
-    )
-    return diff_rasterize(
-        means=scene.center_position,
-        scales=scene.log_scales,
-        rotations=scene.quaternion_orientation,
-        opacities=scene.logit_opacity[:, None],
-        sh_coefficients_0=scene.feature[:, :1, :].contiguous(),
-        sh_coefficients_rest=scene.feature[:, 1:, :].contiguous(),
-        densification_info=torch.empty(0, device=scene.center_position.device),
-        rasterizer_settings=RasterizerSettings(
-            w2c=torch.linalg.inv(cam_to_world),
-            cam_position=cam_to_world[:3, 3].contiguous(),
-            bg_color=torch.zeros(3, device=scene.center_position.device),
-            active_sh_bases=int(scene.feature.shape[1]),
-            width=width,
-            height=height,
-            focal_x=focal_x,
-            focal_y=focal_y,
-            center_x=center_x,
-            center_y=center_y,
-            near_plane=0.01,
-            far_plane=1000.0,
-            proper_antialiasing=proper_antialiasing,
-        ),
     )
 
 
@@ -202,7 +165,7 @@ def test_render_fwd_matches_explicit_stage_composition(
         height=height,
     )
 
-    assert len(render_outputs) == 19
+    assert len(render_outputs) == 20
     torch.testing.assert_close(render_outputs[0], blend_result.image)
 
 
@@ -252,125 +215,6 @@ def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> N
     ):
         assert grad is not None
         assert torch.isfinite(grad).all()
-
-
-@pytest.mark.cuda
-def test_render_matches_reference_cuda_backend(cuda_scene, cuda_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
-    )
-    cam_to_world = cuda_camera.cam_to_world[0]
-    native = render(
-        cuda_scene.center_position,
-        cuda_scene.log_scales,
-        cuda_scene.quaternion_orientation,
-        cuda_scene.logit_opacity[:, None],
-        cuda_scene.feature[:, :1, :],
-        cuda_scene.feature[:, 1:, :],
-        torch.linalg.inv(cam_to_world),
-        cam_to_world[:3, 3],
-        near_plane=0.01,
-        far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
-        bg_color=torch.zeros(3, device=cuda_scene.center_position.device),
-        proper_antialiasing=False,
-        active_sh_bases=int(cuda_scene.feature.shape[1]),
-    ).image
-    reference = _reference_render(cuda_scene, cuda_camera, proper_antialiasing=False)
-    torch.testing.assert_close(native, reference, rtol=1e-4, atol=2e-4)
-
-
-@pytest.mark.cuda
-def test_render_gradients_match_reference_cuda_backend(
-    cuda_scene,
-    cuda_camera,
-) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
-    )
-    cam_to_world = cuda_camera.cam_to_world[0]
-    weights = torch.linspace(
-        0.5,
-        1.5,
-        steps=3 * height * width,
-        device=cuda_scene.center_position.device,
-        dtype=cuda_scene.center_position.dtype,
-    ).view(3, height, width)
-
-    native_inputs = [
-        cuda_scene.center_position.detach().clone().requires_grad_(True),
-        cuda_scene.log_scales.detach().clone().requires_grad_(True),
-        cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True),
-        cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True),
-        cuda_scene.feature[:, :1, :].detach().clone().requires_grad_(True),
-        cuda_scene.feature[:, 1:, :].detach().clone().requires_grad_(True),
-    ]
-    reference_inputs = [tensor.detach().clone().requires_grad_(True) for tensor in native_inputs]
-
-    native_image = render(
-        native_inputs[0],
-        native_inputs[1],
-        native_inputs[2],
-        native_inputs[3],
-        native_inputs[4],
-        native_inputs[5],
-        torch.linalg.inv(cam_to_world),
-        cam_to_world[:3, 3],
-        near_plane=0.01,
-        far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
-        bg_color=torch.zeros(3, device=cuda_scene.center_position.device),
-        proper_antialiasing=False,
-        active_sh_bases=int(cuda_scene.feature.shape[1]),
-    ).image
-    native_loss = (native_image * weights).sum()
-    native_loss.backward()
-
-    reference_image = diff_rasterize(
-        means=reference_inputs[0],
-        scales=reference_inputs[1],
-        rotations=reference_inputs[2],
-        opacities=reference_inputs[3],
-        sh_coefficients_0=reference_inputs[4].contiguous(),
-        sh_coefficients_rest=reference_inputs[5].contiguous(),
-        densification_info=torch.empty(0, device=cuda_scene.center_position.device),
-        rasterizer_settings=RasterizerSettings(
-            w2c=torch.linalg.inv(cam_to_world),
-            cam_position=cam_to_world[:3, 3].contiguous(),
-            bg_color=torch.zeros(3, device=cuda_scene.center_position.device),
-            active_sh_bases=int(cuda_scene.feature.shape[1]),
-            width=width,
-            height=height,
-            focal_x=focal_x,
-            focal_y=focal_y,
-            center_x=center_x,
-            center_y=center_y,
-            near_plane=0.01,
-            far_plane=1000.0,
-            proper_antialiasing=False,
-        ),
-    )
-    reference_loss = (reference_image * weights).sum()
-    reference_loss.backward()
-
-    for native_grad, reference_grad in zip(
-        [tensor.grad for tensor in native_inputs],
-        [tensor.grad for tensor in reference_inputs],
-        strict=True,
-    ):
-        assert native_grad is not None
-        assert reference_grad is not None
-        torch.testing.assert_close(native_grad, reference_grad, rtol=1e-4, atol=3e-4)
 
 
 def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:

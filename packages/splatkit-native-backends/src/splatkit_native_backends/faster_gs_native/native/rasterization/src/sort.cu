@@ -4,18 +4,20 @@
 
 #include "common.h"
 
+#include "vendor_namespace_begin.h"
 #include "buffer_utils.h"
 #include "helper_math.h"
 #include "kernels_forward.cuh"
 #include "rasterization_config.h"
+#include "vendor_namespace_end.h"
 #include "torch_utils.h"
 #include "utils.h"
 
 #include <cub/cub.cuh>
 #include <type_traits>
 
-namespace forward_kernels = faster_gs::rasterization::kernels::forward;
-namespace config = faster_gs::rasterization::config;
+namespace forward_kernels = splatkit_faster_gs_core_vendor::rasterization::kernels::forward;
+namespace config = splatkit_faster_gs_core_vendor::rasterization::config;
 
 namespace splatkit::faster_gs_native {
 
@@ -236,7 +238,9 @@ sort_fwd_wrapper(
     const int grid_height = div_round_up(height, config::tile_height);
     const int tile_count = grid_width * grid_height;
     const int end_bit = tile_count > 0
-                            ? faster_gs::rasterization::extract_end_bit(tile_count - 1)
+                            ? splatkit_faster_gs_core_vendor::rasterization::extract_end_bit(
+                                  tile_count - 1
+                              )
                             : 0;
 
     auto int_options = primitive_indices.options().dtype(torch::kInt32);

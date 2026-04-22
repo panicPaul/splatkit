@@ -1,4 +1,4 @@
-"""Private JIT extension loader for the FasterGS native runtime."""
+"""Private JIT extension loader for the FasterGS depth runtime."""
 
 from __future__ import annotations
 
@@ -11,18 +11,20 @@ from torch.utils.cpp_extension import load
 
 @lru_cache(maxsize=1)
 def load_extension() -> Any:
-    """Compile and load the vendored FasterGS rasterization extension."""
-    native_root = Path(__file__).resolve().parent.parent / "native"
+    """Compile and load the depth-only blend extension."""
+    package_root = Path(__file__).resolve().parent.parent
+    native_root = package_root / "native"
+    core_native_root = package_root.parent / "faster_gs_native" / "native"
     return load(
-        name="splatkit_faster_gs_native_ext",
+        name="splatkit_faster_gs_depth_native_ext",
         sources=[
             str(native_root / "bindings.cpp"),
-            str(native_root / "rasterization" / "src" / "stages.cu"),
+            str(native_root / "depth_blend.cu"),
         ],
         extra_include_paths=[
-            str(native_root / "utils"),
-            str(native_root / "rasterization" / "include"),
-            str(native_root / "rasterization" / "src"),
+            str(core_native_root / "utils"),
+            str(core_native_root / "rasterization" / "include"),
+            str(core_native_root / "rasterization" / "src"),
         ],
         extra_cflags=[
             "-O3",

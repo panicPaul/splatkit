@@ -46,3 +46,13 @@ The raw torch custom ops are registered under the `faster_gs_native::` namespace
 - Keep preprocess, sort, and blend modular so future native backends can copy this structure.
 - Preserve parity with the FasterGS CUDA backend while keeping the code readable enough to modify.
 
+## Reference backend note
+
+The external `FasterGSCudaBackend` is still used as the image/gradient reference in tests.
+Its backward path is not safe to interleave with unrelated CUDA autograd work inside one
+long-lived Python process: after one reference backward, the next CUDA backward in that
+process can fail even if it does not use `splatkit` at all.
+
+Because of that, reference comparisons are limited to sequences that keep the external
+backend at the end of the CUDA work they perform. The native backends in this package
+should not rely on the external backend for process-local coexistence guarantees.

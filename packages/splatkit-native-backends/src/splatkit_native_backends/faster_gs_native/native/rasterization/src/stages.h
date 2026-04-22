@@ -19,6 +19,7 @@ std::tuple<
     torch::Tensor,
     torch::Tensor,
     torch::Tensor,
+    torch::Tensor,
     torch::Tensor>
 preprocess_fwd_wrapper(
     const torch::Tensor& means,
@@ -61,6 +62,7 @@ preprocess_bwd_wrapper(
     const torch::Tensor& grad_projected_means,
     const torch::Tensor& grad_conic_opacity,
     const torch::Tensor& grad_colors_rgb,
+    const torch::Tensor& grad_primitive_depth,
     int width,
     int height,
     float focal_x,

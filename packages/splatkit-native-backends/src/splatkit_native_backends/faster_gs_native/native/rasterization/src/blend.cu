@@ -4,15 +4,18 @@
 
 #include "common.h"
 
+#include "vendor_namespace_begin.h"
 #include "helper_math.h"
 #include "kernels_backward.cuh"
 #include "kernels_forward.cuh"
 #include "rasterization_config.h"
+#include "vendor_namespace_end.h"
 #include "torch_utils.h"
 
-namespace forward_kernels = faster_gs::rasterization::kernels::forward;
-namespace backward_kernels = faster_gs::rasterization::kernels::backward;
-namespace config = faster_gs::rasterization::config;
+namespace forward_kernels = splatkit_faster_gs_core_vendor::rasterization::kernels::forward;
+namespace backward_kernels =
+    splatkit_faster_gs_core_vendor::rasterization::kernels::backward;
+namespace config = splatkit_faster_gs_core_vendor::rasterization::config;
 
 namespace splatkit::faster_gs_native {
 

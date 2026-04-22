@@ -16,6 +16,7 @@ class PreprocessResult:
     projected_means: Float[Tensor, " num_primitives 2"]
     conic_opacity: Float[Tensor, " num_primitives 4"]
     colors_rgb: Float[Tensor, " num_primitives 3"]
+    primitive_depth: Float[Tensor, " num_primitives"]
     depth_keys: Int[Tensor, " num_primitives"]
     primitive_indices: Int[Tensor, " num_primitives"]
     num_touched_tiles: Int[Tensor, " num_primitives"]
@@ -34,6 +35,7 @@ class PreprocessResult:
             self.projected_means,
             self.conic_opacity,
             self.colors_rgb,
+            self.primitive_depth,
             self.depth_keys,
             self.primitive_indices,
             self.num_touched_tiles,

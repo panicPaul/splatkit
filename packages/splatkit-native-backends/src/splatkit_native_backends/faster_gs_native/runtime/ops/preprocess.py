@@ -35,7 +35,18 @@ def preprocess_fwd_op(
     center_y: float,
     proper_antialiasing: bool,
     active_sh_bases: int,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+]:
     """Low-level native preprocess forward op."""
     return backend().preprocess_fwd(
         center_positions,
@@ -79,7 +90,18 @@ def _preprocess_fwd_fake(
     center_y: float,
     proper_antialiasing: bool,
     active_sh_bases: int,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+]:
     del (
         log_scales,
         unnormalized_rotations,
@@ -106,6 +128,7 @@ def _preprocess_fwd_fake(
         torch.empty((num_primitives, 2), device=device, dtype=dtype),
         torch.empty((num_primitives, 4), device=device, dtype=dtype),
         torch.empty((num_primitives, 3), device=device, dtype=dtype),
+        torch.empty((num_primitives,), device=device, dtype=dtype),
         torch.empty((num_primitives,), device=device, dtype=torch.int32),
         torch.empty((num_primitives,), device=device, dtype=torch.int32),
         torch.empty((num_primitives,), device=device, dtype=torch.int32),
@@ -129,6 +152,7 @@ def preprocess_bwd_op(
     grad_projected_means: Tensor,
     grad_conic_opacity: Tensor,
     grad_colors_rgb: Tensor,
+    grad_primitive_depth: Tensor,
     width: int,
     height: int,
     focal_x: float,
@@ -152,6 +176,7 @@ def preprocess_bwd_op(
         grad_projected_means,
         grad_conic_opacity,
         grad_colors_rgb,
+        grad_primitive_depth,
         width,
         height,
         focal_x,
@@ -177,6 +202,7 @@ def _preprocess_bwd_fake(
     grad_projected_means: Tensor,
     grad_conic_opacity: Tensor,
     grad_colors_rgb: Tensor,
+    grad_primitive_depth: Tensor,
     width: int,
     height: int,
     focal_x: float,
@@ -193,6 +219,7 @@ def _preprocess_bwd_fake(
         grad_projected_means,
         grad_conic_opacity,
         grad_colors_rgb,
+        grad_primitive_depth,
         width,
         height,
         focal_x,
@@ -232,7 +259,18 @@ def preprocess_op(
     center_y: float,
     proper_antialiasing: bool,
     active_sh_bases: int,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+]:
     """Autograd-enabled preprocess op."""
     return preprocess_fwd_op(
         center_positions,
@@ -259,7 +297,18 @@ def preprocess_op(
 @preprocess_op.register_fake
 def _preprocess_fake(
     *args: Any,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+]:
     """Fake implementation for the autograd preprocess op."""
     return _preprocess_fwd_fake(*args)
 
@@ -296,6 +345,7 @@ def _preprocess_backward(
     grad_projected_means: Tensor,
     grad_conic_opacity: Tensor,
     grad_colors_rgb: Tensor,
+    grad_primitive_depth: Tensor,
     grad_depth_keys: Tensor,
     grad_primitive_indices: Tensor,
     grad_num_touched_tiles: Tensor,
@@ -316,6 +366,7 @@ def _preprocess_backward(
         grad_projected_means,
         grad_conic_opacity,
         grad_colors_rgb,
+        grad_primitive_depth,
         ctx.width,
         ctx.height,
         ctx.focal_x,
@@ -332,4 +383,3 @@ preprocess_op.register_autograd(
     _preprocess_backward,
     setup_context=_preprocess_setup_context,
 )
-

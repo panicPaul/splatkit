@@ -4,21 +4,45 @@
 
 #include "common.h"
 
+#include "vendor_namespace_begin.h"
 #include "helper_math.h"
 #include "kernels_backward.cuh"
 #include "kernels_forward.cuh"
 #include "rasterization_config.h"
+#include "vendor_namespace_end.h"
 #include "torch_utils.h"
 
-namespace forward_kernels = faster_gs::rasterization::kernels::forward;
-namespace backward_kernels = faster_gs::rasterization::kernels::backward;
-namespace config = faster_gs::rasterization::config;
+namespace forward_kernels = splatkit_faster_gs_core_vendor::rasterization::kernels::forward;
+namespace backward_kernels =
+    splatkit_faster_gs_core_vendor::rasterization::kernels::backward;
+namespace config = splatkit_faster_gs_core_vendor::rasterization::config;
 
 namespace splatkit::faster_gs_native {
+
+namespace {
+
+__global__ void compute_primitive_depth_cu(
+    const float3* __restrict__ means,
+    const float4* __restrict__ w2c,
+    float* __restrict__ primitive_depth,
+    const uint n_primitives
+) {
+    const uint primitive_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (primitive_idx >= n_primitives) {
+        return;
+    }
+    const float3 mean3d = means[primitive_idx];
+    const float4 w2c_r3 = w2c[2];
+    primitive_depth[primitive_idx] = w2c_r3.x * mean3d.x + w2c_r3.y * mean3d.y +
+                                     w2c_r3.z * mean3d.z + w2c_r3.w;
+}
+
+}  // namespace
 
 // Runs the vendored preprocess kernel after validating tensor dtypes and
 // materializing contiguous views expected by the CUDA code.
 std::tuple<
+    torch::Tensor,
     torch::Tensor,
     torch::Tensor,
     torch::Tensor,
@@ -67,6 +91,7 @@ preprocess_fwd_wrapper(
     torch::Tensor projected_means = torch::empty({n_primitives, 2}, float_options);
     torch::Tensor conic_opacity = torch::empty({n_primitives, 4}, float_options);
     torch::Tensor colors_rgb = torch::empty({n_primitives, 3}, float_options);
+    torch::Tensor primitive_depth = torch::zeros({n_primitives}, float_options);
     torch::Tensor depth_keys = torch::empty({n_primitives}, int_options);
     torch::Tensor primitive_indices = torch::empty({n_primitives}, int_options);
     torch::Tensor num_touched_tiles = torch::empty({n_primitives}, int_options);
@@ -82,6 +107,15 @@ preprocess_fwd_wrapper(
     torch::Tensor shrest_c = sh_coefficients_rest.contiguous();
     torch::Tensor w2c_c = w2c.contiguous();
     torch::Tensor cam_position_c = cam_position.contiguous();
+
+    compute_primitive_depth_cu<<<div_round_up(n_primitives, config::block_size_preprocess),
+                                 config::block_size_preprocess>>>(
+        reinterpret_cast<float3*>(means_c.data_ptr<float>()),
+        reinterpret_cast<float4*>(w2c_c.data_ptr<float>()),
+        primitive_depth.data_ptr<float>(),
+        static_cast<uint>(n_primitives)
+    );
+    CHECK_CUDA(config::debug, "compute_primitive_depth")
 
     // The vendored kernel expects packed float2/float3/float4 views and writes
     // directly into the stage output tensors.
@@ -126,6 +160,7 @@ preprocess_fwd_wrapper(
         projected_means,
         conic_opacity,
         colors_rgb,
+        primitive_depth,
         depth_keys,
         primitive_indices,
         num_touched_tiles,
@@ -156,6 +191,7 @@ preprocess_bwd_wrapper(
     const torch::Tensor& grad_projected_means,
     const torch::Tensor& grad_conic_opacity,
     const torch::Tensor& grad_colors_rgb,
+    const torch::Tensor& grad_primitive_depth,
     int width,
     int height,
     float focal_x,
@@ -175,6 +211,7 @@ preprocess_bwd_wrapper(
     check_cuda_float_tensor(grad_projected_means, "grad_projected_means");
     check_cuda_float_tensor(grad_conic_opacity, "grad_conic_opacity");
     check_cuda_float_tensor(grad_colors_rgb, "grad_colors_rgb");
+    check_cuda_float_tensor(grad_primitive_depth, "grad_primitive_depth");
 
     const int n_primitives = means.size(0);
     const int total_sh_bases = sh_coefficients_rest.size(1);
@@ -207,6 +244,7 @@ preprocess_bwd_wrapper(
     torch::Tensor w2c_c = w2c.contiguous();
     torch::Tensor cam_position_c = cam_position.contiguous();
     torch::Tensor touched_c = num_touched_tiles.contiguous();
+    torch::Tensor grad_depth_c = grad_primitive_depth.reshape({n_primitives, 1}).contiguous();
 
     // The backward kernel accumulates gradients into separate geometric and SH
     // buffers, which are then returned in the same order as the Python op
@@ -243,6 +281,9 @@ preprocess_bwd_wrapper(
             proper_antialiasing
         );
     CHECK_CUDA(config::debug, "preprocess_bwd")
+
+    const torch::Tensor w2c_depth_row = w2c_c.select(0, 2).narrow(0, 0, 3);
+    grad_means.add_(grad_depth_c * w2c_depth_row);
 
     return {
         grad_means,
