@@ -5,6 +5,7 @@ from typing import cast
 import pytest
 import torch
 from splatkit.core import BACKEND_REGISTRY, render
+from splatkit_native_backends.stoch3dgs_native import renderer as stoch3dgs_native_renderer
 from splatkit_native_backends.stoch3dgs_native import (
     Stoch3DGSNativeRenderOptions,
     Stoch3DGSNativeRenderOutput,
@@ -56,6 +57,36 @@ class _FakeOptixTracer:
             torch.full_like(particle_density, 0.1),
             torch.full_like(particle_radiance, 0.2),
             torch.zeros((particle_density.shape[0], 1), device=particle_density.device, dtype=particle_density.dtype),
+        )
+
+
+class _ContiguityCheckingOptixTracer(_FakeOptixTracer):
+    def __init__(self) -> None:
+        super().__init__()
+        self.last_build_inputs_contiguous: tuple[bool, bool, bool, bool] | None = None
+
+    def build_bvh(
+        self,
+        positions: torch.Tensor,
+        rotations: torch.Tensor,
+        scales: torch.Tensor,
+        densities: torch.Tensor,
+        rebuild: bool,
+        allow_update: bool,
+    ) -> None:
+        self.last_build_inputs_contiguous = (
+            positions.is_contiguous(),
+            rotations.is_contiguous(),
+            scales.is_contiguous(),
+            densities.is_contiguous(),
+        )
+        super().build_bvh(
+            positions,
+            rotations,
+            scales,
+            densities,
+            rebuild,
+            allow_update,
         )
 
 
@@ -131,3 +162,22 @@ def test_render_stoch3dgs_native_rejects_2d_projections(
             cpu_camera,
             return_2d_projections=True,
         )
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_render_stoch3dgs_native_builds_bvh_with_contiguous_fields(
+    cuda_scene,
+    cuda_camera,
+    monkeypatch,
+) -> None:
+    stoch3dgs_native_renderer._STATE_TOKEN_CACHE.clear()
+    tracer = _ContiguityCheckingOptixTracer()
+    monkeypatch.setattr(
+        "splatkit_native_backends.traced_native_core.runtime.state._make_tracer_wrapper",
+        lambda config: tracer,
+    )
+
+    render_stoch3dgs_native(cuda_scene, cuda_camera)
+
+    assert tracer.last_build_inputs_contiguous == (True, True, True, True)

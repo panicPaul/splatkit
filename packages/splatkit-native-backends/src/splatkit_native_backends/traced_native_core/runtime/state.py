@@ -123,10 +123,10 @@ def destroy_state_token(state_token: Tensor) -> None:
 def _split_particle_density(particle_density: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Split packed particle density into the pieces expected by the OptiX tracer."""
     return (
-        particle_density[:, 0:3],
-        particle_density[:, 4:8],
-        particle_density[:, 8:11],
-        particle_density[:, 3:4],
+        particle_density[:, 0:3].contiguous(),
+        particle_density[:, 4:8].contiguous(),
+        particle_density[:, 8:11].contiguous(),
+        particle_density[:, 3:4].contiguous(),
     )
 
 
