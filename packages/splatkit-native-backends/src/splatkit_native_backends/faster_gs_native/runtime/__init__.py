@@ -10,6 +10,12 @@ from splatkit_native_backends.faster_gs_native.runtime.ops import (
     render_op,
     sort_op,
 )
+from splatkit_native_backends.faster_gs_native.runtime.packing import (
+    make_render_result,
+    parse_blend_outputs,
+    parse_preprocess_outputs,
+    parse_sort_outputs,
+)
 from splatkit_native_backends.faster_gs_native.runtime.types import (
     BlendResult,
     PreprocessResult,
@@ -40,8 +46,8 @@ def preprocess(
     active_sh_bases: int,
 ) -> PreprocessResult:
     """Run the native preprocess stage."""
-    return PreprocessResult(
-        *preprocess_op(
+    return parse_preprocess_outputs(
+        preprocess_op(
             center_positions,
             log_scales,
             unnormalized_rotations,
@@ -78,8 +84,8 @@ def sort(
     height: int,
 ) -> SortResult:
     """Run the native sort stage."""
-    return SortResult(
-        *sort_op(
+    return parse_sort_outputs(
+        sort_op(
             depth_keys,
             primitive_indices,
             num_touched_tiles,
@@ -109,8 +115,8 @@ def blend(
     height: int,
 ) -> BlendResult:
     """Run the native blend stage."""
-    return BlendResult(
-        *blend_op(
+    return parse_blend_outputs(
+        blend_op(
             instance_primitive_indices,
             tile_instance_ranges,
             tile_bucket_offsets,
@@ -149,8 +155,8 @@ def render(
     active_sh_bases: int,
 ) -> RenderResult:
     """Run the full native render stage."""
-    return RenderResult(
-        *render_op(
+    return make_render_result(
+        render_op(
             center_positions,
             log_scales,
             unnormalized_rotations,

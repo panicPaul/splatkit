@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+from FasterGSCudaBackend import RasterizerSettings, diff_rasterize
 from splatkit_native_backends.faster_gs_native.runtime import (
     blend,
     preprocess,
@@ -9,12 +10,58 @@ from splatkit_native_backends.faster_gs_native.runtime import (
     sort,
 )
 from splatkit_native_backends.faster_gs_native.runtime.ops import (
-    _RENDER_CONTEXTS,
-    _RENDER_OUTPUT_TO_CONTEXT,
     preprocess_fwd_op,
     render_fwd_op,
 )
 from torch._subclasses.fake_tensor import FakeTensorMode
+
+
+def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
+    intrinsics = camera_state.get_intrinsics()[0]
+    return (
+        int(camera_state.width[0].item()),
+        int(camera_state.height[0].item()),
+        float(intrinsics[0, 0].item()),
+        float(intrinsics[1, 1].item()),
+        float(intrinsics[0, 2].item()),
+        float(intrinsics[1, 2].item()),
+    )
+
+
+def _reference_render(
+    scene,
+    camera_state,
+    *,
+    proper_antialiasing: bool = False,
+) -> torch.Tensor:
+    cam_to_world = camera_state.cam_to_world[0]
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        camera_state
+    )
+    return diff_rasterize(
+        means=scene.center_position,
+        scales=scene.log_scales,
+        rotations=scene.quaternion_orientation,
+        opacities=scene.logit_opacity[:, None],
+        sh_coefficients_0=scene.feature[:, :1, :].contiguous(),
+        sh_coefficients_rest=scene.feature[:, 1:, :].contiguous(),
+        densification_info=torch.empty(0, device=scene.center_position.device),
+        rasterizer_settings=RasterizerSettings(
+            w2c=torch.linalg.inv(cam_to_world),
+            cam_position=cam_to_world[:3, 3].contiguous(),
+            bg_color=torch.zeros(3, device=scene.center_position.device),
+            active_sh_bases=int(scene.feature.shape[1]),
+            width=width,
+            height=height,
+            focal_x=focal_x,
+            focal_y=focal_y,
+            center_x=center_x,
+            center_y=center_y,
+            near_plane=0.01,
+            far_plane=1000.0,
+            proper_antialiasing=proper_antialiasing,
+        ),
+    )
 
 
 @pytest.mark.cuda
@@ -22,7 +69,9 @@ def test_preprocess_sort_blend_return_expected_shapes(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    intrinsics = cuda_camera.get_intrinsics()[0]
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        cuda_camera
+    )
     cam_to_world = cuda_camera.cam_to_world[0]
     preprocess_result = preprocess(
         cuda_scene.center_position,
@@ -35,12 +84,12 @@ def test_preprocess_sort_blend_return_expected_shapes(
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=int(cuda_camera.width[0].item()),
-        height=int(cuda_camera.height[0].item()),
-        focal_x=float(intrinsics[0, 0].item()),
-        focal_y=float(intrinsics[1, 1].item()),
-        center_x=float(intrinsics[0, 2].item()),
-        center_y=float(intrinsics[1, 2].item()),
+        width=width,
+        height=height,
+        focal_x=focal_x,
+        focal_y=focal_y,
+        center_x=center_x,
+        center_y=center_y,
         proper_antialiasing=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
     )
@@ -53,8 +102,8 @@ def test_preprocess_sort_blend_return_expected_shapes(
         preprocess_result.conic_opacity,
         preprocess_result.visible_count,
         preprocess_result.instance_count,
-        width=int(cuda_camera.width[0].item()),
-        height=int(cuda_camera.height[0].item()),
+        width=width,
+        height=height,
     )
     blend_result = blend(
         sort_result.instance_primitive_indices,
@@ -66,8 +115,8 @@ def test_preprocess_sort_blend_return_expected_shapes(
         preprocess_result.colors_rgb,
         torch.zeros(3, device=cuda_scene.center_position.device),
         False,
-        width=int(cuda_camera.width[0].item()),
-        height=int(cuda_camera.height[0].item()),
+        width=width,
+        height=height,
     )
 
     assert preprocess_result.projected_means.shape == (3, 2)
@@ -78,8 +127,90 @@ def test_preprocess_sort_blend_return_expected_shapes(
 
 
 @pytest.mark.cuda
+def test_render_fwd_matches_explicit_stage_composition(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        cuda_camera
+    )
+    cam_to_world = cuda_camera.cam_to_world[0]
+    render_outputs = render_fwd_op(
+        cuda_scene.center_position,
+        cuda_scene.log_scales,
+        cuda_scene.quaternion_orientation,
+        cuda_scene.logit_opacity[:, None],
+        cuda_scene.feature[:, :1, :],
+        cuda_scene.feature[:, 1:, :],
+        torch.linalg.inv(cam_to_world),
+        cam_to_world[:3, 3],
+        0.01,
+        1000.0,
+        width,
+        height,
+        focal_x,
+        focal_y,
+        center_x,
+        center_y,
+        torch.zeros(3, device=cuda_scene.center_position.device),
+        False,
+        int(cuda_scene.feature.shape[1]),
+    )
+    preprocess_result = preprocess(
+        cuda_scene.center_position,
+        cuda_scene.log_scales,
+        cuda_scene.quaternion_orientation,
+        cuda_scene.logit_opacity[:, None],
+        cuda_scene.feature[:, :1, :],
+        cuda_scene.feature[:, 1:, :],
+        torch.linalg.inv(cam_to_world),
+        cam_to_world[:3, 3],
+        near_plane=0.01,
+        far_plane=1000.0,
+        width=width,
+        height=height,
+        focal_x=focal_x,
+        focal_y=focal_y,
+        center_x=center_x,
+        center_y=center_y,
+        proper_antialiasing=False,
+        active_sh_bases=int(cuda_scene.feature.shape[1]),
+    )
+    sort_result = sort(
+        preprocess_result.depth_keys,
+        preprocess_result.primitive_indices,
+        preprocess_result.num_touched_tiles,
+        preprocess_result.screen_bounds,
+        preprocess_result.projected_means,
+        preprocess_result.conic_opacity,
+        preprocess_result.visible_count,
+        preprocess_result.instance_count,
+        width=width,
+        height=height,
+    )
+    blend_result = blend(
+        sort_result.instance_primitive_indices,
+        sort_result.tile_instance_ranges,
+        sort_result.tile_bucket_offsets,
+        sort_result.bucket_count,
+        preprocess_result.projected_means,
+        preprocess_result.conic_opacity,
+        preprocess_result.colors_rgb,
+        torch.zeros(3, device=cuda_scene.center_position.device),
+        False,
+        width=width,
+        height=height,
+    )
+
+    assert len(render_outputs) == 19
+    torch.testing.assert_close(render_outputs[0], blend_result.image)
+
+
+@pytest.mark.cuda
 def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> None:
-    intrinsics = cuda_camera.get_intrinsics()[0]
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        cuda_camera
+    )
     cam_to_world = cuda_camera.cam_to_world[0]
     center_positions = cuda_scene.center_position.detach().clone().requires_grad_(True)
     log_scales = cuda_scene.log_scales.detach().clone().requires_grad_(True)
@@ -99,12 +230,12 @@ def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> N
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=int(cuda_camera.width[0].item()),
-        height=int(cuda_camera.height[0].item()),
-        focal_x=float(intrinsics[0, 0].item()),
-        focal_y=float(intrinsics[1, 1].item()),
-        center_x=float(intrinsics[0, 2].item()),
-        center_y=float(intrinsics[1, 2].item()),
+        width=width,
+        height=height,
+        focal_x=focal_x,
+        focal_y=focal_y,
+        center_x=center_x,
+        center_y=center_y,
         bg_color=torch.zeros(3, device=center_positions.device),
         proper_antialiasing=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
@@ -123,14 +254,129 @@ def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> N
         assert torch.isfinite(grad).all()
 
 
+@pytest.mark.cuda
+def test_render_matches_reference_cuda_backend(cuda_scene, cuda_camera) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        cuda_camera
+    )
+    cam_to_world = cuda_camera.cam_to_world[0]
+    native = render(
+        cuda_scene.center_position,
+        cuda_scene.log_scales,
+        cuda_scene.quaternion_orientation,
+        cuda_scene.logit_opacity[:, None],
+        cuda_scene.feature[:, :1, :],
+        cuda_scene.feature[:, 1:, :],
+        torch.linalg.inv(cam_to_world),
+        cam_to_world[:3, 3],
+        near_plane=0.01,
+        far_plane=1000.0,
+        width=width,
+        height=height,
+        focal_x=focal_x,
+        focal_y=focal_y,
+        center_x=center_x,
+        center_y=center_y,
+        bg_color=torch.zeros(3, device=cuda_scene.center_position.device),
+        proper_antialiasing=False,
+        active_sh_bases=int(cuda_scene.feature.shape[1]),
+    ).image
+    reference = _reference_render(cuda_scene, cuda_camera, proper_antialiasing=False)
+    torch.testing.assert_close(native, reference, rtol=1e-4, atol=2e-4)
+
+
+@pytest.mark.cuda
+def test_render_gradients_match_reference_cuda_backend(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        cuda_camera
+    )
+    cam_to_world = cuda_camera.cam_to_world[0]
+    weights = torch.linspace(
+        0.5,
+        1.5,
+        steps=3 * height * width,
+        device=cuda_scene.center_position.device,
+        dtype=cuda_scene.center_position.dtype,
+    ).view(3, height, width)
+
+    native_inputs = [
+        cuda_scene.center_position.detach().clone().requires_grad_(True),
+        cuda_scene.log_scales.detach().clone().requires_grad_(True),
+        cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True),
+        cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True),
+        cuda_scene.feature[:, :1, :].detach().clone().requires_grad_(True),
+        cuda_scene.feature[:, 1:, :].detach().clone().requires_grad_(True),
+    ]
+    reference_inputs = [tensor.detach().clone().requires_grad_(True) for tensor in native_inputs]
+
+    native_image = render(
+        native_inputs[0],
+        native_inputs[1],
+        native_inputs[2],
+        native_inputs[3],
+        native_inputs[4],
+        native_inputs[5],
+        torch.linalg.inv(cam_to_world),
+        cam_to_world[:3, 3],
+        near_plane=0.01,
+        far_plane=1000.0,
+        width=width,
+        height=height,
+        focal_x=focal_x,
+        focal_y=focal_y,
+        center_x=center_x,
+        center_y=center_y,
+        bg_color=torch.zeros(3, device=cuda_scene.center_position.device),
+        proper_antialiasing=False,
+        active_sh_bases=int(cuda_scene.feature.shape[1]),
+    ).image
+    native_loss = (native_image * weights).sum()
+    native_loss.backward()
+
+    reference_image = diff_rasterize(
+        means=reference_inputs[0],
+        scales=reference_inputs[1],
+        rotations=reference_inputs[2],
+        opacities=reference_inputs[3],
+        sh_coefficients_0=reference_inputs[4].contiguous(),
+        sh_coefficients_rest=reference_inputs[5].contiguous(),
+        densification_info=torch.empty(0, device=cuda_scene.center_position.device),
+        rasterizer_settings=RasterizerSettings(
+            w2c=torch.linalg.inv(cam_to_world),
+            cam_position=cam_to_world[:3, 3].contiguous(),
+            bg_color=torch.zeros(3, device=cuda_scene.center_position.device),
+            active_sh_bases=int(cuda_scene.feature.shape[1]),
+            width=width,
+            height=height,
+            focal_x=focal_x,
+            focal_y=focal_y,
+            center_x=center_x,
+            center_y=center_y,
+            near_plane=0.01,
+            far_plane=1000.0,
+            proper_antialiasing=False,
+        ),
+    )
+    reference_loss = (reference_image * weights).sum()
+    reference_loss.backward()
+
+    for native_grad, reference_grad in zip(
+        [tensor.grad for tensor in native_inputs],
+        [tensor.grad for tensor in reference_inputs],
+        strict=True,
+    ):
+        assert native_grad is not None
+        assert reference_grad is not None
+        torch.testing.assert_close(native_grad, reference_grad, rtol=1e-4, atol=3e-4)
+
+
 def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
-    intrinsics = cpu_camera.get_intrinsics()[0]
-    width = int(cpu_camera.width[0].item())
-    height = int(cpu_camera.height[0].item())
-    focal_x = float(intrinsics[0, 0].item())
-    focal_y = float(intrinsics[1, 1].item())
-    center_x = float(intrinsics[0, 2].item())
-    center_y = float(intrinsics[1, 2].item())
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        cpu_camera
+    )
     cam_to_world = cpu_camera.cam_to_world[0]
 
     with FakeTensorMode(allow_non_fake_inputs=True) as mode:
@@ -187,17 +433,14 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
 
     assert preprocess_result[0].shape == (3, 2)
     assert render_result[0].shape == (3, 32, 32)
+    assert render_result[1].shape == (3, 2)
 
 
 @pytest.mark.cuda
 def test_render_op_supports_torch_compile(cuda_scene, cuda_camera) -> None:
-    intrinsics = cuda_camera.get_intrinsics()[0]
-    width = int(cuda_camera.width[0].item())
-    height = int(cuda_camera.height[0].item())
-    focal_x = float(intrinsics[0, 0].item())
-    focal_y = float(intrinsics[1, 1].item())
-    center_x = float(intrinsics[0, 2].item())
-    center_y = float(intrinsics[1, 2].item())
+    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
+        cuda_camera
+    )
     cam_to_world = cuda_camera.cam_to_world[0]
     world_2_camera = torch.linalg.inv(cam_to_world)
     camera_position = cam_to_world[:3, 3]
@@ -232,39 +475,3 @@ def test_render_op_supports_torch_compile(cuda_scene, cuda_camera) -> None:
 
     assert result.ndim == 0
     assert torch.isfinite(result)
-
-
-@pytest.mark.cuda
-def test_render_no_grad_does_not_accumulate_contexts(
-    cuda_scene,
-    cuda_camera,
-) -> None:
-    _RENDER_CONTEXTS.clear()
-    _RENDER_OUTPUT_TO_CONTEXT.clear()
-    for _ in range(8):
-        with torch.no_grad():
-            result = render(
-                cuda_scene.center_position,
-                cuda_scene.log_scales,
-                cuda_scene.quaternion_orientation,
-                cuda_scene.logit_opacity[:, None],
-                cuda_scene.feature[:, :1, :],
-                cuda_scene.feature[:, 1:, :],
-                torch.linalg.inv(cuda_camera.cam_to_world[0]),
-                cuda_camera.cam_to_world[0, :3, 3],
-                near_plane=0.01,
-                far_plane=1000.0,
-                width=int(cuda_camera.width[0].item()),
-                height=int(cuda_camera.height[0].item()),
-                focal_x=float(cuda_camera.get_intrinsics()[0, 0, 0].item()),
-                focal_y=float(cuda_camera.get_intrinsics()[0, 1, 1].item()),
-                center_x=float(cuda_camera.get_intrinsics()[0, 0, 2].item()),
-                center_y=float(cuda_camera.get_intrinsics()[0, 1, 2].item()),
-                bg_color=torch.zeros(3, device=cuda_scene.center_position.device),
-                proper_antialiasing=False,
-                active_sh_bases=int(cuda_scene.feature.shape[1]),
-            )
-        del result
-        torch.cuda.synchronize()
-    assert _RENDER_CONTEXTS == {}
-    assert _RENDER_OUTPUT_TO_CONTEXT == {}

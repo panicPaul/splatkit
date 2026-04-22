@@ -1,11 +1,15 @@
 #pragma once
 
+// Declares the native FasterGS stage wrappers exposed to the torch extension.
+
 #include <torch/extension.h>
 
 #include <tuple>
 
 namespace splatkit::faster_gs_native {
 
+// Runs the FasterGS preprocess forward stage and returns the tensors consumed
+// by later sort/blend stages.
 std::tuple<
     torch::Tensor,
     torch::Tensor,
@@ -36,6 +40,8 @@ preprocess_fwd_wrapper(
     bool proper_antialiasing,
     int active_sh_bases);
 
+// Runs the FasterGS preprocess backward stage and returns gradients for the
+// differentiable scene inputs.
 std::tuple<
     torch::Tensor,
     torch::Tensor,
@@ -64,6 +70,8 @@ preprocess_bwd_wrapper(
     bool proper_antialiasing,
     int active_sh_bases);
 
+// Runs the FasterGS sort stage and returns per-instance ordering plus per-tile
+// ranges for blending.
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 sort_fwd_wrapper(
     const torch::Tensor& depth_keys,
@@ -77,6 +85,8 @@ sort_fwd_wrapper(
     int width,
     int height);
 
+// Runs the FasterGS blend forward stage and returns the rendered image plus the
+// auxiliary tensors required for blend backward.
 std::tuple<
     torch::Tensor,
     torch::Tensor,
@@ -97,6 +107,8 @@ blend_fwd_wrapper(
     int width,
     int height);
 
+// Runs the FasterGS blend backward stage and returns gradients with respect to
+// projected means, conic-opacities, and RGB colors.
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
 blend_bwd_wrapper(
     const torch::Tensor& grad_image,
@@ -117,4 +129,4 @@ blend_bwd_wrapper(
     int width,
     int height);
 
-}
+}  // namespace splatkit::faster_gs_native

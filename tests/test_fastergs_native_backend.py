@@ -5,6 +5,13 @@ from typing import cast
 import pytest
 import torch
 from splatkit.core import BACKEND_REGISTRY, render
+from splatkit_backends.fastergs import (
+    FasterGSRenderOutput,
+    render_fastergs,
+)
+from splatkit_backends.fastergs import (
+    register as register_fastergs,
+)
 from splatkit_native_backends.faster_gs_native import (
     FasterGSNativeRenderOutput,
     register,
@@ -12,6 +19,7 @@ from splatkit_native_backends.faster_gs_native import (
 )
 
 register()
+register_fastergs()
 
 
 @pytest.mark.backend
@@ -43,6 +51,29 @@ def test_generic_render_dispatches_to_faster_gs_native(
 
     assert BACKEND_REGISTRY["faster_gs_native"].name == "faster_gs_native"
     assert output.render.shape == (1, 32, 32, 3)
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_native_backend_matches_fastergs_backend(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    native_output = cast(
+        FasterGSNativeRenderOutput,
+        render_faster_gs_native(cuda_scene, cuda_camera),
+    )
+    reference_output = cast(
+        FasterGSRenderOutput,
+        render_fastergs(cuda_scene, cuda_camera),
+    )
+
+    torch.testing.assert_close(
+        native_output.render,
+        reference_output.render,
+        rtol=1e-4,
+        atol=2e-4,
+    )
 
 
 def test_render_faster_gs_native_rejects_cpu_scene(cpu_scene, cpu_camera) -> None:
@@ -78,3 +109,4 @@ def test_render_faster_gs_native_rejects_2d_projections(
             cpu_camera,
             return_2d_projections=True,
         )
+
