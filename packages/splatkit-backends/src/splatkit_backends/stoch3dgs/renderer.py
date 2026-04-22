@@ -313,6 +313,7 @@ def render_stoch3dgs(
     *,
     return_alpha: bool = True,
     return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
     return_normals: bool = False,
     return_2d_projections: bool = False,
     return_projective_intersection_transforms: bool = False,
@@ -320,6 +321,8 @@ def render_stoch3dgs(
 ) -> Stoch3DGSAlphaRenderOutput | Stoch3DGSRenderOutput:
     """Render a scene with the stochastic 3DGRT backend."""
     del return_alpha
+    if return_gaussian_impact_score:
+        raise ValueError("Stoch3DGS does not expose Gaussian impact scores.")
     if return_normals:
         raise ValueError("Stoch3DGS does not expose normals.")
     if return_2d_projections:

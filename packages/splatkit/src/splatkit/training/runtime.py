@@ -217,6 +217,7 @@ def _validate_requested_outputs(config: TrainingConfig) -> None:
         for name, enabled in (
             ("alpha", config.render.return_alpha),
             ("depth", config.render.return_depth),
+            ("gaussian_impact_score", config.render.return_gaussian_impact_score),
             ("normals", config.render.return_normals),
             ("2d_projections", config.render.return_2d_projections),
             (
@@ -258,6 +259,9 @@ def build_render_fn(config: TrainingConfig) -> RenderFn:
             backend=config.render.backend,
             return_alpha=config.render.return_alpha,
             return_depth=config.render.return_depth,
+            return_gaussian_impact_score=(
+                config.render.return_gaussian_impact_score
+            ),
             return_normals=config.render.return_normals,
             return_2d_projections=config.render.return_2d_projections,
             return_projective_intersection_transforms=(

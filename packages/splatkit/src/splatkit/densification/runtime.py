@@ -67,6 +67,7 @@ def merge_densification_requirements(
     for attr_name in (
         "return_alpha",
         "return_depth",
+        "return_gaussian_impact_score",
         "return_normals",
         "return_2d_projections",
         "return_projective_intersection_transforms",

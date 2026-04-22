@@ -17,22 +17,22 @@ with app.setup:
     import torch
     import torch.nn.functional as F
     from marimo_config_gui import (
-        create_config_state,
         config_error,
         config_form,
         config_json,
         config_json_output,
         config_value,
+        create_config_state,
     )
     from PIL import Image
     from pydantic import BaseModel, Field
     from splatkit.data import (
         DatasetRuntimeConfig,
         MaterializationConfig,
+        MipNerf360IndoorDatasetConfig,
         SplitConfig,
         collate_frame_samples,
         load_dataset,
-        MipNerf360IndoorDatasetConfig,
     )
     from splatkit.io.scene import save_scene
     from torch.utils.data import DataLoader
@@ -470,7 +470,6 @@ def move_model_to_device_as_leaf(model, device: torch.device):
 def _(PreparedFrameSample):
     def plot_dataset_entry(frame: PreparedFrameSample) -> Image:
         """Plots the dataset entry."""
-
         image = (frame.image * 255).to(torch.uint8).numpy()
         return Image.fromarray(image)
 

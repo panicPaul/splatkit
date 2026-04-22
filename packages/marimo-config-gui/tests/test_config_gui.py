@@ -4,15 +4,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Literal
 
-import pytest
-from pydantic import BaseModel, Field
-
 import marimo_config_gui._pydantic as pgui
+import pytest
 from marimo_config_gui import (
     ConfigBindings,
     PydanticGui,
-    create_committed_config_state,
-    create_config_state,
     config_commit_button,
     config_committed_value,
     config_error,
@@ -22,10 +18,13 @@ from marimo_config_gui import (
     config_json_output,
     config_require_valid,
     config_value,
+    create_committed_config_state,
+    create_config_state,
     form_gui,
     json_gui,
     load_script_config,
 )
+from pydantic import BaseModel, Field
 
 
 class _RequiredModel(BaseModel):

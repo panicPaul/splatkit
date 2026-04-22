@@ -18,6 +18,12 @@ class HasDepth(Protocol):
     depth: Float[Tensor, "num_cams height width"]
 
 
+class HasGaussianImpactScore(Protocol):
+    """Output capability for backend-defined per-Gaussian impact scores."""
+
+    gaussian_impact_score: Float[Tensor, "num_cams num_splats"]
+
+
 class HasNormals(Protocol):
     """Output capability for normals."""
 
@@ -67,6 +73,13 @@ class RenderWithDepth(Protocol):
     depth: Float[Tensor, "num_cams height width"]
 
 
+class RenderWithGaussianImpactScore(Protocol):
+    """Render output that guarantees Gaussian impact scores."""
+
+    render: Float[Tensor, "num_cams height width 3"]
+    gaussian_impact_score: Float[Tensor, "num_cams num_splats"]
+
+
 class RenderWithNormals(Protocol):
     """Render output that guarantees normals."""
 
@@ -80,6 +93,12 @@ class RenderWithAlphaDepth(Protocol):
     render: Float[Tensor, "num_cams height width 3"]
     alphas: Float[Tensor, "num_cams height width"]
     depth: Float[Tensor, "num_cams height width"]
+
+
+class RenderWithDepthGaussianImpactScore(
+    RenderWithDepth, HasGaussianImpactScore, Protocol
+):
+    """Render output that guarantees depth and Gaussian impact scores."""
 
 
 class RenderWith2DProjections(Protocol):

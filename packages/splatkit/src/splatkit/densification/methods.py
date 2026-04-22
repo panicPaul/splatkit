@@ -313,10 +313,10 @@ class SVRasterAdaptive(ComposedDensificationMethod):
 
 
 __all__ = [
+    "MCMC",
     "AbsGS",
     "ComposedDensificationMethod",
     "FastGS",
-    "MCMC",
     "SVRasterAdaptive",
     "Vanilla3DGS",
     "compose_densification",

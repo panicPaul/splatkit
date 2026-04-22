@@ -52,6 +52,20 @@ def test_render_rejects_unsupported_output_request(
         BACKEND_REGISTRY["gsplat"] = original
 
 
+def test_render_rejects_unsupported_gaussian_impact_score_request(
+    cpu_scene, cpu_camera
+) -> None:
+    with pytest.raises(
+        ValueError, match="does not support requested outputs"
+    ):
+        render(
+            cpu_scene,
+            cpu_camera,
+            backend="gsplat",
+            return_gaussian_impact_score=True,
+        )
+
+
 def test_render_beartype_rejects_wrong_scene(cpu_camera) -> None:
     with pytest.raises(BeartypeCallHintParamViolation):
         render(cast(Any, "not-a-scene"), cpu_camera, backend="gsplat")

@@ -25,10 +25,10 @@ from splatkit.densification.families import (
     zero_field,
 )
 from splatkit.densification.methods import (
+    MCMC,
     AbsGS,
     ComposedDensificationMethod,
     FastGS,
-    MCMC,
     SVRasterAdaptive,
     Vanilla3DGS,
     compose_densification,
@@ -51,6 +51,7 @@ from splatkit.densification.runtime import (
 )
 
 __all__ = [
+    "MCMC",
     "AbsGS",
     "BaseDensificationComponent",
     "ComposedDensificationMethod",
@@ -70,14 +71,13 @@ __all__ = [
     "GaussianResetOpacityPass",
     "GaussianSplitPass",
     "ImagePlaneGradientCollector",
-    "MCMC",
     "PositionGradientCollector",
     "SVRasterAdaptive",
     "Schedule",
+    "SparseVoxelFamilyOps",
     "SparseVoxelGradientCollector",
     "SparseVoxelPrunePass",
     "SparseVoxelSubdividePass",
-    "SparseVoxelFamilyOps",
     "Vanilla3DGS",
     "bind_densification",
     "build_densification",

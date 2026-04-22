@@ -16,9 +16,6 @@ from splatkit_native_backends.faster_gs_depth_native.runtime.packing import (
 from splatkit_native_backends.faster_gs_native.reuse import (
     blend_bwd_op as core_blend_bwd_op,
 )
-from splatkit_native_backends.faster_gs_native.reuse import (
-    blend_fwd_op as core_blend_fwd_op,
-)
 from splatkit_native_backends.faster_gs_native.reuse.factories import (
     register_blend_family,
 )
@@ -48,7 +45,7 @@ def blend_fwd_op(
     height: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """Low-level depth-aware blend forward op."""
-    image, tile_final_transmittances, tile_max_n_processed, tile_n_processed, bucket_tile_index, bucket_color_transmittance = core_blend_fwd_op(
+    return backend().depth_blend_fwd(
         instance_primitive_indices,
         tile_instance_ranges,
         tile_bucket_offsets,
@@ -56,32 +53,11 @@ def blend_fwd_op(
         projected_means,
         conic_opacity,
         colors_rgb,
+        primitive_depth,
         bg_color,
         proper_antialiasing,
         width,
         height,
-    )
-    depth, bucket_depth_prefix = backend().depth_blend_fwd(
-        instance_primitive_indices,
-        tile_instance_ranges,
-        tile_bucket_offsets,
-        bucket_count,
-        projected_means,
-        conic_opacity,
-        primitive_depth,
-        proper_antialiasing,
-        width,
-        height,
-    )
-    return (
-        image,
-        depth,
-        tile_final_transmittances,
-        tile_max_n_processed,
-        tile_n_processed,
-        bucket_tile_index,
-        bucket_color_transmittance,
-        bucket_depth_prefix,
     )
 
 

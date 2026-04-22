@@ -11,6 +11,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+stoch3dgs = []
+all = []
 cu128 = [
     "torch>=2.11.0",
 ]

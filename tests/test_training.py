@@ -20,6 +20,7 @@ from splatkit.densification import (
     DensificationContext,
     DensificationRenderRequirements,
 )
+from splatkit.densification.runtime import merge_densification_requirements
 from splatkit.initialization import InitializedModel
 from splatkit.training import (
     CallableSpec,
@@ -72,6 +73,7 @@ def register_test_backend() -> None:
         *,
         return_alpha: bool = False,
         return_depth: bool = False,
+        return_gaussian_impact_score: bool = False,
         return_normals: bool = False,
         return_2d_projections: bool = False,
         return_projective_intersection_transforms: bool = False,
@@ -80,6 +82,7 @@ def register_test_backend() -> None:
         del (
             return_alpha,
             return_depth,
+            return_gaussian_impact_score,
             return_normals,
             return_2d_projections,
             return_projective_intersection_transforms,
@@ -458,6 +461,30 @@ def test_run_training_merges_densification_render_requirements(
 
     with pytest.raises(ValueError, match="2d_projections"):
         run_training(dataset, config)
+
+
+def test_build_render_fn_rejects_unsupported_gaussian_impact_score(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    config = build_config(tmp_path / "run")
+    config.render.return_gaussian_impact_score = True
+
+    with pytest.raises(ValueError, match="gaussian_impact_score"):
+        build_render_fn(config)
+
+
+def test_merge_densification_requirements_propagates_gaussian_impact_score(
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path / "run")
+
+    merged = merge_densification_requirements(
+        config,
+        DensificationRenderRequirements(return_gaussian_impact_score=True),
+    )
+
+    assert merged.render.return_gaussian_impact_score is True
 
 
 def build_dataset_loader(

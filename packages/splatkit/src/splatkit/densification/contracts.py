@@ -32,6 +32,7 @@ class DensificationRenderRequirements:
 
     return_alpha: bool = False
     return_depth: bool = False
+    return_gaussian_impact_score: bool = False
     return_normals: bool = False
     return_2d_projections: bool = False
     return_projective_intersection_transforms: bool = False
@@ -53,6 +54,10 @@ class DensificationRenderRequirements:
         return DensificationRenderRequirements(
             return_alpha=self.return_alpha or other.return_alpha,
             return_depth=self.return_depth or other.return_depth,
+            return_gaussian_impact_score=(
+                self.return_gaussian_impact_score
+                or other.return_gaussian_impact_score
+            ),
             return_normals=self.return_normals or other.return_normals,
             return_2d_projections=(
                 self.return_2d_projections or other.return_2d_projections

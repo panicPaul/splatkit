@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable
+from typing import Any
 
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 from splatkit.core.contracts import GaussianScene, SparseVoxelScene
-from splatkit.core.sparse_voxel import _SUBTREE_SHIFTS, svraster_build_grid_points_link
+from splatkit.core.sparse_voxel import (
+    _SUBTREE_SHIFTS,
+    svraster_build_grid_points_link,
+)
 
 
 @dataclass(frozen=True)
@@ -57,7 +61,6 @@ def custom_field(
     split: Callable[[str, Tensor, Tensor, dict[str, Any]], Tensor] | None = None,
 ) -> FieldBehavior:
     """Build a custom per-field behavior."""
-
     return FieldBehavior(clone=clone, split=split)
 
 

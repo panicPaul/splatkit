@@ -20,8 +20,10 @@ from splatkit.core.capabilities import (
     RenderWithAlphaProjectiveIntersectionTransforms,
     RenderWithDepth,
     RenderWithDepth2DProjections,
+    RenderWithDepthGaussianImpactScore,
     RenderWithDepthNormals,
     RenderWithDepthProjectiveIntersectionTransforms,
+    RenderWithGaussianImpactScore,
     RenderWithNormals,
     RenderWithProjectiveIntersectionTransforms,
 )
@@ -71,6 +73,38 @@ def register_backend(
         return render_fn
 
     return decorator
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_gaussian_impact_score: Literal[True],
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithGaussianImpactScore: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_gaussian_impact_score: Literal[True],
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[True] = True,
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithDepthGaussianImpactScore: ...
 
 
 @overload
@@ -321,6 +355,7 @@ def render(
     backend: BackendName,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
     return_normals: bool = False,
     return_2d_projections: bool = False,
     return_projective_intersection_transforms: bool = False,
@@ -348,6 +383,7 @@ def render(
         for enabled, name in (
             (return_alpha, "alpha"),
             (return_depth, "depth"),
+            (return_gaussian_impact_score, "gaussian_impact_score"),
             (return_normals, "normals"),
             (return_2d_projections, "2d_projections"),
             (
@@ -376,6 +412,7 @@ def render(
         camera,
         return_alpha=return_alpha,
         return_depth=return_depth,
+        return_gaussian_impact_score=return_gaussian_impact_score,
         return_normals=return_normals,
         return_2d_projections=return_2d_projections,
         return_projective_intersection_transforms=(

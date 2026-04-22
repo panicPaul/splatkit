@@ -106,6 +106,7 @@ class RenderPipelineSpec(TrainingConfigBase):
     postprocess_fn: CallableSpec | None = None
     return_alpha: bool = True
     return_depth: bool = False
+    return_gaussian_impact_score: bool = False
     return_normals: bool = False
     return_2d_projections: bool = False
     return_projective_intersection_transforms: bool = False
@@ -191,9 +192,9 @@ class CheckpointMetadata(TrainingConfigBase):
 __all__ = [
     "BatchingConfig",
     "CallableSpec",
-    "DensificationConfig",
     "CheckpointExportConfig",
     "CheckpointMetadata",
+    "DensificationConfig",
     "HookConfig",
     "InitializationSpec",
     "LossConfig",

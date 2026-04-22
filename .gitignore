@@ -212,3 +212,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Native backend staged/generated sources
+packages/splatkit-native-backends/src/splatkit_native_backends/traced_native_core/native/stoch3dgs/build/

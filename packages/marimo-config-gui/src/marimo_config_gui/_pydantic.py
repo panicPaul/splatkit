@@ -7,6 +7,7 @@ import html
 import json
 import math
 import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -14,10 +15,8 @@ from types import UnionType
 from typing import (
     Annotated,
     Any,
-    Callable,
     Generic,
     Literal,
-    Sequence,
     TypeVar,
     Union,
     cast,
@@ -2789,7 +2788,7 @@ def _indent_nested_layout(layout: Any, *, current_level: int) -> Any:
         return layout
     indent_rem = min(0.85 * current_level, 2.55)
     return mo.Html(
-        (
+        
             '<div style="'
             f"margin-left: {indent_rem:.2f}rem; "
             "padding-left: 0.75rem; "
@@ -2797,7 +2796,7 @@ def _indent_nested_layout(layout: Any, *, current_level: int) -> Any:
             '">'
             f"{layout.text}"
             "</div>"
-        )
+        
     )
 
 

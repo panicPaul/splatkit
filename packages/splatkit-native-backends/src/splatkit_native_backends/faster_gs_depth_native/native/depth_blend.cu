@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "helper_math.h"
+#include "utils.h"
 #include "vendor_namespace_begin.h"
 #include "rasterization_config.h"
 #include "vendor_namespace_end.h"
@@ -25,8 +26,16 @@ __global__ void __launch_bounds__(config::block_size_blend) depth_blend_forward_
     const uint* __restrict__ instance_primitive_indices,
     const float2* __restrict__ primitive_mean2d,
     const float4* __restrict__ primitive_conic_opacity,
+    const float3* __restrict__ primitive_color,
     const float* __restrict__ primitive_depth,
+    const float3* __restrict__ bg_color,
+    float* __restrict__ image,
     float* __restrict__ depth,
+    float* __restrict__ tile_final_transmittances,
+    uint* __restrict__ tile_max_n_processed,
+    uint* __restrict__ tile_n_processed,
+    uint* __restrict__ bucket_tile_index,
+    float4* __restrict__ bucket_color_transmittance,
     float* __restrict__ bucket_depth_prefix,
     const uint width,
     const uint height,
@@ -49,21 +58,38 @@ __global__ void __launch_bounds__(config::block_size_blend) depth_blend_forward_
     const uint tile_idx = group_index.y * grid_width + group_index.x;
     const uint2 tile_range = tile_instance_ranges[tile_idx];
     const int n_points_total = tile_range.y - tile_range.x;
+    const int n_buckets = div_round_up(n_points_total, 32);
     uint bucket_offset = (tile_idx == 0) ? 0 : tile_bucket_offsets[tile_idx - 1];
+
+    for (int n_buckets_remaining = n_buckets, current_bucket_idx = thread_rank;
+         n_buckets_remaining > 0;
+         n_buckets_remaining -= config::block_size_blend,
+             current_bucket_idx += config::block_size_blend) {
+        if (current_bucket_idx < n_buckets) {
+            bucket_tile_index[bucket_offset + current_bucket_idx] = tile_idx;
+        }
+    }
 
     __shared__ float2 collected_mean2d[config::block_size_blend];
     __shared__ float4 collected_conic_opacity[config::block_size_blend];
+    __shared__ float3 collected_color[config::block_size_blend];
     __shared__ float collected_depth[config::block_size_blend];
+    __shared__ uint tile_processed_max[config::block_size_blend];
 
+    float3 color_pixel = make_float3(0.0f);
     float depth_numerator = 0.0f;
     float transmittance = 1.0f;
+    uint n_processed = 0;
+    uint n_processed_and_used = 0;
     bool done = !inside;
+    uint color_bucket_offset = bucket_offset;
+    uint depth_bucket_offset = bucket_offset;
 
     for (int n_points_remaining = n_points_total,
              current_fetch_idx = tile_range.x + thread_rank;
          n_points_remaining > 0;
          n_points_remaining -= config::block_size_blend,
-            current_fetch_idx += config::block_size_blend) {
+             current_fetch_idx += config::block_size_blend) {
         if (__syncthreads_count(done) == config::block_size_blend) {
             break;
         }
@@ -72,17 +98,27 @@ __global__ void __launch_bounds__(config::block_size_blend) depth_blend_forward_
             collected_mean2d[thread_rank] = primitive_mean2d[primitive_idx];
             collected_conic_opacity[thread_rank] =
                 primitive_conic_opacity[primitive_idx];
+            collected_color[thread_rank] =
+                fmaxf(primitive_color[primitive_idx], 0.0f);
             collected_depth[thread_rank] = primitive_depth[primitive_idx];
         }
         block.sync();
+
         const int current_batch_size =
             min(config::block_size_blend, n_points_remaining);
         for (int j = 0; !done && j < current_batch_size; ++j) {
             if (j % 32 == 0) {
-                bucket_depth_prefix[bucket_offset * config::block_size_blend +
-                                    thread_rank] = depth_numerator;
-                bucket_offset++;
+                bucket_color_transmittance
+                    [color_bucket_offset * config::block_size_blend + thread_rank] =
+                        make_float4(color_pixel, transmittance);
+                bucket_depth_prefix
+                    [depth_bucket_offset * config::block_size_blend + thread_rank] =
+                        depth_numerator;
+                color_bucket_offset++;
+                depth_bucket_offset++;
             }
+
+            n_processed++;
 
             const float4 conic_opacity = collected_conic_opacity[j];
             const float3 conic = make_float3(conic_opacity);
@@ -103,8 +139,11 @@ __global__ void __launch_bounds__(config::block_size_blend) depth_blend_forward_
                 continue;
             }
 
-            depth_numerator += transmittance * alpha * collected_depth[j];
+            const float blending_weight = transmittance * alpha;
+            color_pixel += blending_weight * collected_color[j];
+            depth_numerator += blending_weight * collected_depth[j];
             transmittance *= 1.0f - alpha;
+            n_processed_and_used = n_processed;
 
             if (transmittance < config::transmittance_threshold) {
                 done = true;
@@ -113,10 +152,33 @@ __global__ void __launch_bounds__(config::block_size_blend) depth_blend_forward_
     }
 
     if (inside) {
+        color_pixel += transmittance * bg_color[0];
+        const uint pixel_idx = width * pixel_coords.y + pixel_coords.x;
+        const uint n_pixels = width * height;
+        image[pixel_idx] = color_pixel.x;
+        image[n_pixels + pixel_idx] = color_pixel.y;
+        image[2 * n_pixels + pixel_idx] = color_pixel.z;
+        tile_final_transmittances[pixel_idx] = transmittance;
+        tile_n_processed[pixel_idx] = n_processed_and_used;
+
         const float alpha_total = 1.0f - transmittance;
         const float depth_denom = fmaxf(alpha_total, expected_depth_denom_eps);
-        depth[width * pixel_coords.y + pixel_coords.x] =
-            depth_numerator / depth_denom;
+        depth[pixel_idx] = depth_numerator / depth_denom;
+    }
+
+    tile_processed_max[thread_rank] = n_processed_and_used;
+    block.sync();
+    for (uint stride = config::block_size_blend / 2; stride > 0; stride /= 2) {
+        if (thread_rank < stride) {
+            tile_processed_max[thread_rank] = max(
+                tile_processed_max[thread_rank],
+                tile_processed_max[thread_rank + stride]
+            );
+        }
+        block.sync();
+    }
+    if (thread_rank == 0) {
+        tile_max_n_processed[tile_idx] = tile_processed_max[0];
     }
 }
 
@@ -353,14 +415,25 @@ __global__ void depth_blend_backward_cu(
 
 }  // namespace
 
-std::tuple<torch::Tensor, torch::Tensor> depth_blend_fwd_wrapper(
+std::tuple<
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor>
+depth_blend_fwd_wrapper(
     const torch::Tensor& instance_primitive_indices,
     const torch::Tensor& tile_instance_ranges,
     const torch::Tensor& tile_bucket_offsets,
     const torch::Tensor& bucket_count,
     const torch::Tensor& projected_means,
     const torch::Tensor& conic_opacity,
+    const torch::Tensor& colors_rgb,
     const torch::Tensor& primitive_depth,
+    const torch::Tensor& bg_color,
     bool proper_antialiasing,
     int width,
     int height
@@ -386,17 +459,36 @@ std::tuple<torch::Tensor, torch::Tensor> depth_blend_fwd_wrapper(
         conic_opacity,
         "conic_opacity"
     );
+    splatkit::faster_gs_native::check_cuda_float_tensor(colors_rgb, "colors_rgb");
     splatkit::faster_gs_native::check_cuda_float_tensor(
         primitive_depth,
         "primitive_depth"
     );
+    splatkit::faster_gs_native::check_cuda_float_tensor(bg_color, "bg_color");
 
+    const int tile_count = tile_instance_ranges.size(0);
     const int bucket_total = bucket_count.item<int>();
-    const int grid_width = (width + config::tile_width - 1) / config::tile_width;
-    const int grid_height = (height + config::tile_height - 1) / config::tile_height;
+    const int grid_width = div_round_up(width, config::tile_width);
+    const int grid_height = div_round_up(height, config::tile_height);
     auto float_options = projected_means.options().dtype(torch::kFloat32);
+    auto int_options = projected_means.options().dtype(torch::kInt32);
 
-    torch::Tensor depth = torch::zeros({height, width}, float_options);
+    torch::Tensor image = torch::empty({3, height, width}, float_options);
+    torch::Tensor depth = torch::empty({height, width}, float_options);
+    torch::Tensor tile_final_transmittances = torch::empty(
+        {tile_count * config::block_size_blend},
+        float_options
+    );
+    torch::Tensor tile_max_n_processed = torch::empty({tile_count}, int_options);
+    torch::Tensor tile_n_processed = torch::empty(
+        {tile_count * config::block_size_blend},
+        int_options
+    );
+    torch::Tensor bucket_tile_index = torch::empty({bucket_total}, int_options);
+    torch::Tensor bucket_color_transmittance = torch::empty(
+        {bucket_total * config::block_size_blend, 4},
+        float_options
+    );
     torch::Tensor bucket_depth_prefix = torch::empty(
         {bucket_total * config::block_size_blend},
         float_options
@@ -407,7 +499,9 @@ std::tuple<torch::Tensor, torch::Tensor> depth_blend_fwd_wrapper(
     torch::Tensor tile_offsets_c = tile_bucket_offsets.contiguous();
     torch::Tensor projected_means_c = projected_means.contiguous();
     torch::Tensor conic_opacity_c = conic_opacity.contiguous();
+    torch::Tensor colors_rgb_c = colors_rgb.contiguous();
     torch::Tensor primitive_depth_c = primitive_depth.contiguous();
+    torch::Tensor bg_color_c = bg_color.contiguous();
     (void)proper_antialiasing;
 
     depth_blend_forward_cu<<<dim3(grid_width, grid_height, 1),
@@ -417,16 +511,31 @@ std::tuple<torch::Tensor, torch::Tensor> depth_blend_fwd_wrapper(
         reinterpret_cast<const uint*>(instance_indices_c.data_ptr<int>()),
         reinterpret_cast<const float2*>(projected_means_c.data_ptr<float>()),
         reinterpret_cast<const float4*>(conic_opacity_c.data_ptr<float>()),
+        reinterpret_cast<const float3*>(colors_rgb_c.data_ptr<float>()),
         primitive_depth_c.data_ptr<float>(),
+        reinterpret_cast<const float3*>(bg_color_c.data_ptr<float>()),
+        image.data_ptr<float>(),
         depth.data_ptr<float>(),
+        tile_final_transmittances.data_ptr<float>(),
+        reinterpret_cast<uint*>(tile_max_n_processed.data_ptr<int>()),
+        reinterpret_cast<uint*>(tile_n_processed.data_ptr<int>()),
+        reinterpret_cast<uint*>(bucket_tile_index.data_ptr<int>()),
+        reinterpret_cast<float4*>(bucket_color_transmittance.data_ptr<float>()),
         bucket_depth_prefix.data_ptr<float>(),
         static_cast<uint>(width),
         static_cast<uint>(height),
         static_cast<uint>(grid_width)
     );
+    CHECK_CUDA(config::debug, "depth_blend_fwd")
 
     return {
+        image,
         depth,
+        tile_final_transmittances,
+        tile_max_n_processed,
+        tile_n_processed,
+        bucket_tile_index,
+        bucket_color_transmittance,
         bucket_depth_prefix,
     };
 }
@@ -566,6 +675,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> depth_blend_bwd_wrapper(
             static_cast<uint>(grid_width),
             proper_antialiasing
         );
+        CHECK_CUDA(config::debug, "depth_blend_bwd")
     }
 
     torch::Tensor grad_conic_opacity = torch::empty({n_primitives, 4}, float_options);

@@ -23,6 +23,7 @@ BackendName = str
 OutputName = Literal[
     "alpha",
     "depth",
+    "gaussian_impact_score",
     "normals",
     "2d_projections",
     "projective_intersection_transforms",
@@ -130,7 +131,7 @@ class CameraState:
 class GaussianScene(Scene, ABC):
     """Shared Gaussian-scene contract."""
 
-    center_position: Float[Tensor, "num_splats 3"]
+    center_position: Float[Tensor, "num_splats spatial_dims"]
     log_scales: Float[Tensor, "num_splats spatial_dims"]
     quaternion_orientation: Float[Tensor, "num_splats 4"]
     logit_opacity: Float[Tensor, " num_splats"]

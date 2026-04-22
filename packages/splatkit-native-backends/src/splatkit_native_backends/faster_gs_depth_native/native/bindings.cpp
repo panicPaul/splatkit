@@ -4,14 +4,25 @@
 
 namespace splatkit::faster_gs_depth_native {
 
-std::tuple<torch::Tensor, torch::Tensor> depth_blend_fwd_wrapper(
+std::tuple<
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor>
+depth_blend_fwd_wrapper(
     const torch::Tensor& instance_primitive_indices,
     const torch::Tensor& tile_instance_ranges,
     const torch::Tensor& tile_bucket_offsets,
     const torch::Tensor& bucket_count,
     const torch::Tensor& projected_means,
     const torch::Tensor& conic_opacity,
+    const torch::Tensor& colors_rgb,
     const torch::Tensor& primitive_depth,
+    const torch::Tensor& bg_color,
     bool proper_antialiasing,
     int width,
     int height);

@@ -89,6 +89,7 @@ def render_fastergs(
     *,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
     return_normals: bool = False,
     return_2d_projections: bool = False,
     return_projective_intersection_transforms: bool = False,
@@ -99,6 +100,10 @@ def render_fastergs(
         raise ValueError("The FasterGS backend does not expose alpha output.")
     if return_depth:
         raise ValueError("The FasterGS backend does not expose depth output.")
+    if return_gaussian_impact_score:
+        raise ValueError(
+            "The FasterGS backend does not expose Gaussian impact scores."
+        )
     if return_normals:
         raise ValueError("The FasterGS backend does not expose normals.")
     if return_2d_projections:

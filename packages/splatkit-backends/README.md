@@ -17,6 +17,7 @@ Currently registered backends in this package:
 
 | Backend name | Scene type | Alpha | Depth | Normals | 2D projections | Projective intersection transforms | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `fastgs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB plus backend-specific FastGS refinement signals |
 | `gsplat_2dgs` | `GaussianScene2D` | ✅ | ✅ | ❌ | ❌ | ✅ | 2D Gaussian backend via `gsplat.rasterization_2dgs` |
 | `fastergs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB-only FasterGS adapter |
 | `gsplat` | `GaussianScene3D` | ✅ | ✅ | ❌ | ✅ | ❌ | 3D Gaussian backend via `gsplat.rasterization` |
@@ -33,6 +34,7 @@ Capability notes:
 
 Current extras:
 - `gsplat`: installs the `gsplat` runtime dependency
+- `fastgs`: installs the local `FastGS` rasterizer runtime dependency
 - `fastergs`: installs the local `faster-gaussian-splatting` runtime dependency
 - `inria`: installs the local `diff-gaussian-rasterization` runtime dependency
 - `svraster`: installs the local `new_svraster_cuda` runtime dependency
@@ -56,6 +58,12 @@ With the FasterGS backend dependency:
 
 ```bash
 pip install "splatkit-backends[fastergs]"
+```
+
+With the FastGS backend dependency:
+
+```bash
+pip install "splatkit-backends[fastgs]"
 ```
 
 With the Inria backend dependency:
@@ -91,6 +99,10 @@ the monorepo checkout. Before installing it locally, run:
 ```bash
 git submodule update --init --recursive
 ```
+
+`fastgs` also depends on the nested CUDA rasterizer submodule under
+`third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs`, so the same
+recursive submodule initialization is required in the monorepo checkout.
 
 ## Registration
 Backends are activated explicitly:
@@ -156,6 +168,7 @@ Source lives under:
 ```text
 src/splatkit_backends/
   __init__.py
+  fastgs/
   gsplat/
   inria/
   stoch3dgs/

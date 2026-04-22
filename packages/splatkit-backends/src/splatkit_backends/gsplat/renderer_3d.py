@@ -219,6 +219,7 @@ def render_gsplat(
     *,
     return_alpha: bool = True,
     return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
     return_normals: bool = False,
     return_2d_projections: bool = False,
     return_projective_intersection_transforms: bool = False,
@@ -244,6 +245,8 @@ def render_gsplat(
         )
     if return_normals:
         raise ValueError("gsplat normals are not exposed yet.")
+    if return_gaussian_impact_score:
+        raise ValueError("gsplat does not expose Gaussian impact scores.")
     if return_projective_intersection_transforms:
         raise ValueError(
             "gsplat does not expose projective intersection transforms."

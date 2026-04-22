@@ -154,6 +154,7 @@ def render_svraster(
     *,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
     return_normals: bool = False,
     return_2d_projections: bool = False,
     return_projective_intersection_transforms: bool = False,
@@ -162,6 +163,10 @@ def render_svraster(
     """Render a sparse-voxel scene with the backend-only SV Raster adapter."""
     if return_alpha:
         raise ValueError("The SV Raster backend does not expose alpha output.")
+    if return_gaussian_impact_score:
+        raise ValueError(
+            "The SV Raster backend does not expose Gaussian impact scores."
+        )
     if return_normals:
         raise ValueError("The SV Raster backend does not expose normals.")
     if return_2d_projections:

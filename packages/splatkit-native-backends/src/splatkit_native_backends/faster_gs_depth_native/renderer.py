@@ -94,6 +94,7 @@ def render_faster_gs_depth_native(
     *,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
     return_normals: bool = False,
     return_2d_projections: bool = False,
     return_projective_intersection_transforms: bool = False,
@@ -103,6 +104,11 @@ def render_faster_gs_depth_native(
     if return_alpha:
         raise ValueError(
             "The faster_gs_depth_native backend does not expose alpha output."
+        )
+    if return_gaussian_impact_score:
+        raise ValueError(
+            "The faster_gs_depth_native backend does not expose Gaussian "
+            "impact scores."
         )
     if return_normals:
         raise ValueError(
