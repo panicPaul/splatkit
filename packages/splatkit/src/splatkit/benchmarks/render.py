@@ -7,10 +7,11 @@ import importlib
 import json
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import torch
 
-from splatkit.benchmarks import benchmark_backend_render
+from splatkit.benchmarks import RenderBenchmarkResult, benchmark_backend_render
 from splatkit.core import BACKEND_REGISTRY, CameraState, GaussianScene3D
 from splatkit.data import load_colmap_scene_record, resolve_colmap_scene_path
 from splatkit.initialization import initialize_gaussian_scene_from_scene_record
@@ -24,6 +25,7 @@ _OPTIONAL_BACKEND_MODULES = (
     "splatkit_native_faster_gs.faster_gs",
     "splatkit_native_faster_gs.faster_gs_depth",
     "splatkit_native_faster_gs.gaussian_pop",
+    "splatkit_native_faster_gs_mojo.core",
     "splatkit_native_3dgrt.stoch3dgs",
 )
 
@@ -34,6 +36,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--colmap-root", type=Path, default=None)
     parser.add_argument("--backend", default=None)
+    parser.add_argument("--compare-to", default=None)
     parser.add_argument(
         "--device",
         choices=("auto", "cpu", "cuda"),
@@ -88,6 +91,33 @@ def _pick_backend(requested_backend: str | None) -> str:
     return available[0]
 
 
+def _build_comparison_payload(
+    primary: RenderBenchmarkResult,
+    comparison: RenderBenchmarkResult | None = None,
+) -> dict[str, Any]:
+    """Format one or two render benchmark results for JSON output."""
+    if comparison is None:
+        return asdict(primary)
+    faster_backend = (
+        primary.backend
+        if primary.mean_ms_per_frame <= comparison.mean_ms_per_frame
+        else comparison.backend
+    )
+    return {
+        "primary": asdict(primary),
+        "comparison": asdict(comparison),
+        "delta_ms_per_frame": float(
+            comparison.mean_ms_per_frame - primary.mean_ms_per_frame
+        ),
+        "ratio_vs_primary": (
+            float(comparison.mean_ms_per_frame / primary.mean_ms_per_frame)
+            if primary.mean_ms_per_frame > 0.0
+            else None
+        ),
+        "faster_backend": faster_backend,
+    }
+
+
 def _resolve_device(device_name: str) -> torch.device:
     if device_name == "cpu":
         return torch.device("cpu")
@@ -118,6 +148,11 @@ def main() -> None:
     args = _build_parser().parse_args()
     _register_optional_backends()
     backend = _pick_backend(args.backend)
+    compare_to = (
+        None
+        if args.compare_to is None or args.compare_to == backend
+        else _pick_backend(args.compare_to)
+    )
     scene_record = load_colmap_scene_record(
         resolve_colmap_scene_path(args.colmap_root)
     )
@@ -138,7 +173,24 @@ def main() -> None:
         warmup_steps=args.warmup_steps,
         measured_steps=args.measured_steps,
     )
-    print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    comparison = (
+        None
+        if compare_to is None
+        else benchmark_backend_render(
+            scene,
+            camera,
+            backend=compare_to,
+            warmup_steps=args.warmup_steps,
+            measured_steps=args.measured_steps,
+        )
+    )
+    print(
+        json.dumps(
+            _build_comparison_payload(result, comparison),
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

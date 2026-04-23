@@ -17,9 +17,15 @@ from splatkit import (
     initialize_gaussian_scene_from_scene_record,
     load_colmap_scene_record,
 )
-from splatkit.benchmarks import benchmark_backend_render, benchmark_dataloader
+from splatkit.benchmarks import (
+    RenderBenchmarkResult,
+    benchmark_backend_render,
+    benchmark_dataloader,
+)
 from splatkit.core import BACKEND_REGISTRY, register_backend
 from splatkit.data import collate_frame_samples
+from splatkit.benchmarks.render import _build_comparison_payload
+from splatkit.benchmarks.ply_render import _default_repo_point_cloud_path
 from torch.utils.data import DataLoader
 
 
@@ -131,6 +137,49 @@ def test_benchmark_backend_render_reports_expected_metrics() -> None:
     assert result.first_frame_ms >= 0.0
     assert result.mean_ms_per_frame >= 0.0
     assert result.p90_ms_per_frame >= result.p50_ms_per_frame
+
+
+def test_render_benchmark_comparison_payload_reports_expected_shape() -> None:
+    primary = RenderBenchmarkResult(
+        backend="faster_gs_mojo.core",
+        device="cuda:0",
+        image_size=(640, 480),
+        num_points=1024,
+        warmup_steps=10,
+        measured_steps=100,
+        first_frame_ms=1.5,
+        mean_ms_per_frame=1.0,
+        p50_ms_per_frame=0.9,
+        p90_ms_per_frame=1.2,
+        fps=1000.0,
+    )
+    comparison = RenderBenchmarkResult(
+        backend="faster_gs.core",
+        device="cuda:0",
+        image_size=(640, 480),
+        num_points=1024,
+        warmup_steps=10,
+        measured_steps=100,
+        first_frame_ms=1.1,
+        mean_ms_per_frame=0.8,
+        p50_ms_per_frame=0.75,
+        p90_ms_per_frame=0.95,
+        fps=1250.0,
+    )
+
+    payload = _build_comparison_payload(primary, comparison)
+
+    assert payload["primary"]["backend"] == "faster_gs_mojo.core"
+    assert payload["comparison"]["backend"] == "faster_gs.core"
+    assert payload["delta_ms_per_frame"] == pytest.approx(-0.2)
+    assert payload["ratio_vs_primary"] == pytest.approx(0.8)
+    assert payload["faster_backend"] == "faster_gs.core"
+
+
+def test_default_repo_point_cloud_benchmark_asset_exists() -> None:
+    path = _default_repo_point_cloud_path()
+    assert path.name == "point_cloud.ply"
+    assert path.exists()
 
 
 @pytest.mark.cuda

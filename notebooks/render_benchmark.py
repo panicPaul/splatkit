@@ -28,6 +28,7 @@ with app.setup:
         "splatkit_native_faster_gs.faster_gs",
         "splatkit_native_faster_gs.faster_gs_depth",
         "splatkit_native_faster_gs.gaussian_pop",
+        "splatkit_native_faster_gs_mojo.core",
         "splatkit_native_3dgrt.stoch3dgs",
     )
 
@@ -105,7 +106,17 @@ def _():
         label="Backend",
         full_width=True,
     )
-    return backend, backend_options
+    compare_backend = mo.ui.dropdown(
+        options=["(none)", *backend_options],
+        value=(
+            "faster_gs.core"
+            if "faster_gs.core" in backend_options
+            else "(none)"
+        ),
+        label="Compare To",
+        full_width=True,
+    )
+    return backend, backend_options, compare_backend
 
 
 @app.cell
@@ -137,11 +148,19 @@ def _():
 
 
 @app.cell
-def _(backend, device, measured_steps, run_button, scene_root, warmup_steps):
+def _(
+    backend,
+    compare_backend,
+    device,
+    measured_steps,
+    run_button,
+    scene_root,
+    warmup_steps,
+):
     controls = mo.vstack(
         [
             scene_root,
-            mo.hstack([backend, device], widths="equal"),
+            mo.hstack([backend, compare_backend, device], widths="equal"),
             mo.hstack([warmup_steps, measured_steps], widths="equal"),
             run_button,
         ],
@@ -155,6 +174,7 @@ def _(backend, device, measured_steps, run_button, scene_root, warmup_steps):
 def _(
     backend,
     backend_options,
+    compare_backend,
     device,
     measured_steps,
     run_button,
@@ -163,12 +183,14 @@ def _(
 ):
     if not backend_options:
         benchmark_result = None
+        comparison_result = None
         _ = mo.callout(
             "No Gaussian backends are registered in this environment.",
             kind="warn",
         )
     elif (run_button.value or 0) <= 0:
         benchmark_result = None
+        comparison_result = None
         _ = mo.callout(
             "Press 'Run Render Benchmark' to benchmark the selected backend.",
             kind="info",
@@ -177,6 +199,7 @@ def _(
         root = Path(scene_root.value).expanduser()
         if not root.exists():
             benchmark_result = None
+            comparison_result = None
             _ = mo.callout(f"COLMAP root `{root}` does not exist.", kind="warn")
         else:
             resolved_device = (
@@ -188,6 +211,7 @@ def _(
             )
             if resolved_device.type == "cuda" and not torch.cuda.is_available():
                 benchmark_result = None
+                comparison_result = None
                 _ = mo.callout("CUDA is not available.", kind="warn")
             else:
                 scene_record = sk.load_colmap_scene_record(root)
@@ -208,21 +232,78 @@ def _(
                     warmup_steps=int(warmup_steps.value),
                     measured_steps=int(measured_steps.value),
                 )
-                _ = mo.callout(
-                    (
-                        f"{benchmark_result.backend}: "
-                        f"{benchmark_result.mean_ms_per_frame:.2f} ms/frame, "
-                        f"{benchmark_result.fps:.2f} FPS"
-                    ),
-                    kind="success",
-                )
-    return (benchmark_result,)
+                comparison_result = None
+                if (
+                    compare_backend.value not in ("(none)", backend.value)
+                    and compare_backend.value in backend_options
+                ):
+                    comparison_result = benchmark_backend_render(
+                        scene,
+                        camera,
+                        backend=compare_backend.value,
+                        warmup_steps=int(warmup_steps.value),
+                        measured_steps=int(measured_steps.value),
+                    )
+                if comparison_result is None:
+                    _ = mo.callout(
+                        (
+                            f"{benchmark_result.backend}: "
+                            f"{benchmark_result.mean_ms_per_frame:.2f} ms/frame, "
+                            f"{benchmark_result.fps:.2f} FPS"
+                        ),
+                        kind="success",
+                    )
+                else:
+                    ratio = (
+                        comparison_result.mean_ms_per_frame
+                        / benchmark_result.mean_ms_per_frame
+                    )
+                    faster_backend = (
+                        benchmark_result.backend
+                        if benchmark_result.mean_ms_per_frame
+                        <= comparison_result.mean_ms_per_frame
+                        else comparison_result.backend
+                    )
+                    _ = mo.callout(
+                        (
+                            f"{benchmark_result.backend}: "
+                            f"{benchmark_result.mean_ms_per_frame:.2f} ms/frame\n"
+                            f"{comparison_result.backend}: "
+                            f"{comparison_result.mean_ms_per_frame:.2f} ms/frame\n"
+                            f"ratio vs primary: {ratio:.2f}x\n"
+                            f"faster backend: {faster_backend}"
+                        ),
+                        kind="success",
+                    )
+    return benchmark_result, comparison_result
 
 
 @app.cell
-def _(benchmark_result):
-    None if benchmark_result is None else mo.md(
-        f"```json\n{json.dumps(asdict(benchmark_result), indent=2)}\n```"
+def _(benchmark_result, comparison_result):
+    payload = None
+    if benchmark_result is not None:
+        payload = asdict(benchmark_result)
+        if comparison_result is not None:
+            payload = {
+                "primary": asdict(benchmark_result),
+                "comparison": asdict(comparison_result),
+                "delta_ms_per_frame": (
+                    comparison_result.mean_ms_per_frame
+                    - benchmark_result.mean_ms_per_frame
+                ),
+                "ratio_vs_primary": (
+                    comparison_result.mean_ms_per_frame
+                    / benchmark_result.mean_ms_per_frame
+                ),
+                "faster_backend": (
+                    benchmark_result.backend
+                    if benchmark_result.mean_ms_per_frame
+                    <= comparison_result.mean_ms_per_frame
+                    else comparison_result.backend
+                ),
+            }
+    None if payload is None else mo.md(
+        f"```json\n{json.dumps(payload, indent=2)}\n```"
     )
     return
 
