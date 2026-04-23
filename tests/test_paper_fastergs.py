@@ -8,14 +8,14 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PRESETS_PATH = REPO_ROOT / "papers" / "fastergs" / "presets.py"
+CONFIG_PATH = REPO_ROOT / "papers" / "fastergs" / "config.py"
 
 
 @pytest.fixture
-def fastergs_presets_module():
+def fastergs_config_module():
     spec = importlib.util.spec_from_file_location(
-        "paper_fastergs_presets",
-        PRESETS_PATH,
+        "paper_fastergs_config",
+        CONFIG_PATH,
     )
     assert spec is not None
     assert spec.loader is not None
@@ -26,13 +26,13 @@ def fastergs_presets_module():
 
 
 def test_fastergs_build_training_config_supports_both_backends(
-    fastergs_presets_module,
+    fastergs_config_module,
 ) -> None:
     for backend in ("adapter.fastergs", "faster_gs.core"):
-        experiment_config = fastergs_presets_module.build_experiment_config(
+        experiment_config = fastergs_config_module.load_default_experiment_config(
             "garden_baseline"
         ).model_copy(update={"backend": backend})
-        training_config = fastergs_presets_module.build_training_config(
+        training_config = fastergs_config_module.build_training_config(
             experiment_config
         )
 
@@ -61,10 +61,10 @@ def test_fastergs_build_training_config_supports_both_backends(
 
 
 def test_fastergs_script_loader_applies_preset_then_cli_overrides(
-    fastergs_presets_module,
+    fastergs_config_module,
 ) -> None:
-    loaded = fastergs_presets_module.load_experiment_script_config(
-        fastergs_presets_module.FasterGSExperimentConfig,
+    loaded = fastergs_config_module.load_experiment_script_config(
+        fastergs_config_module.FasterGSExperimentConfig,
         args=[
             "cli",
             "--preset",
@@ -80,7 +80,7 @@ def test_fastergs_script_loader_applies_preset_then_cli_overrides(
 
     assert isinstance(
         loaded,
-        fastergs_presets_module.FasterGSExperimentConfig,
+        fastergs_config_module.FasterGSExperimentConfig,
     )
     assert loaded.preset == "garden_mcmc"
     assert loaded.backend == "faster_gs.core"
@@ -92,32 +92,61 @@ def test_fastergs_script_loader_applies_preset_then_cli_overrides(
 
 
 def test_fastergs_script_loader_replays_json_config(
-    fastergs_presets_module,
+    fastergs_config_module,
     tmp_path: Path,
 ) -> None:
-    config = fastergs_presets_module.build_experiment_config("garden_baseline")
+    config = fastergs_config_module.load_default_experiment_config(
+        "garden_baseline"
+    )
     json_path = tmp_path / "fastergs_config.json"
     json_path.write_text(json.dumps(config.model_dump(mode="json"), indent=2))
 
-    loaded = fastergs_presets_module.load_experiment_script_config(
-        fastergs_presets_module.FasterGSExperimentConfig,
+    loaded = fastergs_config_module.load_experiment_script_config(
+        fastergs_config_module.FasterGSExperimentConfig,
         args=["json", str(json_path)],
     )
 
     assert isinstance(
         loaded,
-        fastergs_presets_module.FasterGSExperimentConfig,
+        fastergs_config_module.FasterGSExperimentConfig,
     )
     assert loaded == config
 
 
-def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
-    fastergs_presets_module,
+def test_fastergs_script_loader_resolves_relative_paths_from_json_file(
+    fastergs_config_module,
 ) -> None:
-    baseline = fastergs_presets_module.build_experiment_config(
+    default_json_path = (
+        REPO_ROOT
+        / "papers"
+        / "fastergs"
+        / "defaults"
+        / "garden_baseline.json"
+    )
+
+    loaded = fastergs_config_module.load_experiment_script_config(
+        fastergs_config_module.FasterGSExperimentConfig,
+        args=["json", str(default_json_path)],
+    )
+
+    assert loaded.scene.path == (REPO_ROOT / "dataset/mipnerf360/garden")
+    assert loaded.checkpoint.output_dir == (
+        REPO_ROOT
+        / "checkpoints"
+        / "papers"
+        / "fastergs"
+        / "garden_baseline"
+        / "adapter.fastergs"
+    )
+
+
+def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
+    fastergs_config_module,
+) -> None:
+    baseline = fastergs_config_module.load_default_experiment_config(
         "garden_baseline"
     )
-    mcmc = fastergs_presets_module.build_experiment_config("garden_mcmc")
+    mcmc = fastergs_config_module.load_default_experiment_config("garden_mcmc")
 
     assert baseline.checkpoint.output_dir == (
         REPO_ROOT
@@ -138,13 +167,13 @@ def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
 
 
 def test_fastergs_training_config_retargets_default_checkpoint_dir_with_backend(
-    fastergs_presets_module,
+    fastergs_config_module,
 ) -> None:
-    experiment_config = fastergs_presets_module.build_experiment_config(
+    experiment_config = fastergs_config_module.load_default_experiment_config(
         "garden_baseline"
     ).model_copy(update={"backend": "faster_gs.core"})
 
-    training_config = fastergs_presets_module.build_training_config(
+    training_config = fastergs_config_module.build_training_config(
         experiment_config
     )
 

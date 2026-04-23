@@ -24,12 +24,12 @@ with app.setup:
         config_value,
         create_config_state,
     )
-    from presets import (
+    from config import (
         FasterGSExperimentConfig,
-        build_experiment_config,
         build_prepared_frame_dataset_config,
         build_scene_load_config,
         build_training_config,
+        load_default_experiment_config,
         load_experiment_script_config,
         register_fastergs_backends,
     )
@@ -40,7 +40,7 @@ with app.setup:
         experiment_bindings,
     ) = create_config_state(
         FasterGSExperimentConfig,
-        value=build_experiment_config(),
+        value=load_default_experiment_config(),
         script_loader=load_experiment_script_config,
     )
 
@@ -66,32 +66,20 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
-    mo.vstack(
-        [
-            mo.md("## Config Form"),
-            config_form(
+    config_form(
                 experiment_bindings,
                 form_gui_state=experiment_form_state,
-            ),
-        ],
-        gap=0.5,
-    )
+            )
     return
 
 
 @app.cell(hide_code=True)
 def _():
-    mo.vstack(
-        [
-            mo.md("## Config JSON"),
-            config_json(
+    config_json(
                 experiment_bindings,
                 form_gui_state=experiment_form_state,
                 json_gui_state=experiment_json_state,
-            ),
-        ],
-        gap=0.5,
-    )
+            )
     return
 
 
@@ -146,10 +134,10 @@ def _():
     mo.md(r"""
     ## Run
 
-    The preset is resolved first, then any CLI or JSON overrides win
-    field-by-field. In interactive mode you edit the fully resolved config
-    directly and launch training with the run button. In script mode the notebook
-    runs automatically.
+    The selected default JSON config is loaded first, then any CLI or JSON
+    overrides win field-by-field. In interactive mode you edit the fully
+    resolved config directly and launch training with the run button. In script
+    mode the notebook runs automatically.
     """)
     return
 

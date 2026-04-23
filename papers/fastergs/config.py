@@ -1,4 +1,4 @@
-"""Canonical FasterGS paper presets and declarative training builders."""
+"""Canonical FasterGS paper config types, default loaders, and builders."""
 
 from __future__ import annotations
 
@@ -19,14 +19,12 @@ from splatkit.training import LossResult, TrainState
 from torch import Tensor
 
 FasterGSBackendName = Literal["adapter.fastergs", "faster_gs.core"]
-FasterGSPresetName = Literal["garden_baseline", "garden_mcmc"]
+FasterGSDefaultName = Literal["garden_baseline", "garden_mcmc"]
 
 _NOTEBOOK_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _NOTEBOOK_DIR.parents[1]
-_DEFAULT_GARDEN_ROOT = Path(
-    os.environ.get("SPLATKIT_FASTERGS_GARDEN_ROOT", "dataset/mipnerf360/garden")
-)
 _DEFAULT_CHECKPOINT_ROOT = _REPO_ROOT / "checkpoints" / "papers" / "fastergs"
+_DEFAULTS_DIR = _NOTEBOOK_DIR / "defaults"
 _FASTERGS_BACKEND_MODULES = (
     "splatkit_adapter_backends.fastergs",
     "splatkit_native_faster_gs.faster_gs",
@@ -44,7 +42,7 @@ class FasterGSConfigBase(BaseModel):
 class FasterGSSceneConfig(FasterGSConfigBase):
     """Scene-record loading options for the FasterGS paper notebook."""
 
-    path: Path = Field(default_factory=lambda: _DEFAULT_GARDEN_ROOT)
+    path: Path = Path("dataset/mipnerf360/garden")
     image_root: Path | None = None
     undistort_output_dir: Path | None = None
     align_horizon: bool = True
@@ -83,7 +81,7 @@ class FasterGSRenderConfig(FasterGSConfigBase):
 
 
 class FasterGSOptimizationConfig(FasterGSConfigBase):
-    """Optimizer settings following the FasterGS garden preset."""
+    """Optimizer settings following the FasterGS garden default config."""
 
     optimizer: str = "splatkit_gaussian_training.FusedAdam"
     means_lr_init: float = Field(default=1.6e-4, gt=0.0)
@@ -97,7 +95,7 @@ class FasterGSOptimizationConfig(FasterGSConfigBase):
 
 
 class FasterGSLossConfig(FasterGSConfigBase):
-    """Loss weights mirroring the FasterGS paper preset."""
+    """Loss weights mirroring the FasterGS paper default config."""
 
     lambda_l1: float = Field(default=0.8, ge=0.0)
     lambda_dssim: float = Field(default=0.2, ge=0.0)
@@ -142,7 +140,7 @@ class FasterGSExecutionConfig(FasterGSConfigBase):
 class FasterGSExperimentConfig(FasterGSConfigBase):
     """Resolved experiment config for the FasterGS paper notebook."""
 
-    preset: FasterGSPresetName = "garden_baseline"
+    preset: FasterGSDefaultName = "garden_baseline"
     backend: FasterGSBackendName = "adapter.fastergs"
     scene: FasterGSSceneConfig = Field(default_factory=FasterGSSceneConfig)
     data: FasterGSDataConfig = Field(default_factory=FasterGSDataConfig)
@@ -262,7 +260,7 @@ class FasterGSExecutionOverrideConfig(FasterGSConfigBase):
 class FasterGSExperimentOverrideConfig(FasterGSConfigBase):
     """Partial experiment override config used by the script loader."""
 
-    preset: FasterGSPresetName = "garden_baseline"
+    preset: FasterGSDefaultName = "garden_baseline"
     backend: FasterGSBackendName | None = None
     scene: FasterGSSceneOverrideConfig = Field(
         default_factory=FasterGSSceneOverrideConfig
@@ -299,10 +297,104 @@ class _JsonConfigSource:
 
 
 def _default_checkpoint_dir(
-    preset: FasterGSPresetName,
+    preset: FasterGSDefaultName,
     backend: FasterGSBackendName,
 ) -> Path:
     return _DEFAULT_CHECKPOINT_ROOT / preset / backend
+
+
+_DEFAULT_CONFIG_PATHS: dict[FasterGSDefaultName, Path] = {
+    "garden_baseline": _DEFAULTS_DIR / "garden_baseline.json",
+    "garden_mcmc": _DEFAULTS_DIR / "garden_mcmc.json",
+}
+
+
+def _resolve_relative_path(path: Path, *, base_dir: Path) -> Path:
+    return path if path.is_absolute() else (base_dir / path)
+
+
+def _resolve_config_paths(
+    config: FasterGSExperimentConfig,
+    *,
+    base_dir: Path,
+    allow_default_scene_env_override: bool,
+) -> FasterGSExperimentConfig:
+    scene_path = config.scene.path
+    env_scene_path = os.environ.get("SPLATKIT_FASTERGS_GARDEN_ROOT")
+    if (
+        allow_default_scene_env_override
+        and env_scene_path is not None
+        and scene_path == Path("dataset/mipnerf360/garden")
+    ):
+        scene_path = Path(env_scene_path)
+    else:
+        scene_path = _resolve_relative_path(scene_path, base_dir=base_dir)
+    image_root = (
+        _resolve_relative_path(config.scene.image_root, base_dir=base_dir)
+        if config.scene.image_root is not None
+        else None
+    )
+    undistort_output_dir = (
+        _resolve_relative_path(
+            config.scene.undistort_output_dir,
+            base_dir=base_dir,
+        )
+        if config.scene.undistort_output_dir is not None
+        else None
+    )
+    checkpoint_output_dir = _resolve_relative_path(
+        config.checkpoint.output_dir,
+        base_dir=base_dir,
+    )
+    return config.model_copy(
+        update={
+            "scene": config.scene.model_copy(
+                update={
+                    "path": scene_path,
+                    "image_root": image_root,
+                    "undistort_output_dir": undistort_output_dir,
+                }
+            ),
+            "checkpoint": config.checkpoint.model_copy(
+                update={
+                    "output_dir": checkpoint_output_dir,
+                }
+            ),
+        }
+    )
+
+
+def _load_config_json(path: Path) -> FasterGSExperimentConfig:
+    resolved_path = path.expanduser().resolve()
+    payload = json.loads(resolved_path.read_text())
+    config = FasterGSExperimentConfig.model_validate(payload)
+    base_dir = (
+        _REPO_ROOT
+        if resolved_path.is_relative_to(_DEFAULTS_DIR.resolve())
+        else resolved_path.parent
+    )
+    return _resolve_config_paths(
+        config,
+        base_dir=base_dir,
+        allow_default_scene_env_override=False,
+    )
+
+
+def _resolve_default_config_paths(
+    config: FasterGSExperimentConfig,
+) -> FasterGSExperimentConfig:
+    return _resolve_config_paths(
+        config,
+        base_dir=_REPO_ROOT,
+        allow_default_scene_env_override=True,
+    )
+
+
+def load_default_experiment_config(
+    default: FasterGSDefaultName = "garden_baseline",
+) -> FasterGSExperimentConfig:
+    """Load a named default FasterGS experiment config from JSON."""
+    return _resolve_default_config_paths(_load_config_json(_DEFAULT_CONFIG_PATHS[default]))
 
 
 def _resolve_checkpoint_output_dir(
@@ -313,130 +405,6 @@ def _resolve_checkpoint_output_dir(
     if output_dir.parent == default_parent:
         return _default_checkpoint_dir(config.preset, config.backend)
     return output_dir
-
-
-def build_garden_baseline_config() -> FasterGSExperimentConfig:
-    """Return the canonical garden baseline preset."""
-    return FasterGSExperimentConfig(
-        preset="garden_baseline",
-        backend="adapter.fastergs",
-        scene=FasterGSSceneConfig(),
-        data=FasterGSDataConfig(
-            image_scale_factor=0.25,
-            split_target="train",
-            split_every_n=8,
-            materialization_stage="decoded",
-            materialization_mode="eager",
-            materialization_num_workers=0,
-            normalize_images=True,
-            interpolation="bicubic",
-        ),
-        model=FasterGSModelConfig(
-            sh_degree=3,
-            initial_scale=0.01,
-            initial_opacity=0.1,
-            default_color=(0.5, 0.5, 0.5),
-        ),
-        render=FasterGSRenderConfig(
-            proper_antialiasing=False,
-            near_plane=0.2,
-            far_plane=10_000.0,
-            background_color=(0.0, 0.0, 0.0),
-        ),
-        optimization=FasterGSOptimizationConfig(
-            optimizer="splatkit_gaussian_training.FusedAdam",
-            means_lr_init=1.6e-4,
-            means_lr_final=1.6e-6,
-            means_lr_max_steps=30_000,
-            sh_dc_lr=2.5e-3,
-            sh_rest_lr=1.25e-4,
-            opacity_lr=2.5e-2,
-            scale_lr=5e-3,
-            rotation_lr=1e-3,
-        ),
-        loss=FasterGSLossConfig(
-            lambda_l1=0.8,
-            lambda_dssim=0.2,
-            lambda_opacity_regularization=0.0,
-            lambda_scale_regularization=0.0,
-        ),
-        densification=FasterGSDensificationConfig(
-            use_mcmc=False,
-            refine_every=100,
-            start_iter=600,
-            stop_iter=14_900,
-            grad_threshold=2e-4,
-            dense_fraction=0.01,
-            prune_opacity_threshold=0.005,
-            opacity_reset_every=3_000,
-            max_reset_opacity=0.01,
-            min_opacity=0.005,
-            max_primitives=1_000_000,
-            noise_lr_scale=5e5,
-        ),
-        checkpoint=FasterGSCheckpointConfig(
-            output_dir=_default_checkpoint_dir(
-                "garden_baseline",
-                "adapter.fastergs",
-            ),
-            export_ply=True,
-        ),
-        execution=FasterGSExecutionConfig(
-            device="cuda",
-            seed=0,
-            max_steps=30_000,
-            batch_size=1,
-            shuffle=True,
-        ),
-    )
-
-
-def build_garden_mcmc_config() -> FasterGSExperimentConfig:
-    """Return the canonical garden MCMC preset."""
-    baseline = build_garden_baseline_config()
-    return baseline.model_copy(
-        update={
-            "preset": "garden_mcmc",
-            "optimization": baseline.optimization.model_copy(
-                update={
-                    "opacity_lr": 5e-2,
-                }
-            ),
-            "loss": baseline.loss.model_copy(
-                update={
-                    "lambda_opacity_regularization": 0.01,
-                    "lambda_scale_regularization": 0.01,
-                }
-            ),
-            "densification": baseline.densification.model_copy(
-                update={
-                    "use_mcmc": True,
-                    "stop_iter": 24_900,
-                }
-            ),
-            "checkpoint": baseline.checkpoint.model_copy(
-                update={
-                    "output_dir": _default_checkpoint_dir(
-                        "garden_mcmc",
-                        "adapter.fastergs",
-                    ),
-                }
-            ),
-        }
-    )
-
-
-_PRESET_BUILDERS = {
-    "garden_baseline": build_garden_baseline_config,
-    "garden_mcmc": build_garden_mcmc_config,
-}
-
-
-def build_experiment_config(
-    preset: FasterGSPresetName = "garden_baseline",
-) -> FasterGSExperimentConfig:
-    """Return a resolved experiment config for a named preset."""
-    return _PRESET_BUILDERS[preset]()
 
 
 def _merge_model_overrides(
@@ -476,12 +444,12 @@ def load_experiment_script_config(
     value: BaseModel | dict[str, Any] | None = None,
     args: Sequence[str] | None = None,
 ) -> BaseModel:
-    """Preset-aware script loader for `marimo-config-gui`."""
+    """Default-aware script loader for `marimo-config-gui`."""
     del model_cls
     default_config = (
         FasterGSExperimentConfig.model_validate(value)
         if value is not None
-        else build_experiment_config()
+        else load_default_experiment_config()
     )
     script_input_type = (
         Annotated[
@@ -497,9 +465,8 @@ def load_experiment_script_config(
     )
     parsed = tyro.cli(script_input_type, args=args)
     if isinstance(parsed, _JsonConfigSource):
-        payload = json.loads(parsed.path.read_text())
-        return FasterGSExperimentConfig.model_validate(payload)
-    base = build_experiment_config(parsed.preset)
+        return _load_config_json(parsed.path)
+    base = load_default_experiment_config(parsed.preset)
     return merge_experiment_config(base, parsed)
 
 
@@ -670,7 +637,7 @@ def build_training_config(
     ]
     if config.densification.use_mcmc:
         densification_builder = sk.CallableSpec(
-            target="presets.build_fastergs_mcmc_densification",
+            target="config.build_fastergs_mcmc_densification",
             kwargs={
                 "refine_every": config.densification.refine_every,
                 "start_iter": config.densification.start_iter,
@@ -731,7 +698,7 @@ def build_training_config(
         optimization=sk.OptimizationConfig(parameter_groups=parameter_groups),
         loss=sk.LossConfig(
             target=sk.CallableSpec(
-                target="presets.fastergs_training_loss",
+                target="config.fastergs_training_loss",
                 kwargs={
                     "lambda_l1": config.loss.lambda_l1,
                     "lambda_dssim": config.loss.lambda_dssim,
@@ -895,17 +862,15 @@ __all__ = [
     "FasterGSLossConfig",
     "FasterGSModelConfig",
     "FasterGSOptimizationConfig",
-    "FasterGSPresetName",
+    "FasterGSDefaultName",
     "FasterGSRenderConfig",
     "FasterGSSceneConfig",
-    "build_experiment_config",
     "build_fastergs_mcmc_densification",
-    "build_garden_baseline_config",
-    "build_garden_mcmc_config",
     "build_prepared_frame_dataset_config",
     "build_scene_load_config",
     "build_training_config",
     "fastergs_training_loss",
+    "load_default_experiment_config",
     "load_experiment_script_config",
     "merge_experiment_config",
     "register_fastergs_backends",

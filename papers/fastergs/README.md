@@ -30,7 +30,7 @@ Run interactively:
 uv run marimo run papers/fastergs/notebook.py
 ```
 
-Run in script mode with a preset plus CLI overrides:
+Run in script mode with a named default JSON config plus CLI overrides:
 
 ```bash
 uv run papers/fastergs/notebook.py cli \
@@ -43,13 +43,22 @@ uv run papers/fastergs/notebook.py cli \
 Replay an exported resolved config:
 
 ```bash
-uv run papers/fastergs/notebook.py json papers/fastergs/outputs/garden_baseline/config.json
+uv run papers/fastergs/notebook.py json checkpoints/papers/fastergs/garden_baseline/adapter.fastergs/config.json
 ```
 
-Initial presets:
+Python config module:
+
+- `papers/fastergs/config.py`
+
+Default JSON configs:
 
 - `garden_baseline`
 - `garden_mcmc`
+
+Stored at:
+
+- `papers/fastergs/defaults/garden_baseline.json`
+- `papers/fastergs/defaults/garden_mcmc.json`
 
 Backend choices:
 
