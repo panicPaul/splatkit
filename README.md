@@ -29,6 +29,7 @@ uv sync --extra adapter-backends --extra cu130
 uv sync --extra native-faster-gs --extra cu130
 uv sync --extra native-3dgrt --extra cu130
 uv sync --extra native-svraster --extra cu130
+uv sync --extra native-svraster --extra svraster-adapter --extra cu130
 ```
 
 Or install the full CUDA-specific developer environment in one step, including
@@ -50,6 +51,8 @@ Notes:
 - plain `uv sync` keeps the root environment minimal
 - `adapter-backends`, `native-faster-gs`, `native-3dgrt`, and
   `native-svraster` are opt-in family/category extras
+- `svraster-adapter` is a separate opt-in for the upstream
+  `new-svraster-cuda` comparison path used by the SVRaster notebook
 - `cu128` and `cu130` are mutually exclusive, as are `cu128-dev` and
   `cu130-dev`
 - `cu128-dev` and `cu130-dev` install everything in this monorepo’s Python
@@ -210,7 +213,8 @@ notebooks/                 Monorepo-level examples
 - `splatkit-native-3dgrt`: the 3DGRT native family with the reusable `core`
   module and the `3dgrt.stoch3dgs` backend
 - `splatkit-native-svraster`: the SVRaster native family with the reusable
-  `core` module and the `svraster.core` backend
+  `core` module and the `svraster.core` backend; the upstream
+  `new-svraster-cuda` adapter path remains a separate optional install
 - `marimo-3dv`: utilities for `marimo`, desktop viewers, and auto-generated GUI
   options that work well with serializable configs
 

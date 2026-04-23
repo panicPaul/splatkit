@@ -7,7 +7,6 @@ from typing import Literal
 
 import torch
 from beartype import beartype
-from new_svraster_cuda import renderer as svraster_renderer
 from splatkit.core.capabilities import HasDepth
 from splatkit.core.contracts import (
     CameraState,
@@ -17,6 +16,8 @@ from splatkit.core.contracts import (
 )
 from splatkit.core.sparse_voxel import SUPPORTED_SVRASTER_BACKENDS
 from torch import Tensor
+
+from splatkit_native_svraster.core.runtime import render as render_runtime
 
 
 @dataclass(frozen=True)
@@ -44,37 +45,27 @@ def _background_scalar(options: SVRasterCoreRenderOptions) -> float:
 
 
 def _build_raster_settings(
-    scene: SparseVoxelScene,
     camera: CameraState,
     camera_index: int,
-    options: SVRasterCoreRenderOptions,
-    *,
-    need_depth: bool,
-) -> svraster_renderer.RasterSettings:
+) -> dict[str, float | Tensor | int]:
     intrinsics = camera.get_intrinsics()[camera_index]
     width = int(camera.width[camera_index].item())
     height = int(camera.height[camera_index].item())
     fx = float(intrinsics[0, 0].item())
     fy = float(intrinsics[1, 1].item())
     cam_to_world = camera.cam_to_world[camera_index].to(
-        device=scene.octpath.device,
         dtype=torch.float32,
     )
-    return svraster_renderer.RasterSettings(
-        color_mode=options.color_mode,
-        n_samp_per_vox=1,
-        image_width=width,
-        image_height=height,
-        tanfovx=(width * 0.5) / fx,
-        tanfovy=(height * 0.5) / fy,
-        cx=float(intrinsics[0, 2].item()),
-        cy=float(intrinsics[1, 2].item()),
-        w2c_matrix=torch.linalg.inv(cam_to_world),
-        c2w_matrix=cam_to_world,
-        bg_color=_background_scalar(options),
-        near=options.near_plane,
-        need_depth=need_depth,
-    )
+    return {
+        "image_width": width,
+        "image_height": height,
+        "tanfovx": (width * 0.5) / fx,
+        "tanfovy": (height * 0.5) / fy,
+        "cx": float(intrinsics[0, 2].item()),
+        "cy": float(intrinsics[1, 2].item()),
+        "w2c_matrix": torch.linalg.inv(cam_to_world),
+        "c2w_matrix": cam_to_world,
+    }
 
 
 def _validate_inputs(scene: SparseVoxelScene, camera: CameraState) -> None:
@@ -103,42 +94,32 @@ def _render_single_camera(
     return_depth: bool,
 ) -> tuple[Tensor, Tensor]:
     geos = scene.voxel_geometries
-
-    def vox_fn(
-        _idx: Tensor, cam_pos: Tensor, _color_mode: str
-    ) -> dict[str, Tensor]:
-        rgbs = svraster_renderer.SH_eval.apply(
-            scene.active_sh_degree,
-            None,
-            scene.vox_center,
-            cam_pos,
-            None,
-            scene.sh0,
-            scene.shs,
-        )
-        subdiv_p = torch.ones(
-            (scene.num_voxels, 1),
-            dtype=scene.sh0.dtype,
-            device=scene.sh0.device,
-        )
-        return {"geos": geos, "rgbs": rgbs, "subdiv_p": subdiv_p}
-
-    color, depth, _normal, _transmittance, _max_w = (
-        svraster_renderer.rasterize_voxels(
-            _build_raster_settings(
-                scene,
-                camera,
-                camera_index,
-                options,
-                need_depth=return_depth,
-            ),
-            scene.octpath.reshape(-1),
-            scene.vox_center,
-            scene.vox_size.reshape(-1),
-            vox_fn,
-        )
+    raster_settings = _build_raster_settings(
+        camera,
+        camera_index,
     )
-    rgb = color.permute(1, 2, 0).contiguous().clamp(0.0, 1.0)
+    render_result = render_runtime(
+        active_sh_degree=scene.active_sh_degree,
+        image_width=int(raster_settings["image_width"]),
+        image_height=int(raster_settings["image_height"]),
+        tanfovx=float(raster_settings["tanfovx"]),
+        tanfovy=float(raster_settings["tanfovy"]),
+        cx=float(raster_settings["cx"]),
+        cy=float(raster_settings["cy"]),
+        w2c_matrix=raster_settings["w2c_matrix"].to(device=scene.octpath.device),
+        c2w_matrix=raster_settings["c2w_matrix"].to(device=scene.octpath.device),
+        near=options.near_plane,
+        bg_color=_background_scalar(options),
+        octree_paths=scene.octpath.reshape(-1),
+        vox_centers=scene.vox_center,
+        vox_lengths=scene.vox_size.reshape(-1),
+        geos=geos,
+        sh0=scene.sh0,
+        shs=scene.shs,
+        need_depth=return_depth,
+    )
+    rgb = render_result.color.permute(1, 2, 0).contiguous().clamp(0.0, 1.0)
+    depth = render_result.depth
     if depth.ndim == 3 and depth.shape[0] == 1:
         return rgb, depth.squeeze(0)
     return rgb, depth

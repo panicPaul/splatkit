@@ -1,5 +1,6 @@
 """Reusable SVRaster-family core runtime for splatkit."""
 
+from splatkit_native_svraster.core import runtime
 from splatkit_native_svraster.core.renderer import (
     SVRasterCoreDepthRenderOutput,
     SVRasterCoreRenderOptions,
@@ -12,4 +13,5 @@ __all__ = [
     "SVRasterCoreRenderOptions",
     "SVRasterCoreRenderOutput",
     "render_svraster_core",
+    "runtime",
 ]

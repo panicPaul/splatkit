@@ -24,6 +24,7 @@ adapter-backends = ["splatkit-adapter-backends"]
 native-faster-gs = ["splatkit-native-faster-gs"]
 native-3dgrt = ["splatkit-native-3dgrt"]
 native-svraster = ["splatkit-native-svraster"]
+svraster-adapter = ["new-svraster-cuda"]
 gaussian-training = ["splatkit-gaussian-training"]
 all-backends = ["splatkit-adapter-backends[all]"]
 all-native = [
