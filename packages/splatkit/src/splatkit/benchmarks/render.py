@@ -12,8 +12,8 @@ import torch
 
 from splatkit.benchmarks import benchmark_backend_render
 from splatkit.core import BACKEND_REGISTRY, CameraState, GaussianScene3D
-from splatkit.data import load_colmap_dataset, resolve_colmap_scene_path
-from splatkit.initialization import initialize_gaussian_scene_from_point_cloud
+from splatkit.data import load_colmap_scene_record, resolve_colmap_scene_path
+from splatkit.initialization import initialize_gaussian_scene_from_scene_record
 
 _OPTIONAL_BACKEND_MODULES = (
     "splatkit_adapter_backends.fastgs",
@@ -118,18 +118,18 @@ def main() -> None:
     args = _build_parser().parse_args()
     _register_optional_backends()
     backend = _pick_backend(args.backend)
-    scene_dataset = load_colmap_dataset(
+    scene_record = load_colmap_scene_record(
         resolve_colmap_scene_path(args.colmap_root)
     )
     device = _resolve_device(args.device)
-    scene = initialize_gaussian_scene_from_point_cloud(
-        scene_dataset,
+    scene = initialize_gaussian_scene_from_scene_record(
+        scene_record,
         sh_degree=args.sh_degree,
         initial_scale=args.initial_scale,
         initial_opacity=args.initial_opacity,
     ).to(device)
     camera = _select_first_camera(
-        scene_dataset.resolve_camera_sensor().camera
+        scene_record.resolve_camera_sensor().camera
     ).to(device)
     result = benchmark_backend_render(
         scene,

@@ -1,4 +1,4 @@
-"""Reusable serializable dataset configuration contracts."""
+"""Reusable serializable data-layer configuration contracts."""
 
 from __future__ import annotations
 
@@ -8,11 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, SerializeAsAny, model_validator
 
 from splatkit.data.contracts import MaterializationMode, MaterializationStage
-from splatkit.data.pipes import (
-    CachePipeConfig,
-    PreparePipeConfig,
-    SourcePipeConfig,
-)
+from splatkit.data.pipes import SourcePipeConfig
 
 
 class DataConfigBase(BaseModel):
@@ -112,30 +108,8 @@ class MaterializationConfig(DataConfigBase):
         return self
 
 
-class DatasetRuntimeConfig(DataConfigBase):
-    """Runtime knobs for prepared dataset construction."""
-
-    camera_sensor_id: str | None = Field(
-        default=None,
-        description=(
-            "Optional camera sensor id to materialize when a SceneDataset "
-            "contains multiple camera streams."
-        ),
-    )
-    split: SplitConfig | None = Field(
-        default_factory=SplitConfig,
-        description=(
-            "Frame split policy for this dataset instance. Use None to "
-            "disable splitting and expose all frames."
-        ),
-    )
-    materialization: MaterializationConfig = Field(
-        default_factory=MaterializationConfig
-    )
-
-
 class ImagePreparationConfig(DataConfigBase):
-    """Legacy image preprocessing policy for prepared frame datasets."""
+    """Image preprocessing policy for prepared frame datasets."""
 
     normalize: bool = Field(
         default=True,
@@ -171,35 +145,24 @@ class ImagePreparationConfig(DataConfigBase):
         return self
 
 
-class DatasetConfig(DataConfigBase, ABC):
-    """Abstract end-to-end dataset spec."""
+class SceneLoadConfig(DataConfigBase, ABC):
+    """Abstract scene-record loading spec."""
 
-    runtime: DatasetRuntimeConfig = Field()
     source_pipes: tuple[SerializeAsAny[SourcePipeConfig], ...] = Field(
         description=(
-            "Ordered source-phase pipes applied before prepared dataset "
-            "construction."
-        )
-    )
-    cache_pipes: tuple[SerializeAsAny[CachePipeConfig], ...] = Field(
-        description=(
-            "Ordered cache-phase pipes compiled into sample materialization."
-        )
-    )
-    prepare_pipes: tuple[SerializeAsAny[PreparePipeConfig], ...] = Field(
-        description=(
-            "Ordered prepare-phase pipes applied to training-facing samples."
+            "Ordered source-phase pipes applied while loading the scene "
+            "record."
         )
     )
 
 
-class FrameDatasetConfig(DataConfigBase):
-    """Legacy dataset-side configuration for prepared frame loading."""
+class PreparedFrameDatasetConfig(DataConfigBase):
+    """Configuration for prepared frame dataset construction."""
 
     camera_sensor_id: str | None = Field(
         default=None,
         description=(
-            "Optional camera sensor id to materialize when a SceneDataset "
+            "Optional camera sensor id to materialize when a scene record "
             "contains multiple camera streams."
         ),
     )
@@ -228,10 +191,9 @@ class FrameDatasetConfig(DataConfigBase):
 
 __all__ = [
     "DataConfigBase",
-    "DatasetConfig",
-    "DatasetRuntimeConfig",
-    "FrameDatasetConfig",
     "ImagePreparationConfig",
     "MaterializationConfig",
+    "PreparedFrameDatasetConfig",
+    "SceneLoadConfig",
     "SplitConfig",
 ]

@@ -22,6 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 adapter-backends = ["splatkit-adapter-backends"]
 native-faster-gs = ["splatkit-native-faster-gs"]
+native-faster-gs-mojo = ["splatkit-native-faster-gs-mojo"]
 native-3dgrt = ["splatkit-native-3dgrt"]
 native-svraster = ["splatkit-native-svraster"]
 svraster-adapter = ["new-svraster-cuda"]
@@ -30,6 +31,7 @@ all-backends = ["splatkit-adapter-backends[all]"]
 all-native = [
     "splatkit-gaussian-training",
     "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
     "splatkit-native-3dgrt",
     "splatkit-native-svraster",
 ]
@@ -37,12 +39,14 @@ all-unrestricted = [
     "splatkit-adapter-backends[all]",
     "splatkit-gaussian-training",
     "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
     "splatkit-native-3dgrt",
 ]
 all = [
     "splatkit-adapter-backends[all]",
     "splatkit-gaussian-training",
     "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
     "splatkit-native-3dgrt",
     "splatkit-native-svraster",
 ]
@@ -52,6 +56,7 @@ cu128-dev = [
     "splatkit-adapter-backends[all]",
     "splatkit-gaussian-training",
     "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
     "splatkit-native-3dgrt",
     "splatkit-native-svraster",
     "torch>=2.11.0",
@@ -60,6 +65,7 @@ cu130-dev = [
     "splatkit-adapter-backends[all]",
     "splatkit-gaussian-training",
     "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
     "splatkit-native-3dgrt",
     "splatkit-native-svraster",
     "torch>=2.11.0",
@@ -67,6 +73,7 @@ cu130-dev = [
 
 [tool.uv]
 package = false
+prerelease = "allow"
 no-build-isolation-package = ["diff-gaussian-rasterization-fastgs"]
 conflicts = [
     [
@@ -99,16 +106,23 @@ splatkit = { path = "packages/splatkit", editable = true }
 splatkit-gaussian-training = { path = "packages/splatkit-gaussian-training", editable = true }
 splatkit-adapter-backends = { path = "packages/splatkit-adapter-backends", editable = true }
 splatkit-native-faster-gs = { path = "packages/splatkit-native-faster-gs", editable = true }
+splatkit-native-faster-gs-mojo = { path = "packages/splatkit-native-faster-gs-mojo", editable = true }
 splatkit-native-3dgrt = { path = "packages/splatkit-native-3dgrt", editable = true }
 splatkit-native-svraster = { path = "packages/splatkit-native-svraster", editable = true }
 diff-gaussian-rasterization-fastgs = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
+max = { index = "modular-nightly" }
+mojo = { index = "modular-nightly" }
 torch = [
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },
     { index = "pytorch-cu128", extra = "cu128-dev" },
     { index = "pytorch-cu130", extra = "cu130-dev" },
 ]
+
+[[tool.uv.index]]
+name = "modular-nightly"
+url = "https://whl.modular.com/nightly/simple/"
 
 [[tool.uv.index]]
 name = "pytorch-cu128"

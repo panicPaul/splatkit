@@ -13,32 +13,31 @@ from PIL import Image
 from splatkit.core.contracts import CameraState
 from splatkit.data import (
     CameraSensorDataset,
-    ColmapDatasetConfig,
+    ColmapSceneConfig,
     DatasetFrame,
-    DatasetRuntimeConfig,
     DatasetSensor,
-    FrameDataset,
     HorizonAdjustmentSpec,
     HorizonAlignPipeConfig,
     ImagePreparationSpec,
     MaterializationConfig,
-    MipNerf360IndoorDatasetConfig,
-    MipNerf360OutdoorDatasetConfig,
-    NCoreDatasetConfig,
-    NormalizePipeConfig,
+    MipNerf360IndoorPreparedFrameDatasetConfig,
+    MipNerf360OutdoorPreparedFrameDatasetConfig,
+    NCoreSceneConfig,
     PathCameraImageSource,
-    ResizePipeConfig,
+    PreparedFrameDataset,
+    PreparedFrameDatasetConfig,
     ResizeSpec,
-    SceneDataset,
+    SceneRecord,
     SplitConfig,
-    adjust_dataset_horizon,
+    adjust_scene_record_horizon,
     collate_frame_samples,
-    load_colmap_dataset,
-    load_dataset,
-    load_must3r_dataset,
-    load_ncore_dataset,
+    load_colmap_scene_record,
+    load_must3r_scene_record,
+    load_ncore_scene_record,
+    load_scene_record,
+    prepare_frame_dataset,
     resolve_must3r_checkpoints,
-    run_must3r_dataset,
+    run_must3r_scene_record,
 )
 from splatkit.data.adapters import _resolve_materialization_num_workers
 from torch.utils.data import DataLoader
@@ -127,8 +126,8 @@ def _write_images(root: Path) -> None:
     _write_rgb_image(image_dir / "001.png", (0, 255, 0), (16, 12))
 
 
-def _image_path_for_frame(dataset: SceneDataset, frame: object) -> Path:
-    camera_sensor = dataset.resolve_camera_sensor()
+def _image_path_for_frame(scene_record: SceneRecord, frame: object) -> Path:
+    camera_sensor = scene_record.resolve_camera_sensor()
     image_source = camera_sensor.image_source
     assert isinstance(image_source, PathCameraImageSource)
     return image_source.path_for_frame(frame)
@@ -274,48 +273,53 @@ def _make_ncore_sensor(
     }
 
 
-def test_load_colmap_dataset_from_text(tmp_path: Path) -> None:
+def test_load_colmap_scene_record_from_text(tmp_path: Path) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path)
-    dataset = load_colmap_dataset(tmp_path)
-    assert dataset.source_format == "colmap"
-    assert dataset.num_frames == 2
-    assert dataset.point_cloud is not None
-    assert dataset.camera.intrinsics is not None
-    assert dataset.default_camera_sensor_id == "camera"
-    assert _image_path_for_frame(dataset, dataset.frames[0]).name == "000.png"
-    assert dataset.camera.cam_to_world.shape == (2, 4, 4)
+    scene_record = load_colmap_scene_record(tmp_path)
+    assert scene_record.source_format == "colmap"
+    assert scene_record.num_frames == 2
+    assert scene_record.point_cloud is not None
+    assert scene_record.camera.intrinsics is not None
+    assert scene_record.default_camera_sensor_id == "camera"
+    assert (
+        _image_path_for_frame(scene_record, scene_record.frames[0]).name
+        == "000.png"
+    )
+    assert scene_record.camera.cam_to_world.shape == (2, 4, 4)
 
 
-def test_load_colmap_dataset_from_binary(tmp_path: Path) -> None:
+def test_load_colmap_scene_record_from_binary(tmp_path: Path) -> None:
     image_dir = tmp_path / "images"
     _write_rgb_image(image_dir / "000.png", (255, 0, 0), (16, 12))
     _write_colmap_binary_model(tmp_path)
-    dataset = load_colmap_dataset(tmp_path)
-    assert dataset.num_frames == 1
-    assert dataset.point_cloud is not None
-    assert int(dataset.camera.width[0].item()) == 16
+    scene_record = load_colmap_scene_record(tmp_path)
+    assert scene_record.num_frames == 1
+    assert scene_record.point_cloud is not None
+    assert int(scene_record.camera.width[0].item()) == 16
 
 
-def test_load_colmap_dataset_requires_undistortion_for_distorted_cameras(
+def test_load_colmap_scene_record_requires_undistortion_for_distorted_cameras(
     tmp_path: Path,
 ) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path, distorted=True)
     with pytest.raises(ValueError, match="undistorted pinhole data"):
-        load_colmap_dataset(tmp_path)
+        load_colmap_scene_record(tmp_path)
 
 
-def test_load_colmap_dataset_can_undistort_into_cache(tmp_path: Path) -> None:
+def test_load_colmap_scene_record_can_undistort_into_cache(
+    tmp_path: Path,
+) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path, distorted=True)
     undistorted_dir = tmp_path / "undistorted"
-    dataset = load_colmap_dataset(
+    scene_record = load_colmap_scene_record(
         tmp_path,
         undistort_output_dir=undistorted_dir,
     )
-    assert dataset.num_frames == 2
-    image_path = _image_path_for_frame(dataset, dataset.frames[0])
+    assert scene_record.num_frames == 2
+    image_path = _image_path_for_frame(scene_record, scene_record.frames[0])
     assert image_path.parent == undistorted_dir
     assert image_path.exists()
 
@@ -323,9 +327,9 @@ def test_load_colmap_dataset_can_undistort_into_cache(tmp_path: Path) -> None:
 def test_torch_frame_dataset_resizes_and_collates(tmp_path: Path) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path)
-    scene_dataset = load_colmap_dataset(tmp_path)
-    frame_dataset = FrameDataset(
-        scene_dataset,
+    scene_record = load_colmap_scene_record(tmp_path)
+    frame_dataset = PreparedFrameDataset(
+        scene_record,
         preparation=ImagePreparationSpec(
             resize=ResizeSpec(width_target=8),
         ),
@@ -360,134 +364,141 @@ def test_horizon_adjustment_applies_consistent_transform(
 ) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path)
-    dataset = load_colmap_dataset(
-        tmp_path,
-        horizon_adjustment=HorizonAdjustmentSpec(enabled=True),
+    scene_record = adjust_scene_record_horizon(
+        load_colmap_scene_record(tmp_path),
+        HorizonAdjustmentSpec(enabled=True),
     )
-    assert dataset.world_up is not None
+    assert scene_record.world_up is not None
     assert torch.allclose(
-        dataset.world_up,
+        scene_record.world_up,
         torch.tensor([0.0, 1.0, 0.0]),
     )
-    assert dataset.point_cloud is not None
-    assert dataset.point_cloud.points.shape[1] == 3
+    assert scene_record.point_cloud is not None
+    assert scene_record.point_cloud.points.shape[1] == 3
 
 
-def test_colmap_dataset_config_serializes_pipe_kinds() -> None:
-    config = ColmapDatasetConfig(
+def test_colmap_scene_config_serializes_source_pipe_kinds() -> None:
+    config = ColmapSceneConfig(
         path=Path("scene"),
         source_pipes=(HorizonAlignPipeConfig(),),
-        cache_pipes=(ResizePipeConfig(width_target=640),),
-        prepare_pipes=(NormalizePipeConfig(),),
+    )
+    prepared_config = PreparedFrameDatasetConfig(
+        image_preparation={"resize_width_target": 640},
     )
 
     payload = config.model_dump(mode="json")
+    prepared_payload = prepared_config.model_dump(mode="json")
 
     assert payload["kind"] == "colmap"
     assert payload["source_pipes"][0]["kind"] == "horizon_align"
-    assert payload["cache_pipes"][0]["kind"] == "resize"
-    assert payload["prepare_pipes"][0]["kind"] == "normalize"
+    assert (
+        prepared_payload["image_preparation"]["resize_width_target"] == 640
+    )
+    assert prepared_payload["image_preparation"]["normalize"] is True
 
 
-def test_colmap_dataset_config_exposes_all_default_pipe_phases() -> None:
-    config = ColmapDatasetConfig(path=Path("scene"))
+def test_colmap_scene_and_prepared_frame_defaults_are_split() -> None:
+    scene_config = ColmapSceneConfig(path=Path("scene"))
+    prepared_config = PreparedFrameDatasetConfig()
 
-    payload = config.model_dump(mode="json")
+    scene_payload = scene_config.model_dump(mode="json")
+    prepared_payload = prepared_config.model_dump(mode="json")
 
-    assert payload["runtime"] == {
-        "camera_sensor_id": None,
-        "split": {"target": "train", "every_n": 8, "train_ratio": None},
-        "materialization": {
-            "stage": "decoded",
-            "mode": "eager",
-            "num_workers": 0,
-        },
-    }
-    assert payload["source_pipes"] == [
+    assert scene_payload["source_pipes"] == [
         {
             "kind": "horizon_align",
             "enabled": True,
             "target_up": [0.0, 1.0, 0.0],
         }
     ]
-    assert payload["cache_pipes"] == [
-        {
-            "kind": "resize",
-            "width_scale": None,
-            "width_target": 1980,
-            "interpolation": "bicubic",
-        }
-    ]
-    assert payload["prepare_pipes"] == [{"kind": "normalize", "enabled": True}]
+    assert prepared_payload["camera_sensor_id"] is None
+    assert prepared_payload["split"] == {
+        "target": "train",
+        "every_n": 8,
+        "train_ratio": None,
+    }
+    assert prepared_payload["materialization"] == {
+        "stage": "decoded",
+        "mode": "eager",
+        "num_workers": 0,
+    }
+    assert prepared_payload["image_preparation"] == {
+        "normalize": True,
+        "resize_width_scale": None,
+        "resize_width_target": None,
+        "interpolation": "bicubic",
+    }
 
 
-def test_mipnerf360_indoor_dataset_config_uses_quarter_scale_resize() -> None:
-    config = MipNerf360IndoorDatasetConfig(path=Path("scene"))
-
-    payload = config.model_dump(mode="json")
-
-    assert payload["kind"] == "colmap"
-    assert payload["cache_pipes"] == [
-        {
-            "kind": "resize",
-            "width_scale": 0.25,
-            "width_target": None,
-            "interpolation": "bicubic",
-        }
-    ]
-
-
-def test_mipnerf360_outdoor_dataset_config_uses_half_scale_resize() -> None:
-    config = MipNerf360OutdoorDatasetConfig(path=Path("scene"))
+def test_mipnerf360_indoor_prepared_frame_config_uses_quarter_scale_resize(
+) -> None:
+    config = MipNerf360IndoorPreparedFrameDatasetConfig()
 
     payload = config.model_dump(mode="json")
 
-    assert payload["kind"] == "colmap"
-    assert payload["cache_pipes"] == [
-        {
-            "kind": "resize",
-            "width_scale": 0.5,
-            "width_target": None,
-            "interpolation": "bicubic",
-        }
-    ]
+    assert payload["image_preparation"] == {
+        "normalize": True,
+        "resize_width_scale": 0.25,
+        "resize_width_target": None,
+        "interpolation": "bicubic",
+    }
 
 
-def test_load_dataset_from_colmap_config_returns_prepared_dataset(
+def test_mipnerf360_outdoor_prepared_frame_config_uses_half_scale_resize(
+) -> None:
+    config = MipNerf360OutdoorPreparedFrameDatasetConfig()
+
+    payload = config.model_dump(mode="json")
+
+    assert payload["image_preparation"] == {
+        "normalize": True,
+        "resize_width_scale": 0.5,
+        "resize_width_target": None,
+        "interpolation": "bicubic",
+    }
+
+
+def test_explicit_two_step_colmap_flow_returns_prepared_dataset(
     tmp_path: Path,
 ) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path)
 
-    dataset = load_dataset(
-        ColmapDatasetConfig(
+    scene_record = load_scene_record(
+        ColmapSceneConfig(
             path=tmp_path,
-            cache_pipes=(ResizePipeConfig(width_target=8),),
         )
     )
+    dataset = prepare_frame_dataset(
+        scene_record,
+        PreparedFrameDatasetConfig(
+            image_preparation={"resize_width_target": 8},
+        ),
+    )
 
-    assert isinstance(dataset, FrameDataset)
+    assert isinstance(dataset, PreparedFrameDataset)
     sample = dataset[0]
     assert sample.image.shape == (6, 8, 3)
     assert sample.image.dtype == torch.float32
     assert int(sample.camera.width[0].item()) == 8
 
 
-def test_load_dataset_applies_source_pipes_from_config(tmp_path: Path) -> None:
+def test_load_scene_record_applies_source_pipes_from_config(
+    tmp_path: Path,
+) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path)
 
-    dataset = load_dataset(
-        ColmapDatasetConfig(
+    scene_record = load_scene_record(
+        ColmapSceneConfig(
             path=tmp_path,
         )
     )
 
-    assert isinstance(dataset, FrameDataset)
-    assert dataset.dataset.world_up is not None
+    assert scene_record.world_up is not None
 
 
-def test_scene_dataset_compatibility_properties_use_default_camera_sensor(
+def test_scene_record_compatibility_properties_use_default_camera_sensor(
     tmp_path: Path,
 ) -> None:
     front = _build_camera_sensor(
@@ -508,20 +519,20 @@ def test_scene_dataset_compatibility_properties_use_default_camera_sensor(
         timestamps_us=(),
         metadata={"channels": 64},
     )
-    dataset = SceneDataset(
+    scene_record = SceneRecord(
         sensors=(front, rear, lidar),
         source_format="ncore",
         default_camera_sensor_id="rear",
         source_uris=(str(tmp_path / "group"),),
     )
 
-    assert dataset.frames == rear.frames
-    assert dataset.camera == rear.camera
-    assert dataset.num_frames == 2
-    assert dataset.available_camera_sensor_ids == ("front", "rear")
+    assert scene_record.frames == rear.frames
+    assert scene_record.camera == rear.camera
+    assert scene_record.num_frames == 2
+    assert scene_record.available_camera_sensor_ids == ("front", "rear")
 
 
-def test_scene_dataset_requires_default_for_multiple_camera_sensors(
+def test_scene_record_can_omit_default_camera_sensor_for_multicam_scenes(
     tmp_path: Path,
 ) -> None:
     front = _build_camera_sensor(
@@ -535,17 +546,19 @@ def test_scene_dataset_requires_default_for_multiple_camera_sensors(
         root=tmp_path,
     )
 
+    scene_record = SceneRecord(
+        sensors=(front, rear),
+        source_format="ncore",
+        source_uris=(str(tmp_path / "group"),),
+    )
+    assert scene_record.default_camera_sensor_id is None
     with pytest.raises(
-        ValueError, match="multiple camera sensors requires default"
+        ValueError, match="multiple camera sensors but no default_camera_sensor_id"
     ):
-        SceneDataset(
-            sensors=(front, rear),
-            source_format="ncore",
-            source_uris=(str(tmp_path / "group"),),
-        )
+        scene_record.resolve_camera_sensor()
 
 
-def test_frame_dataset_supports_non_path_image_sources() -> None:
+def test_prepared_frame_dataset_supports_non_path_image_sources() -> None:
     frame = DatasetFrame(
         frame_id="memory_0",
         sensor_id="memory_camera",
@@ -554,7 +567,7 @@ def test_frame_dataset_supports_non_path_image_sources() -> None:
         height=3,
         timestamp_us=42,
     )
-    dataset = SceneDataset(
+    scene_record = SceneRecord(
         sensors=(
             CameraSensorDataset(
                 sensor_id="memory_camera",
@@ -580,8 +593,8 @@ def test_frame_dataset_supports_non_path_image_sources() -> None:
         default_camera_sensor_id="memory_camera",
     )
 
-    frame_dataset = FrameDataset(
-        dataset,
+    frame_dataset = PreparedFrameDataset(
+        scene_record,
         preparation=ImagePreparationSpec(normalize=False),
     )
     sample = frame_dataset[0]
@@ -594,7 +607,7 @@ def test_frame_dataset_supports_non_path_image_sources() -> None:
     )
 
 
-def test_adjust_dataset_horizon_updates_all_camera_sensors_consistently(
+def test_adjust_scene_record_horizon_updates_all_camera_sensors_consistently(
     tmp_path: Path,
 ) -> None:
     front = _build_camera_sensor(
@@ -608,15 +621,15 @@ def test_adjust_dataset_horizon_updates_all_camera_sensors_consistently(
         root=tmp_path,
         base_translation=(2.0, 1.0, 0.0),
     )
-    dataset = SceneDataset(
+    scene_record = SceneRecord(
         sensors=(front, rear),
         source_format="ncore",
         default_camera_sensor_id="front",
         source_uris=(str(tmp_path / "group"),),
     )
 
-    adjusted = adjust_dataset_horizon(
-        dataset,
+    adjusted = adjust_scene_record_horizon(
+        scene_record,
         HorizonAdjustmentSpec(enabled=True),
     )
 
@@ -632,7 +645,7 @@ def test_adjust_dataset_horizon_updates_all_camera_sensors_consistently(
     assert torch.allclose(front_transform, rear_transform, atol=1e-5)
 
 
-def test_load_ncore_dataset_discovers_camera_and_inventory_sensors(
+def test_load_ncore_scene_record_discovers_camera_and_inventory_sensors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -675,19 +688,18 @@ def test_load_ncore_dataset_discovers_camera_and_inventory_sensors(
         lambda: fake_module,
     )
 
-    dataset = load_ncore_dataset(
+    scene_record = load_ncore_scene_record(
         (tmp_path / "group_a",),
-        camera_sensor_id="front",
     )
 
-    assert dataset.source_format == "ncore"
-    assert dataset.default_camera_sensor_id == "front"
-    assert dataset.available_camera_sensor_ids == ("front", "rear")
-    assert any(sensor.kind == "lidar" for sensor in dataset.sensors)
-    assert dataset.point_cloud is not None
+    assert scene_record.source_format == "ncore"
+    assert scene_record.default_camera_sensor_id is None
+    assert scene_record.available_camera_sensor_ids == ("front", "rear")
+    assert any(sensor.kind == "lidar" for sensor in scene_record.sensors)
+    assert scene_record.point_cloud is not None
 
-    frame_dataset = FrameDataset(
-        dataset,
+    frame_dataset = PreparedFrameDataset(
+        scene_record,
         camera_sensor_id="rear",
         preparation=ImagePreparationSpec(normalize=False),
     )
@@ -696,7 +708,7 @@ def test_load_ncore_dataset_discovers_camera_and_inventory_sensors(
     assert sample.image.shape == (3, 4, 3)
 
 
-def test_load_dataset_from_ncore_config_selects_runtime_camera_sensor(
+def test_explicit_two_step_ncore_flow_selects_prepared_camera_sensor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -721,23 +733,25 @@ def test_load_dataset_from_ncore_config_selects_runtime_camera_sensor(
         lambda: fake_module,
     )
 
-    dataset = load_dataset(
-        NCoreDatasetConfig(
+    scene_record = load_scene_record(
+        NCoreSceneConfig(
             component_group_paths=(tmp_path / "group_a",),
-            camera_sensor_id="front",
-            runtime=DatasetRuntimeConfig(
-                camera_sensor_id="rear",
-                split=SplitConfig(target="all", every_n=None, train_ratio=None),
-            ),
         )
     )
+    dataset = prepare_frame_dataset(
+        scene_record,
+        PreparedFrameDatasetConfig(
+            camera_sensor_id="rear",
+            split=SplitConfig(target="all", every_n=None, train_ratio=None),
+        ),
+    )
 
-    assert isinstance(dataset, FrameDataset)
-    assert dataset.dataset.default_camera_sensor_id == "front"
+    assert isinstance(dataset, PreparedFrameDataset)
+    assert dataset.scene_record.default_camera_sensor_id is None
     assert dataset[0].frame.sensor_id == "rear"
 
 
-def test_load_must3r_dataset_from_json(tmp_path: Path) -> None:
+def test_load_must3r_scene_record_from_json(tmp_path: Path) -> None:
     image_dir = tmp_path / "images"
     _write_rgb_image(image_dir / "000.png", (255, 0, 0), (16, 12))
     _write_rgb_image(image_dir / "001.png", (0, 255, 0), (16, 12))
@@ -765,9 +779,9 @@ def test_load_must3r_dataset_from_json(tmp_path: Path) -> None:
     }
     artifact_path = tmp_path / "dataset.json"
     artifact_path.write_text(json.dumps(payload))
-    dataset = load_must3r_dataset(artifact_path)
-    assert dataset.source_format == "must3r"
-    assert dataset.num_frames == 2
+    scene_record = load_must3r_scene_record(artifact_path)
+    assert scene_record.source_format == "must3r"
+    assert scene_record.num_frames == 2
 
 
 def test_resolve_must3r_checkpoints_uses_huggingface_download(
@@ -797,7 +811,7 @@ def test_resolve_must3r_checkpoints_uses_huggingface_download(
     assert downloads == [("naver/must3r", "model.pth")]
 
 
-def test_run_must3r_dataset_errors_when_runtime_is_missing(
+def test_run_must3r_scene_record_errors_when_runtime_is_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -816,7 +830,7 @@ def test_run_must3r_dataset_errors_when_runtime_is_missing(
     )
     monkeypatch.setattr("shutil.which", lambda _: None)
     with pytest.raises(RuntimeError, match="MUSt3R runtime is not installed"):
-        run_must3r_dataset(
+        run_must3r_scene_record(
             tmp_path,
             output_dir=tmp_path / "must3r_output",
             checkpoint_repo_id="naver/must3r",
@@ -841,7 +855,7 @@ class _StubMust3rRuntime:
         return self.artifact_path
 
 
-def test_run_must3r_dataset_with_stub_runtime(
+def test_run_must3r_scene_record_with_stub_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     image_dir = tmp_path / "images"
@@ -874,12 +888,12 @@ def test_run_must3r_dataset_with_stub_runtime(
             },
         )(),
     )
-    dataset = run_must3r_dataset(
+    scene_record = run_must3r_scene_record(
         image_dir,
         output_dir=tmp_path / "unused_output",
         checkpoint_repo_id="naver/must3r",
         checkpoint_filename="model.pth",
         runtime=_StubMust3rRuntime(artifact_path=artifact_path),
     )
-    assert isinstance(dataset, SceneDataset)
-    assert dataset.num_frames == 1
+    assert isinstance(scene_record, SceneRecord)
+    assert scene_record.num_frames == 1

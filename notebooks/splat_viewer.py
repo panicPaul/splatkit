@@ -3,9 +3,11 @@
 import marimo
 
 __generated_with = "0.23.1"
-app = marimo.App(width="medium")
+app = marimo.App(width="columns")
 
 with app.setup:
+    from dataclasses import replace
+
     import marimo as mo
     import numpy as np
     import splatkit as sk
@@ -18,6 +20,7 @@ with app.setup:
     import splatkit_native_faster_gs.faster_gs as skn_fastergs
     import splatkit_native_faster_gs.faster_gs_depth as skn_fastergs_depth
     import splatkit_native_faster_gs.gaussian_pop as skn_gaussian_pop
+    import splatkit_native_faster_gs_mojo.core as skn_fastergs_mojo
     import torch
     from marimo_3dv import (
         CameraState,
@@ -46,11 +49,75 @@ with app.setup:
     sk_inria.register()
     skn_fastergs_depth.register()
     skn_fastergs.register()
+    skn_fastergs_mojo.register()
     skn_gaussian_pop.register()
     skn_stoch.register()
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    # Splat Viewer
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Interactive Result
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(
+    antialiasing,
+    backend,
+    colormap,
+    invert_colormap,
+    normalization_bias,
+    normalization_percent,
+    view_mode,
+    viewer_controls_gui,
+):
+    selectors = mo.hstack(
+        [backend, view_mode, colormap],
+        widths="equal",
+        align="start",
+        gap=1.0,
+    )
+    normalization_controls = mo.hstack(
+        [
+            normalization_percent,
+            normalization_bias,
+            invert_colormap,
+            antialiasing,
+        ],
+        widths="equal",
+        align="start",
+        gap=1.0,
+    )
+    mo.vstack(
+        [selectors, normalization_controls, viewer_controls_gui],
+        gap=0.75,
+    )
+    return
+
+
 @app.cell
+def _(load_form):
+    load_form
+    return
+
+
+@app.cell
+def _(viewer):
+    viewer
+    return
+
+
+@app.cell(column=1)
 def _():
     view_mode_options = ["image", "alpha", "depth"]
     view_mode_required_outputs = {
@@ -85,138 +152,41 @@ def available_gaussian_backends(
     )
 
 
-@app.cell
-def _(colormap_options):
-    colormap = mo.ui.dropdown(
-        colormap_options,
-        value="viridis",
-        label="Colormap",
-        full_width=True,
-    )
-    return (colormap,)
-
-
-@app.cell
-def _():
-    normalization_percent = mo.ui.slider(
-        start=50,
-        stop=100,
-        step=1,
-        value=90,
-        label="Quantile range (%)",
-    )
-    return (normalization_percent,)
-
-
-@app.cell
-def _():
-    normalization_bias = mo.ui.slider(
-        start=0.0,
-        stop=1.0,
-        step=0.01,
-        value=0.5,
-        label="Quantile bias",
-    )
-    return (normalization_bias,)
-
-
-@app.cell
-def _():
-    invert_colormap = mo.ui.checkbox(
-        value=False,
-        label="Invert colormap",
-    )
-    return (invert_colormap,)
-
-
-@app.cell
-def _(view_mode_options):
-    view_mode = mo.ui.dropdown(
-        view_mode_options,
-        value=view_mode_options[0],
-        label="View mode",
-        full_width=True,
-    )
-    return (view_mode,)
-
-
-@app.cell
-def _(view_mode, view_mode_required_outputs):
-    backend_options = available_gaussian_backends(
-        view_mode_required_outputs[view_mode.value]
-    )
-    backend = mo.ui.dropdown(
-        backend_options,
-        value=backend_options[0] if backend_options else None,
-        label="Backend",
-        full_width=True,
-    )
-    return (backend,)
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md("""
-    # Splat Viewer
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ## Interactive Result
-    """)
-    return
-
-
-@app.cell
-def _(
-    backend,
-    colormap,
-    invert_colormap,
-    normalization_bias,
-    normalization_percent,
-    view_mode,
-    viewer_controls_gui,
-):
-    selectors = mo.hstack(
-        [backend, view_mode, colormap],
-        widths="equal",
-        align="start",
-        gap=1.0,
-    )
-    normalization_controls = mo.hstack(
-        [normalization_percent, normalization_bias, invert_colormap],
-        widths="equal",
-        align="start",
-        gap=1.0,
-    )
-    mo.vstack(
-        [selectors, normalization_controls, viewer_controls_gui],
-        gap=0.75,
-    )
-    return
-
-
-@app.cell
-def _(viewer):
-    viewer
-    return
-
-
-@app.cell
-def _(load_error, load_form):
-    mo.vstack([load_error, load_form])
-    return
-
-
 @app.cell(hide_code=True)
 def _():
     mo.md("""
     ## Scene
     """)
     return
+
+
+@app.cell
+def _():
+    viewer_state = ViewerState(camera_convention="opencv")
+    return (viewer_state,)
+
+
+@app.cell
+def _():
+    (
+        load_form_gui_state,
+        load_json_gui_state,
+        load_bindings,
+    ) = create_config_state(
+        SplatLoadConfig,
+        value=SplatLoadConfig(),
+    )
+    return load_bindings, load_form_gui_state, load_json_gui_state
+
+
+@app.cell
+def _(load_bindings, load_form_gui_state, load_json_gui_state):
+    load_config = config_value(
+        load_bindings,
+        form_gui_state=load_form_gui_state,
+        json_gui_state=load_json_gui_state,
+    )
+    return (load_config,)
 
 
 @app.function
@@ -238,6 +208,37 @@ def load_gaussian_scene(path):
         opacity_logits=backend_scene.logit_opacity[:, None],
         sh_degree=backend_scene.sh_degree,
     )
+
+
+@app.cell
+def _(load_config, viewer_state):
+    if mo.running_in_notebook():
+        cleanup_before_splat_reload(
+            viewer_state,
+            close_existing_viewer=True,
+            empty_cuda_cache=True,
+        )
+        scene = (
+            None
+            if load_config is None
+            else load_gaussian_scene(load_config.ply_path)
+        )
+    else:
+        picked_load_config = pick_splat_load_config()
+        scene = (
+            None
+            if picked_load_config is None
+            else load_gaussian_scene(picked_load_config.ply_path)
+        )
+    return (scene,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Rendering
+    """)
+    return
 
 
 @app.function
@@ -340,84 +341,39 @@ def alpha_to_image(
     )
 
 
-@app.cell
-def _():
-    viewer_state = ViewerState(camera_convention="opencv")
-    return (viewer_state,)
-
-
-@app.cell
-def _():
-    (
-        load_form_gui_state,
-        load_json_gui_state,
-        load_bindings,
-    ) = create_config_state(
-        SplatLoadConfig,
-        value=SplatLoadConfig(),
-    )
-    return load_bindings, load_form_gui_state, load_json_gui_state
-
-
-@app.cell
-def _(load_bindings, load_form_gui_state):
-    load_form = config_form(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        label="Scene",
-    )
-    return (load_form,)
-
-
-@app.cell
-def _(load_bindings, load_form_gui_state, load_json_gui_state):
-    load_error = config_error(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        json_gui_state=load_json_gui_state,
-    )
-    return (load_error,)
-
-
-@app.cell
-def _(load_bindings, load_form_gui_state, load_json_gui_state):
-    load_config = config_value(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        json_gui_state=load_json_gui_state,
-    )
-    return (load_config,)
-
-
-@app.cell
-def _(load_config, viewer_state):
-    if mo.running_in_notebook():
-        cleanup_before_splat_reload(
-            viewer_state,
-            close_existing_viewer=True,
-            empty_cuda_cache=True,
+@app.function
+def render_options_for_backend(
+    backend: str,
+    *,
+    antialiasing: bool,
+) -> sk.RenderOptions | None:
+    """Build backend-specific viewer render options."""
+    if backend == "adapter.fastergs":
+        return replace(
+            sk_fastergs.FasterGSRenderOptions(),
+            proper_antialiasing=antialiasing,
         )
-        scene = (
-            None
-            if load_config is None
-            else load_gaussian_scene(load_config.ply_path)
+    if backend == "faster_gs.core":
+        return replace(
+            skn_fastergs.FasterGSNativeRenderOptions(),
+            proper_antialiasing=antialiasing,
         )
-    else:
-        picked_load_config = pick_splat_load_config()
-        scene = (
-            None
-            if picked_load_config is None
-            else load_gaussian_scene(picked_load_config.ply_path)
+    if backend == "faster_gs.depth":
+        return replace(
+            skn_fastergs_depth.FasterGSDepthNativeRenderOptions(),
+            proper_antialiasing=antialiasing,
         )
-    return (scene,)
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md("""
-    ## Rendering
-    """)
-    return
+    if backend == "faster_gs.gaussian_pop":
+        return replace(
+            skn_gaussian_pop.GaussianPopNativeRenderOptions(),
+            proper_antialiasing=antialiasing,
+        )
+    if backend == "faster_gs_mojo.core":
+        return replace(
+            skn_fastergs_mojo.FasterGSMojoRenderOptions(),
+            proper_antialiasing=antialiasing,
+        )
+    return None
 
 
 @app.function
@@ -427,6 +383,7 @@ def rasterize_scene(
     scene: SplatScene | None,
     *,
     backend: str = "adapter.gsplat",
+    antialiasing: bool = True,
     view_mode: str = "image",
     colormap: str = "viridis",
     quantile_percent: float = 90.0,
@@ -436,7 +393,11 @@ def rasterize_scene(
     """Render a splat scene through splatkit."""
     if scene is None:
         return RenderResult(
-            image=np.full((camera.height, camera.width, 3), 245, dtype=np.uint8)
+            image=np.full(
+                (camera.height, camera.width, 3),
+                245,
+                dtype=np.uint8,
+            )
         )
 
     backend_camera = sk.CameraState(
@@ -464,6 +425,12 @@ def rasterize_scene(
             backend == "adapter.gsplat" and view_mode == "image"
         ),
     }
+    render_options = render_options_for_backend(
+        backend,
+        antialiasing=antialiasing,
+    )
+    if render_options is not None:
+        render_kwargs["options"] = render_options
     render_output = sk.render(
         backend_scene,
         backend_camera.to(scene.center_positions.device),
@@ -501,14 +468,6 @@ def rasterize_scene(
     return RenderResult(image=image_uint8, metadata=metadata)
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md("""
-    ## Viewer
-    """)
-    return
-
-
 @app.cell
 def _():
     backend_bundle = gs_backend_bundle()
@@ -523,19 +482,8 @@ def _(scene, viewer_pipeline, viewer_state):
 
 
 @app.cell
-def _(backend_bundle, pipeline_result, viewer_state):
-    viewer_controls = viewer_pipeline_controls_gui(
-        viewer_state,
-        pipeline_result,
-        viewer_default_config=backend_bundle.viewer_controls(viewer_state),
-    )
-    viewer_controls_gui = viewer_controls.gui
-    viewer_controls_default_config = viewer_controls.default_config
-    return (viewer_controls_gui,)
-
-
-@app.cell
 def _(
+    antialiasing,
     backend,
     colormap,
     invert_colormap,
@@ -559,6 +507,7 @@ def _(
         combined_config = viewer_controls_gui.value
         selected_colormap = colormap.value
         selected_invert_colormap = invert_colormap.value
+        selected_antialiasing = antialiasing.value
         selected_quantile_bias = normalization_bias.value
         selected_quantile_percent = normalization_percent.value
         selected_view_mode = view_mode.value
@@ -566,6 +515,7 @@ def _(
             f"{selected_backend}:{selected_view_mode}:"
             f"{selected_colormap}:{selected_quantile_percent}:"
             f"{selected_quantile_bias}:{selected_invert_colormap}:"
+            f"{selected_antialiasing}:"
             f"{combined_config.model_dump_json()}"
         )
         if cache["render_fn"] is None or config_json != cache["config_json"]:
@@ -579,6 +529,7 @@ def _(
                     camera,
                     compiled_view,
                     backend=selected_backend,
+                    antialiasing=selected_antialiasing,
                     view_mode=selected_view_mode,
                     colormap=selected_colormap,
                     quantile_percent=selected_quantile_percent,
@@ -595,6 +546,137 @@ def _(
         controls=viewer_controls_gui,
     )
     return (viewer,)
+
+
+@app.cell(column=2, hide_code=True)
+def _():
+    mo.md("""
+    ## Scene Controls
+    """)
+    return
+
+
+@app.cell
+def _(colormap_options):
+    colormap = mo.ui.dropdown(
+        colormap_options,
+        value="viridis",
+        label="Colormap",
+        full_width=True,
+    )
+    return (colormap,)
+
+
+@app.cell
+def _():
+    normalization_percent = mo.ui.slider(
+        start=50,
+        stop=100,
+        step=1,
+        value=90,
+        label="Quantile range (%)",
+    )
+    return (normalization_percent,)
+
+
+@app.cell
+def _():
+    normalization_bias = mo.ui.slider(
+        start=0.0,
+        stop=1.0,
+        step=0.01,
+        value=0.5,
+        label="Quantile bias",
+    )
+    return (normalization_bias,)
+
+
+@app.cell
+def _():
+    invert_colormap = mo.ui.checkbox(
+        value=False,
+        label="Invert colormap",
+    )
+    return (invert_colormap,)
+
+
+@app.cell
+def _():
+    antialiasing = mo.ui.checkbox(
+        value=True,
+        label="Anti-aliasing",
+    )
+    return (antialiasing,)
+
+
+@app.cell
+def _(view_mode_options):
+    view_mode = mo.ui.dropdown(
+        view_mode_options,
+        value=view_mode_options[0],
+        label="View mode",
+        full_width=True,
+    )
+    return (view_mode,)
+
+
+@app.cell
+def _(view_mode, view_mode_required_outputs):
+    backend_options = available_gaussian_backends(
+        view_mode_required_outputs[view_mode.value]
+    )
+    backend = mo.ui.dropdown(
+        backend_options,
+        value=backend_options[0] if backend_options else None,
+        label="Backend",
+        full_width=True,
+    )
+    return (backend,)
+
+
+@app.cell
+def _(load_bindings, load_form_gui_state):
+    load_form = config_form(
+        load_bindings,
+        form_gui_state=load_form_gui_state,
+        label="Scene",
+    )
+    return (load_form,)
+
+
+@app.cell
+def _(load_bindings, load_form_gui_state, load_json_gui_state):
+    load_error = config_error(
+        load_bindings,
+        form_gui_state=load_form_gui_state,
+        json_gui_state=load_json_gui_state,
+    )
+    return (load_error,)
+
+
+@app.cell
+def _(load_error):
+    load_error
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Viewer Controls
+    """)
+    return
+
+
+@app.cell
+def _(backend_bundle, pipeline_result, viewer_state):
+    viewer_controls = viewer_pipeline_controls_gui(
+        viewer_state,
+        pipeline_result,
+        viewer_default_config=backend_bundle.viewer_controls(viewer_state),
+    )
+    viewer_controls_gui = viewer_controls.gui
+    return (viewer_controls_gui,)
 
 
 if __name__ == "__main__":

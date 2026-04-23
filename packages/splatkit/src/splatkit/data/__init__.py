@@ -1,48 +1,22 @@
-"""Public dataset utilities for splatkit.
-
-The primary user path is:
-
-```python
-from splatkit.data import (
-    ColmapDatasetConfig,
-    HorizonAlignPipeConfig,
-    NormalizePipeConfig,
-    ResizePipeConfig,
-    load_dataset,
-)
-
-dataset = load_dataset(
-    ColmapDatasetConfig(
-        path="scene_dir",
-        source_pipes=(HorizonAlignPipeConfig(),),
-        cache_pipes=(ResizePipeConfig(width_target=1980),),
-        prepare_pipes=(NormalizePipeConfig(),),
-    )
-)
-```
-
-Advanced users should generally subclass a concrete dataset config and override
-its ordered pipe tuples rather than assembling ad hoc generic pipeline data.
-"""
+"""Public scene-record and prepared-frame data utilities for splatkit."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal, overload
 
-from splatkit.data.adapters import FrameDataset, collate_frame_samples
+from splatkit.data.adapters import PreparedFrameDataset, collate_frame_samples
 from splatkit.data.config import (
-    ColmapDatasetConfig,
-    MipNerf360IndoorDatasetConfig,
-    MipNerf360OutdoorDatasetConfig,
-    NCoreDatasetConfig,
+    ColmapSceneConfig,
+    MipNerf360IndoorPreparedFrameDatasetConfig,
+    MipNerf360OutdoorPreparedFrameDatasetConfig,
+    NCoreSceneConfig,
 )
 from splatkit.data.config_contracts import (
-    DatasetConfig,
-    DatasetRuntimeConfig,
-    FrameDatasetConfig,
     ImagePreparationConfig,
     MaterializationConfig,
+    PreparedFrameDatasetConfig,
+    SceneLoadConfig,
     SplitConfig,
 )
 from splatkit.data.contracts import (
@@ -65,7 +39,7 @@ from splatkit.data.contracts import (
     PreparedFrameBatch,
     PreparedFrameSample,
     ResizeSpec,
-    SceneDataset,
+    SceneRecord,
     SensorKind,
 )
 from splatkit.data.loaders.colmap import load_colmap_dataset
@@ -79,24 +53,24 @@ from splatkit.data.loaders.must3r import (
 )
 from splatkit.data.loaders.ncore import load_ncore_dataset
 from splatkit.data.pipes import (
-    CachePipeConfig,
     HorizonAlignPipeConfig,
     NormalizePipeConfig,
-    PreparePipeConfig,
     ResizePipeConfig,
     SourcePipeConfig,
     apply_source_pipe,
 )
-from splatkit.data.postprocess import adjust_dataset_horizon
+from splatkit.data.postprocess import (
+    adjust_scene_record_horizon as _adjust_scene_record_horizon,
+)
 from splatkit.data.samples import (
     get_sample_scene_path,
     resolve_colmap_scene_path,
 )
 
-DatasetFormat = Literal["colmap", "must3r", "ncore"]
+SceneSourceFormat = Literal["colmap", "must3r", "ncore"]
 
 
-def _infer_dataset_format(path: Path) -> DatasetFormat:
+def _infer_scene_source_format(path: Path) -> SceneSourceFormat:
     if path.is_dir() and (
         (path / "sparse").exists()
         or (path / "cameras.bin").exists()
@@ -109,121 +83,116 @@ def _infer_dataset_format(path: Path) -> DatasetFormat:
         return "must3r"
     if path.suffix in {".json", ".npz"}:
         return "must3r"
-    raise ValueError(f"Could not infer dataset format from {path}.")
+    raise ValueError(f"Could not infer scene source format from {path}.")
 
 
-def _load_scene_from_config(config: DatasetConfig) -> SceneDataset:
-    if isinstance(config, ColmapDatasetConfig):
-        dataset = load_colmap_dataset(
+def load_colmap_scene_record(
+    path: str | Path,
+    *,
+    image_root: str | Path | None = None,
+    undistort_output_dir: str | Path | None = None,
+) -> SceneRecord:
+    """Load a COLMAP sparse model into a scene record."""
+    return load_colmap_dataset(
+        path,
+        image_root=image_root,
+        undistort_output_dir=undistort_output_dir,
+    )
+
+
+def load_must3r_scene_record(path: str | Path, **kwargs: object) -> SceneRecord:
+    """Load MUSt3R outputs into a scene record."""
+    return load_must3r_dataset(path, **kwargs)
+
+
+def run_must3r_scene_record(path: str | Path, **kwargs: object) -> SceneRecord:
+    """Run MUSt3R preprocessing and load the resulting scene record."""
+    return run_must3r_dataset(path, **kwargs)
+
+
+def load_ncore_scene_record(
+    component_group_paths: tuple[str | Path, ...],
+) -> SceneRecord:
+    """Load an ncore component-group inventory into a scene record."""
+    return load_ncore_dataset(component_group_paths)
+
+
+def adjust_scene_record_horizon(
+    scene_record: SceneRecord,
+    adjustment: HorizonAdjustmentSpec,
+) -> SceneRecord:
+    """Adjust the canonical up direction of a scene record."""
+    return _adjust_scene_record_horizon(scene_record, adjustment)
+
+
+def _load_scene_record_from_config(config: SceneLoadConfig) -> SceneRecord:
+    if isinstance(config, ColmapSceneConfig):
+        scene_record = load_colmap_scene_record(
             config.path,
             image_root=config.image_root,
             undistort_output_dir=config.undistort_output_dir,
         )
-    elif isinstance(config, NCoreDatasetConfig):
-        dataset = load_ncore_dataset(
-            config.component_group_paths,
-            camera_sensor_id=config.camera_sensor_id,
-        )
+    elif isinstance(config, NCoreSceneConfig):
+        scene_record = load_ncore_scene_record(config.component_group_paths)
     else:
-        raise ValueError(f"Unsupported dataset config type {type(config)!r}.")
+        raise ValueError(f"Unsupported scene-load config type {type(config)!r}.")
     for pipe in config.source_pipes:
-        dataset = apply_source_pipe(dataset, pipe)
-    return dataset
-
-
-def _compile_runtime_frame_config(config: DatasetConfig) -> FrameDatasetConfig:
-    image_preparation = ImagePreparationConfig(normalize=False)
-    resize_pipe: ResizePipeConfig | None = None
-    normalize_pipe: NormalizePipeConfig | None = None
-
-    for pipe in config.cache_pipes:
-        if isinstance(pipe, ResizePipeConfig):
-            if resize_pipe is not None:
-                raise ValueError(
-                    "Only one ResizePipeConfig is currently supported."
-                )
-            resize_pipe = pipe
-            image_preparation.resize_width_scale = pipe.width_scale
-            image_preparation.resize_width_target = pipe.width_target
-            image_preparation.interpolation = pipe.interpolation
-        else:
-            raise ValueError(f"Unsupported cache pipe {type(pipe)!r}.")
-
-    for pipe in config.prepare_pipes:
-        if isinstance(pipe, NormalizePipeConfig):
-            if normalize_pipe is not None:
-                raise ValueError(
-                    "Only one NormalizePipeConfig is currently supported."
-                )
-            normalize_pipe = pipe
-            image_preparation.normalize = pipe.enabled
-        else:
-            raise ValueError(f"Unsupported prepare pipe {type(pipe)!r}.")
-
-    return FrameDatasetConfig(
-        camera_sensor_id=config.runtime.camera_sensor_id,
-        split=config.runtime.split,
-        materialization=config.runtime.materialization,
-        image_preparation=image_preparation,
-    )
+        scene_record = apply_source_pipe(scene_record, pipe)
+    return scene_record
 
 
 @overload
-def load_dataset(config: DatasetConfig) -> FrameDataset: ...
+def load_scene_record(config: SceneLoadConfig) -> SceneRecord: ...
 
 
 @overload
-def load_dataset(
+def load_scene_record(
     path: str | Path,
     *,
-    format: DatasetFormat | None = None,
+    format: SceneSourceFormat | None = None,
     **kwargs: object,
-) -> SceneDataset: ...
+) -> SceneRecord: ...
 
 
-def load_dataset(
-    path_or_config: DatasetConfig | str | Path,
+def load_scene_record(
+    path_or_config: SceneLoadConfig | str | Path,
     *,
-    format: DatasetFormat | None = None,
+    format: SceneSourceFormat | None = None,
     **kwargs: object,
-) -> FrameDataset | SceneDataset:
-    """Load a dataset from config or a raw path.
-
-    Config objects are the preferred API and return prepared datasets. Raw path
-    loading is kept as a low-level convenience and returns ``SceneDataset``.
-    """
-    if isinstance(path_or_config, DatasetConfig):
-        scene = _load_scene_from_config(path_or_config)
-        runtime_config = _compile_runtime_frame_config(path_or_config)
-        return FrameDataset(scene, config=runtime_config)
+) -> SceneRecord:
+    """Load a canonical scene record from config or a raw path."""
+    if isinstance(path_or_config, SceneLoadConfig):
+        return _load_scene_record_from_config(path_or_config)
 
     resolved_path = Path(path_or_config)
-    resolved_format = format or _infer_dataset_format(resolved_path)
+    resolved_format = format or _infer_scene_source_format(resolved_path)
     if resolved_format == "colmap":
-        return load_colmap_dataset(resolved_path, **kwargs)
+        return load_colmap_scene_record(resolved_path, **kwargs)
     if resolved_format == "must3r":
-        return load_must3r_dataset(resolved_path, **kwargs)
+        return load_must3r_scene_record(resolved_path, **kwargs)
     if resolved_format == "ncore":
         raise ValueError(
-            "Raw path loading does not support ncore datasets. "
-            "Use NCoreDatasetConfig instead."
+            "Raw path loading does not support ncore scene records. "
+            "Use NCoreSceneConfig instead."
         )
-    raise ValueError(f"Unsupported dataset format {resolved_format!r}.")
+    raise ValueError(f"Unsupported scene source format {resolved_format!r}.")
+
+
+def prepare_frame_dataset(
+    scene_record: SceneRecord,
+    config: PreparedFrameDatasetConfig | None = None,
+) -> PreparedFrameDataset:
+    """Build a prepared frame dataset from a canonical scene record."""
+    return PreparedFrameDataset(scene_record, config=config)
 
 
 __all__ = [
-    "CachePipeConfig",
     "CameraImageSource",
     "CameraSensorDataset",
-    "ColmapDatasetConfig",
-    "DatasetConfig",
-    "DatasetFormat",
+    "ColmapSceneConfig",
     "DatasetFrame",
-    "DatasetRuntimeConfig",
     "DatasetSensor",
     "DecodedFrameSample",
-    "FrameDataset",
-    "FrameDatasetConfig",
     "HasCamera",
     "HasDepth",
     "HasImages",
@@ -235,33 +204,37 @@ __all__ = [
     "MaterializationConfig",
     "MaterializationMode",
     "MaterializationStage",
-    "MipNerf360IndoorDatasetConfig",
-    "MipNerf360OutdoorDatasetConfig",
+    "MipNerf360IndoorPreparedFrameDatasetConfig",
+    "MipNerf360OutdoorPreparedFrameDatasetConfig",
     "Must3rCheckpointPaths",
     "Must3rRuntime",
     "NCoreCameraImageSource",
-    "NCoreDatasetConfig",
+    "NCoreSceneConfig",
     "NormalizePipeConfig",
     "PathCameraImageSource",
     "PointCloudState",
-    "PreparePipeConfig",
     "PreparedFrameBatch",
+    "PreparedFrameDataset",
+    "PreparedFrameDatasetConfig",
     "PreparedFrameSample",
     "ResizePipeConfig",
     "ResizeSpec",
-    "SceneDataset",
+    "SceneLoadConfig",
+    "SceneRecord",
+    "SceneSourceFormat",
     "SensorKind",
     "SourcePipeConfig",
     "SplitConfig",
     "SubprocessMust3rSlamRuntime",
-    "adjust_dataset_horizon",
+    "adjust_scene_record_horizon",
     "collate_frame_samples",
     "get_sample_scene_path",
-    "load_colmap_dataset",
-    "load_dataset",
-    "load_must3r_dataset",
-    "load_ncore_dataset",
+    "load_colmap_scene_record",
+    "load_must3r_scene_record",
+    "load_ncore_scene_record",
+    "load_scene_record",
+    "prepare_frame_dataset",
     "resolve_colmap_scene_path",
     "resolve_must3r_checkpoints",
-    "run_must3r_dataset",
+    "run_must3r_scene_record",
 ]

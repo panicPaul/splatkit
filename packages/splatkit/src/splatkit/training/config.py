@@ -7,9 +7,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from splatkit.data.contracts import MaterializationMode, MaterializationStage
-
-
 class TrainingConfigBase(BaseModel):
     """Base config with strict validation."""
 
@@ -45,38 +42,10 @@ class RuntimeConfig(TrainingConfigBase):
 
 
 class BatchingConfig(TrainingConfigBase):
-    """Image and dataloader preparation settings."""
+    """Dataloader batching settings."""
 
     batch_size: int = Field(default=1, ge=1)
     shuffle: bool = True
-    camera_sensor_id: str | None = None
-    materialization_stage: MaterializationStage = "decoded"
-    materialization_mode: MaterializationMode = "eager"
-    materialization_num_workers: int | None = 0
-    normalize: bool = True
-    resize_width_scale: float | None = Field(default=None, gt=0.0)
-    resize_width_target: int | None = Field(default=None, ge=1)
-    interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
-
-    @model_validator(mode="after")
-    def _validate_resize(self) -> BatchingConfig:
-        if (
-            self.resize_width_scale is not None
-            and self.resize_width_target is not None
-        ):
-            raise ValueError(
-                "BatchingConfig must use either resize_width_scale or "
-                "resize_width_target."
-            )
-        if (
-            self.materialization_num_workers is not None
-            and self.materialization_num_workers == 1
-        ):
-            raise ValueError(
-                "BatchingConfig.materialization_num_workers must be 0, None, "
-                "or >= 2."
-            )
-        return self
 
 
 class InitializationSpec(TrainingConfigBase):
@@ -85,7 +54,7 @@ class InitializationSpec(TrainingConfigBase):
     initializer: CallableSpec = Field(
         default_factory=lambda: CallableSpec(
             target=(
-                "splatkit.initialization.initialize_gaussian_model_from_dataset"
+                "splatkit.initialization.initialize_gaussian_model_from_scene_record"
             )
         )
     )
@@ -113,16 +82,55 @@ class RenderPipelineSpec(TrainingConfigBase):
     return_projective_intersection_transforms: bool = False
 
 
-class ParameterGroupConfig(TrainingConfigBase):
-    """Optimization settings for one parameter selector."""
+class TensorSliceSpec(TrainingConfigBase):
+    """Contiguous slice selection along one tensor axis."""
 
-    selector: str
+    axis: int = Field(ge=0)
+    start: int | None = None
+    stop: int | None = None
+
+
+class TensorViewSpec(TrainingConfigBase):
+    """Structured tensor view declaration."""
+
+    slices: tuple[TensorSliceSpec, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_unique_axes(self) -> TensorViewSpec:
+        axes = [slice_spec.axis for slice_spec in self.slices]
+        if len(set(axes)) != len(axes):
+            raise ValueError("TensorViewSpec axes must be unique.")
+        return self
+
+
+class ParameterTargetSpec(TrainingConfigBase):
+    """Declarative parameter target selection."""
+
+    scope: Literal["scene", "modules", "parameters"]
+    name: str
+    view: TensorViewSpec | None = None
+
+
+class ParameterGroupConfig(TrainingConfigBase):
+    """Optimization settings for one parameter target."""
+
+    target: ParameterTargetSpec
     optimizer: str = "adam"
     lr: float = Field(gt=0.0)
     weight_decay: float = Field(default=0.0, ge=0.0)
     betas: tuple[float, float] = (0.9, 0.999)
     momentum: float = Field(default=0.0, ge=0.0)
     optimizer_kwargs: dict[str, Any] = Field(default_factory=dict)
+    scheduler: CallableSpec | None = None
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> ParameterGroupConfig:
+        if self.target.view is not None and self.target.scope == "modules":
+            raise ValueError(
+                "ParameterGroupConfig.target.view is only supported for "
+                "scene and parameters targets."
+            )
+        return self
 
 
 class OptimizationConfig(TrainingConfigBase):
@@ -203,8 +211,11 @@ __all__ = [
     "ModelSpec",
     "OptimizationConfig",
     "ParameterGroupConfig",
+    "ParameterTargetSpec",
     "ParameterSpec",
     "RenderPipelineSpec",
     "RuntimeConfig",
+    "TensorSliceSpec",
+    "TensorViewSpec",
     "TrainingConfig",
 ]

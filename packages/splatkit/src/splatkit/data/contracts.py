@@ -304,8 +304,8 @@ class CameraSensorDataset(DatasetSensor):
 
 @beartype
 @dataclass(frozen=True)
-class SceneDataset:
-    """Immutable scene-level dataset record."""
+class SceneRecord:
+    """Immutable scene-level multisensor record."""
 
     sensors: tuple[DatasetSensor, ...]
     source_format: DatasetSource
@@ -318,7 +318,7 @@ class SceneDataset:
     def __post_init__(self) -> None:
         sensor_ids = tuple(sensor.sensor_id for sensor in self.sensors)
         if len(sensor_ids) != len(set(sensor_ids)):
-            raise ValueError("SceneDataset sensor ids must be unique.")
+            raise ValueError("SceneRecord sensor ids must be unique.")
         camera_sensor_ids = self.available_camera_sensor_ids
         default_camera_sensor_id = self.default_camera_sensor_id
         if default_camera_sensor_id is None and len(camera_sensor_ids) == 1:
@@ -332,13 +332,8 @@ class SceneDataset:
             default_camera_sensor_id not in camera_sensor_ids
         ):
             raise ValueError(
-                "SceneDataset.default_camera_sensor_id must reference a camera "
+                "SceneRecord.default_camera_sensor_id must reference a camera "
                 f"sensor, got {default_camera_sensor_id!r}."
-            )
-        if len(camera_sensor_ids) > 1 and default_camera_sensor_id is None:
-            raise ValueError(
-                "SceneDataset with multiple camera sensors requires "
-                "default_camera_sensor_id."
             )
 
     @property
@@ -374,11 +369,11 @@ class SceneDataset:
                 f"Available camera sensors: {self.available_camera_sensor_ids!r}."
             )
         if not self.camera_sensors:
-            raise ValueError("SceneDataset does not contain any camera sensors.")
+            raise ValueError("SceneRecord does not contain any camera sensors.")
         if len(self.camera_sensors) == 1:
             return self.camera_sensors[0]
         raise ValueError(
-            "SceneDataset contains multiple camera sensors but no "
+            "SceneRecord contains multiple camera sensors but no "
             "default_camera_sensor_id was configured."
         )
 

@@ -3,14 +3,14 @@
 import marimo
 
 __generated_with = "0.23.1"
-app = marimo.App(width="medium")
+app = marimo.App(width="columns")
 
 with app.setup:
     import altair as alt
     import marimo as mo
     import numpy as np
     import splatkit as sk
-    import splatkit_native_backends.gaussian_pop as skn_gaussian_pop
+    import splatkit_native_faster_gs.gaussian_pop as skn_gaussian_pop
     import threading
     import torch
     from marimo_3dv import (
@@ -37,10 +37,6 @@ with app.setup:
     skn_gaussian_pop.register()
     active_link = {"handle": None}
     active_render_observer = {"widget": None, "callback": None}
-
-
-@app.cell
-def _():
     view_mode_options = ["image", "depth"]
     colormap_options = [
         "viridis",
@@ -50,97 +46,14 @@ def _():
         "cividis",
         "gray",
     ]
-    return colormap_options, view_mode_options
-
-
-@app.cell
-def _(colormap_options):
-    colormap = mo.ui.dropdown(
-        colormap_options,
-        value="viridis",
-        label="Colormap",
-        full_width=True,
+    (
+        load_form_gui_state,
+        load_json_gui_state,
+        load_bindings,
+    ) = create_config_state(
+        SplatLoadConfig,
+        value=SplatLoadConfig(),
     )
-    return (colormap,)
-
-
-@app.cell
-def _():
-    normalization_percent = mo.ui.slider(
-        start=50,
-        stop=100,
-        step=1,
-        value=90,
-        label="Quantile range (%)",
-    )
-    return (normalization_percent,)
-
-
-@app.cell
-def _():
-    normalization_bias = mo.ui.slider(
-        start=0.0,
-        stop=1.0,
-        step=0.01,
-        value=0.5,
-        label="Quantile bias",
-    )
-    return (normalization_bias,)
-
-
-@app.cell
-def _():
-    invert_colormap = mo.ui.checkbox(
-        value=False,
-        label="Invert colormap",
-    )
-    return (invert_colormap,)
-
-
-@app.cell
-def _(view_mode_options):
-    view_mode = mo.ui.dropdown(
-        view_mode_options,
-        value=view_mode_options[0],
-        label="View mode",
-        full_width=True,
-    )
-    return (view_mode,)
-
-
-@app.cell
-def _():
-    score_plot_points = mo.ui.slider(
-        start=500,
-        stop=20000,
-        step=500,
-        value=5000,
-        label="Plotted points",
-    )
-    return (score_plot_points,)
-
-
-@app.cell
-def _():
-    score_filter_threshold = mo.ui.number(
-        start=0.0,
-        step=1e-4,
-        value=1e-3,
-        label="Score threshold",
-        full_width=True,
-    )
-    return (score_filter_threshold,)
-
-
-@app.cell
-def _():
-    keep_mode = mo.ui.dropdown(
-        ["higher", "lower"],
-        value="higher",
-        label="Keep",
-        full_width=True,
-    )
-    return (keep_mode,)
 
 
 @app.cell(hide_code=True)
@@ -153,13 +66,103 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""
+    mo.md("""
     ## Interactive Result
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
+def _(colormap_options):
+    colormap = mo.ui.dropdown(
+        colormap_options,
+        value="viridis",
+        label="Colormap",
+        full_width=True,
+    )
+    return (colormap,)
+
+
+@app.cell(hide_code=True)
+def _():
+    normalization_percent = mo.ui.slider(
+        start=50,
+        stop=100,
+        step=1,
+        value=90,
+        label="Quantile range (%)",
+    )
+    return (normalization_percent,)
+
+
+@app.cell(hide_code=True)
+def _():
+    normalization_bias = mo.ui.slider(
+        start=0.0,
+        stop=1.0,
+        step=0.01,
+        value=0.5,
+        label="Quantile bias",
+    )
+    return (normalization_bias,)
+
+
+@app.cell(hide_code=True)
+def _():
+    invert_colormap = mo.ui.checkbox(
+        value=False,
+        label="Invert colormap",
+    )
+    return (invert_colormap,)
+
+
+@app.cell(hide_code=True)
+def _(view_mode_options):
+    view_mode = mo.ui.dropdown(
+        view_mode_options,
+        value=view_mode_options[0],
+        label="View mode",
+        full_width=True,
+    )
+    return (view_mode,)
+
+
+@app.cell(hide_code=True)
+def _():
+    score_plot_points = mo.ui.slider(
+        start=500,
+        stop=20000,
+        step=500,
+        value=5000,
+        label="Plotted points",
+    )
+    return (score_plot_points,)
+
+
+@app.cell(hide_code=True)
+def _():
+    score_filter_threshold = mo.ui.number(
+        start=0.0,
+        step=1e-4,
+        value=1e-3,
+        label="Score threshold",
+        full_width=True,
+    )
+    return (score_filter_threshold,)
+
+
+@app.cell(hide_code=True)
+def _():
+    keep_mode = mo.ui.dropdown(
+        ["higher", "lower"],
+        value="higher",
+        label="Keep",
+        full_width=True,
+    )
+    return (keep_mode,)
+
+
+@app.cell(hide_code=True)
 def _(
     colormap,
     invert_colormap,
@@ -193,6 +196,18 @@ def _(
         [selectors, filter_controls, normalization_controls, viewer_controls_gui],
         gap=0.75,
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(load_error):
+    load_error
+    return
+
+
+@app.cell(hide_code=True)
+def _(load_form):
+    load_form
     return
 
 
@@ -238,13 +253,252 @@ def _(score_plot):
     return
 
 
-@app.cell
-def _(load_error, load_form):
-    mo.vstack([load_error, load_form])
-    return
+@app.cell(column=2)
+def _():
+    def load_gaussian_scene(path):
+        """Load a Gaussian scene and move it to CUDA when available."""
+        backend_scene = sk.load_gaussian_ply(path)
+        if torch.cuda.is_available():
+            backend_scene = backend_scene.to(torch.device("cuda"))
+        if backend_scene.feature.ndim != 3:
+            raise ValueError(
+                "Gaussian viewer expects SH coefficients with shape "
+                "(num_splats, num_bases, 3)."
+            )
+        return SplatScene(
+            center_positions=backend_scene.center_position,
+            log_half_extents=backend_scene.log_scales,
+            quaternion_orientation=backend_scene.quaternion_orientation,
+            spherical_harmonics=backend_scene.feature,
+            opacity_logits=backend_scene.logit_opacity[:, None],
+            sh_degree=backend_scene.sh_degree,
+        )
+
+    def apply_colormap(
+        values,
+        *,
+        colormap: str = "viridis",
+        invert: bool = False,
+    ):
+        """Map normalized values in [0, 1] to an RGB uint8 image."""
+        from matplotlib import colormaps
+
+        clipped = np.clip(values, 0.0, 1.0)
+        cmap = colormaps[colormap]
+        if invert:
+            cmap = cmap.reversed()
+        colored = cmap(clipped)[..., :3]
+        return (colored * 255).astype(np.uint8)
+
+    def normalize_scalar_field(
+        field: torch.Tensor,
+        *,
+        quantile_percent: float = 90.0,
+        quantile_bias: float = 0.5,
+        invert: bool = False,
+        require_positive: bool = False,
+    ):
+        """Normalize a scalar field to [0, 1] using a biased quantile window."""
+        values = field.detach().cpu().numpy()
+        valid = np.isfinite(values)
+        if require_positive:
+            valid &= values > 0.0
+        if not np.any(valid):
+            return np.zeros_like(values, dtype=np.float32)
+
+        window_fraction = float(np.clip(quantile_percent, 1.0, 100.0)) / 100.0
+        bias = float(np.clip(quantile_bias, 0.0, 1.0))
+        remaining_fraction = 1.0 - window_fraction
+        lower_quantile = remaining_fraction * bias
+        upper_quantile = lower_quantile + window_fraction
+        lower = float(np.quantile(values[valid], lower_quantile))
+        upper = float(np.quantile(values[valid], upper_quantile))
+
+        normalized = np.zeros_like(values, dtype=np.float32)
+        if upper - lower < 1e-6:
+            normalized[valid] = 0.5
+        else:
+            normalized[valid] = (
+                (values[valid] - lower) / (upper - lower)
+            ).astype(np.float32)
+        normalized = np.clip(normalized, 0.0, 1.0)
+        if invert:
+            normalized[valid] = 1.0 - normalized[valid]
+        return normalized
+
+    def depth_to_image(
+        depth: torch.Tensor,
+        *,
+        colormap: str = "viridis",
+        quantile_percent: float = 90.0,
+        quantile_bias: float = 0.5,
+        invert_colormap: bool = False,
+    ):
+        """Convert a depth map to a colormapped RGB uint8 image."""
+        return apply_colormap(
+            normalize_scalar_field(
+                depth,
+                quantile_percent=quantile_percent,
+                quantile_bias=quantile_bias,
+                invert=True,
+                require_positive=True,
+            ),
+            colormap=colormap,
+            invert=invert_colormap,
+        )
+
+    return (
+        apply_colormap,
+        depth_to_image,
+        load_gaussian_scene,
+        normalize_scalar_field,
+    )
 
 
-@app.cell(hide_code=True)
+@app.cell(column=2)
+def _():
+    def score_filter_mask(
+        score_values,
+        *,
+        min_score: float = 1e-3,
+        keep_mode: str = "higher",
+        require_positive: bool = True,
+    ):
+        """Return a boolean mask for score filtering."""
+        flattened_scores = np.asarray(score_values, dtype=np.float32).reshape(-1)
+        finite_mask = np.isfinite(flattened_scores)
+        threshold = float(max(0.0, min_score))
+        if keep_mode == "lower":
+            threshold_mask = flattened_scores <= threshold
+        else:
+            threshold_mask = flattened_scores >= threshold
+        mask = finite_mask & threshold_mask
+        if require_positive:
+            mask &= flattened_scores > 0.0
+        return flattened_scores, mask, threshold
+
+    def score_scatter_chart(
+        score_values,
+        *,
+        max_points: int = 5000,
+        min_score: float = 1e-3,
+        keep_mode: str = "higher",
+    ):
+        """Build a sorted Altair scatterplot for the current impact scores."""
+        if score_values is None:
+            return mo.callout(
+                "Move the viewer to render the current POP scores.",
+                kind="info",
+            )
+
+        flattened_scores, mask, threshold = score_filter_mask(
+            score_values,
+            min_score=min_score,
+            keep_mode=keep_mode,
+            require_positive=True,
+        )
+        finite_scores = flattened_scores[np.isfinite(flattened_scores)]
+        total_score_count = finite_scores.size
+        positive_scores = flattened_scores[mask]
+        if positive_scores.size == 0:
+            return mo.callout(
+                "The current render did not produce any positive scores matching the filter.",
+                kind="warn",
+            )
+
+        sorted_scores = np.sort(positive_scores)[::-1]
+        target_points = min(max(1, int(max_points)), int(sorted_scores.size))
+        sampled_indices = np.linspace(
+            0,
+            sorted_scores.size - 1,
+            num=target_points,
+            dtype=np.int64,
+        )
+        sampled_scores = sorted_scores[sampled_indices]
+        rows = [
+            {
+                "rank": int(rank_index) + 1,
+                "score": float(score),
+            }
+            for rank_index, score in zip(
+                sampled_indices,
+                sampled_scores,
+                strict=True,
+            )
+        ]
+        chart = (
+            alt.Chart(alt.Data(values=rows))
+            .mark_circle(color="#0f766e", opacity=0.45, size=16)
+            .encode(
+                x=alt.X(
+                    "rank:Q",
+                    title="Gaussian rank (sorted descending by score)",
+                ),
+                y=alt.Y(
+                    "score:Q",
+                    title="Score",
+                    scale=alt.Scale(type="log"),
+                ),
+                tooltip=[
+                    alt.Tooltip("rank:Q", title="Gaussian rank"),
+                    alt.Tooltip("score:Q", title="Score"),
+                ],
+            )
+            .properties(height=320)
+        )
+        return mo.vstack(
+            [
+                mo.md(
+                    f"Showing `{positive_scores.size:,}` positive Gaussian POP scores "
+                    f"out of `{total_score_count:,}` from the latest viewer render. "
+                    f"`Keep` is set to `{keep_mode}` with threshold `{threshold:.3g}`. "
+                    f"The scatterplot shows `{target_points:,}` sampled points "
+                    "sorted by score in descending order on a log-scaled y-axis."
+                ),
+                chart,
+            ],
+            gap=0.5,
+        )
+
+    def filter_scene_by_scores(
+        scene: SplatScene | None,
+        score_values: np.ndarray | None,
+        *,
+        threshold: float,
+        keep_mode: str,
+    ) -> SplatScene | None:
+        """Filter a scene by the latest per-Gaussian score values."""
+        if scene is None or score_values is None:
+            return None
+
+        flattened_scores, mask, _threshold = score_filter_mask(
+            score_values,
+            min_score=threshold,
+            keep_mode=keep_mode,
+            require_positive=True,
+        )
+        if flattened_scores.shape[0] != int(scene.center_positions.shape[0]):
+            return None
+        if not np.any(mask):
+            return None
+
+        torch_mask = torch.from_numpy(mask).to(
+            device=scene.center_positions.device,
+            dtype=torch.bool,
+        )
+        return SplatScene(
+            center_positions=scene.center_positions[torch_mask],
+            log_half_extents=scene.log_half_extents[torch_mask],
+            quaternion_orientation=scene.quaternion_orientation[torch_mask],
+            spherical_harmonics=scene.spherical_harmonics[torch_mask],
+            opacity_logits=scene.opacity_logits[torch_mask],
+            sh_degree=scene.sh_degree,
+        )
+
+    return filter_scene_by_scores, score_filter_mask, score_scatter_chart
+
+
+@app.cell(column=1, hide_code=True)
 def _():
     mo.md("""
     ## Scene
@@ -252,265 +506,15 @@ def _():
     return
 
 
-@app.function
-def load_gaussian_scene(path):
-    """Load a Gaussian scene and move it to CUDA when available."""
-    backend_scene = sk.load_gaussian_ply(path)
-    if torch.cuda.is_available():
-        backend_scene = backend_scene.to(torch.device("cuda"))
-    if backend_scene.feature.ndim != 3:
-        raise ValueError(
-            "Gaussian viewer expects SH coefficients with shape "
-            "(num_splats, num_bases, 3)."
-        )
-    return SplatScene(
-        center_positions=backend_scene.center_position,
-        log_half_extents=backend_scene.log_scales,
-        quaternion_orientation=backend_scene.quaternion_orientation,
-        spherical_harmonics=backend_scene.feature,
-        opacity_logits=backend_scene.logit_opacity[:, None],
-        sh_degree=backend_scene.sh_degree,
-    )
-
-
-@app.function
-def apply_colormap(
-    values,
-    *,
-    colormap: str = "viridis",
-    invert: bool = False,
-):
-    """Map normalized values in [0, 1] to an RGB uint8 image."""
-    from matplotlib import colormaps
-
-    clipped = np.clip(values, 0.0, 1.0)
-    cmap = colormaps[colormap]
-    if invert:
-        cmap = cmap.reversed()
-    colored = cmap(clipped)[..., :3]
-    return (colored * 255).astype(np.uint8)
-
-
-@app.function
-def normalize_scalar_field(
-    field: torch.Tensor,
-    *,
-    quantile_percent: float = 90.0,
-    quantile_bias: float = 0.5,
-    invert: bool = False,
-    require_positive: bool = False,
-):
-    """Normalize a scalar field to [0, 1] using a biased quantile window."""
-    values = field.detach().cpu().numpy()
-    valid = np.isfinite(values)
-    if require_positive:
-        valid &= values > 0.0
-    if not np.any(valid):
-        return np.zeros_like(values, dtype=np.float32)
-
-    window_fraction = float(np.clip(quantile_percent, 1.0, 100.0)) / 100.0
-    bias = float(np.clip(quantile_bias, 0.0, 1.0))
-    remaining_fraction = 1.0 - window_fraction
-    lower_quantile = remaining_fraction * bias
-    upper_quantile = lower_quantile + window_fraction
-    lower = float(np.quantile(values[valid], lower_quantile))
-    upper = float(np.quantile(values[valid], upper_quantile))
-
-    normalized = np.zeros_like(values, dtype=np.float32)
-    if upper - lower < 1e-6:
-        normalized[valid] = 0.5
-    else:
-        normalized[valid] = (
-            (values[valid] - lower) / (upper - lower)
-        ).astype(np.float32)
-    normalized = np.clip(normalized, 0.0, 1.0)
-    if invert:
-        normalized[valid] = 1.0 - normalized[valid]
-    return normalized
-
-
-@app.function
-def depth_to_image(
-    depth: torch.Tensor,
-    *,
-    colormap: str = "viridis",
-    quantile_percent: float = 90.0,
-    quantile_bias: float = 0.5,
-    invert_colormap: bool = False,
-):
-    """Convert a depth map to a colormapped RGB uint8 image."""
-    return apply_colormap(
-        normalize_scalar_field(
-            depth,
-            quantile_percent=quantile_percent,
-            quantile_bias=quantile_bias,
-            invert=True,
-            require_positive=True,
-        ),
-        colormap=colormap,
-        invert=invert_colormap,
-    )
-
-
-@app.function
-def score_filter_mask(
-    score_values,
-    *,
-    min_score: float = 1e-3,
-    keep_mode: str = "higher",
-    require_positive: bool = True,
-):
-    """Return a boolean mask for score filtering."""
-    flattened_scores = np.asarray(score_values, dtype=np.float32).reshape(-1)
-    finite_mask = np.isfinite(flattened_scores)
-    threshold = float(max(0.0, min_score))
-    if keep_mode == "lower":
-        threshold_mask = flattened_scores <= threshold
-    else:
-        threshold_mask = flattened_scores >= threshold
-    mask = finite_mask & threshold_mask
-    if require_positive:
-        mask &= flattened_scores > 0.0
-    return flattened_scores, mask, threshold
-
-
-@app.function
-def score_scatter_chart(
-    score_values,
-    *,
-    max_points: int = 5000,
-    min_score: float = 1e-3,
-    keep_mode: str = "higher",
-):
-    """Build a sorted Altair scatterplot for the current impact scores."""
-    if score_values is None:
-        return mo.callout(
-            "Move the viewer to render the current POP scores.",
-            kind="info",
-        )
-
-    flattened_scores, mask, threshold = score_filter_mask(
-        score_values,
-        min_score=min_score,
-        keep_mode=keep_mode,
-        require_positive=True,
-    )
-    finite_scores = flattened_scores[np.isfinite(flattened_scores)]
-    total_score_count = finite_scores.size
-    positive_scores = flattened_scores[mask]
-    if positive_scores.size == 0:
-        return mo.callout(
-            "The current render did not produce any positive scores matching the filter.",
-            kind="warn",
-        )
-
-    sorted_scores = np.sort(positive_scores)[::-1]
-    target_points = min(max(1, int(max_points)), int(sorted_scores.size))
-    sampled_indices = np.linspace(
-        0,
-        sorted_scores.size - 1,
-        num=target_points,
-        dtype=np.int64,
-    )
-    sampled_scores = sorted_scores[sampled_indices]
-    rows = [
-        {
-            "rank": int(rank_index) + 1,
-            "score": float(score),
-        }
-        for rank_index, score in zip(sampled_indices, sampled_scores, strict=True)
-    ]
-    chart = (
-        alt.Chart(alt.Data(values=rows))
-        .mark_circle(color="#0f766e", opacity=0.45, size=16)
-        .encode(
-            x=alt.X("rank:Q", title="Gaussian rank (sorted descending by score)"),
-            y=alt.Y(
-                "score:Q",
-                title="Score",
-                scale=alt.Scale(type="log"),
-            ),
-            tooltip=[
-                alt.Tooltip("rank:Q", title="Gaussian rank"),
-                alt.Tooltip("score:Q", title="Score"),
-            ],
-        )
-        .properties(height=320)
-    )
-    return mo.vstack(
-        [
-            mo.md(
-                f"Showing `{positive_scores.size:,}` positive Gaussian POP scores "
-                f"out of `{total_score_count:,}` from the latest viewer render. "
-                f"`Keep` is set to `{keep_mode}` with threshold `{threshold:.3g}`. "
-                f"The scatterplot shows `{target_points:,}` sampled points "
-                "sorted by score in descending order on a log-scaled y-axis."
-            ),
-            chart,
-        ],
-        gap=0.5,
-    )
-
-
-@app.function
-def filter_scene_by_scores(
-    scene: SplatScene | None,
-    score_values: np.ndarray | None,
-    *,
-    threshold: float,
-    keep_mode: str,
-) -> SplatScene | None:
-    """Filter a scene by the latest per-Gaussian score values."""
-    if scene is None or score_values is None:
-        return None
-
-    flattened_scores, mask, _threshold = score_filter_mask(
-        score_values,
-        min_score=threshold,
-        keep_mode=keep_mode,
-        require_positive=True,
-    )
-    if flattened_scores.shape[0] != int(scene.center_positions.shape[0]):
-        return None
-    if not np.any(mask):
-        return None
-
-    torch_mask = torch.from_numpy(mask).to(
-        device=scene.center_positions.device,
-        dtype=torch.bool,
-    )
-    return SplatScene(
-        center_positions=scene.center_positions[torch_mask],
-        log_half_extents=scene.log_half_extents[torch_mask],
-        quaternion_orientation=scene.quaternion_orientation[torch_mask],
-        spherical_harmonics=scene.spherical_harmonics[torch_mask],
-        opacity_logits=scene.opacity_logits[torch_mask],
-        sh_degree=scene.sh_degree,
-    )
-
-
-@app.cell
+@app.cell(column=1)
 def _():
     viewer_state = ViewerState(camera_convention="opencv")
     filtered_viewer_state = ViewerState(camera_convention="opencv")
     return filtered_viewer_state, viewer_state
 
 
-@app.cell
+@app.cell(column=2, hide_code=True)
 def _():
-    (
-        load_form_gui_state,
-        load_json_gui_state,
-        load_bindings,
-    ) = create_config_state(
-        SplatLoadConfig,
-        value=SplatLoadConfig(),
-    )
-    return load_bindings, load_form_gui_state, load_json_gui_state
-
-
-@app.cell
-def _(load_bindings, load_form_gui_state):
     load_form = config_form(
         load_bindings,
         form_gui_state=load_form_gui_state,
@@ -519,8 +523,8 @@ def _(load_bindings, load_form_gui_state):
     return (load_form,)
 
 
-@app.cell
-def _(load_bindings, load_form_gui_state, load_json_gui_state):
+@app.cell(column=2, hide_code=True)
+def _():
     load_error = config_error(
         load_bindings,
         form_gui_state=load_form_gui_state,
@@ -529,8 +533,8 @@ def _(load_bindings, load_form_gui_state, load_json_gui_state):
     return (load_error,)
 
 
-@app.cell
-def _(load_bindings, load_form_gui_state, load_json_gui_state):
+@app.cell(column=1)
+def _():
     load_config = config_value(
         load_bindings,
         form_gui_state=load_form_gui_state,
@@ -539,7 +543,7 @@ def _(load_bindings, load_form_gui_state, load_json_gui_state):
     return (load_config,)
 
 
-@app.cell
+@app.cell(column=1)
 def _(filtered_viewer_state, load_config, viewer_state):
     if mo.running_in_notebook():
         cleanup_before_splat_reload(
@@ -567,7 +571,7 @@ def _(filtered_viewer_state, load_config, viewer_state):
     return (scene,)
 
 
-@app.cell(hide_code=True)
+@app.cell(column=1, hide_code=True)
 def _():
     mo.md("""
     ## Rendering
@@ -575,97 +579,102 @@ def _():
     return
 
 
-@app.function
-@torch.no_grad()
-def rasterize_scene(
-    camera: CameraState,
-    scene: SplatScene | None,
-    *,
-    view_mode: str = "image",
-    colormap: str = "viridis",
-    quantile_percent: float = 90.0,
-    quantile_bias: float = 0.5,
-    invert_colormap: bool = False,
-):
-    """Render a splat scene through the Gaussian POP backend."""
-    if scene is None:
-        return (
-            RenderResult(
-                image=np.full(
-                    (camera.height, camera.width, 3),
-                    245,
-                    dtype=np.uint8,
-                )
+@app.cell(column=2)
+def _(depth_to_image):
+    @torch.no_grad()
+    def rasterize_scene(
+        camera: CameraState,
+        scene: SplatScene | None,
+        *,
+        view_mode: str = "image",
+        colormap: str = "viridis",
+        quantile_percent: float = 90.0,
+        quantile_bias: float = 0.5,
+        invert_colormap: bool = False,
+    ):
+        """Render a splat scene through the Gaussian POP backend."""
+        if scene is None:
+            return (
+                RenderResult(
+                    image=np.full(
+                        (camera.height, camera.width, 3),
+                        245,
+                        dtype=np.uint8,
+                    )
+                ),
+                None,
+            )
+
+        backend_camera = sk.CameraState(
+            width=torch.tensor([camera.width], dtype=torch.int64),
+            height=torch.tensor([camera.height], dtype=torch.int64),
+            fov_degrees=torch.tensor(
+                [camera.fov_degrees], dtype=torch.float32
             ),
-            None,
+            cam_to_world=torch.from_numpy(
+                camera.with_convention("opencv").cam_to_world
+            ).to(dtype=torch.float32)[None],
+            camera_convention="opencv",
         )
-
-    backend_camera = sk.CameraState(
-        width=torch.tensor([camera.width], dtype=torch.int64),
-        height=torch.tensor([camera.height], dtype=torch.int64),
-        fov_degrees=torch.tensor([camera.fov_degrees], dtype=torch.float32),
-        cam_to_world=torch.from_numpy(
-            camera.with_convention("opencv").cam_to_world
-        ).to(dtype=torch.float32)[None],
-        camera_convention="opencv",
-    )
-    backend_scene = sk.GaussianScene3D(
-        center_position=scene.center_positions,
-        log_scales=scene.log_half_extents,
-        quaternion_orientation=scene.quaternion_orientation,
-        logit_opacity=scene.opacity_logits.squeeze(-1),
-        feature=scene.spherical_harmonics,
-        sh_degree=scene.sh_degree,
-    )
-    render_output = sk.render(
-        backend_scene,
-        backend_camera.to(scene.center_positions.device),
-        backend="gaussian_pop",
-        return_depth=view_mode == "depth",
-        return_gaussian_impact_score=True,
-    )
-    score_values = (
-        render_output.gaussian_impact_score[0]
-        .detach()
-        .cpu()
-        .numpy()
-        .copy()
-    )
-    if view_mode == "depth":
-        image_uint8 = depth_to_image(
-            render_output.depth[0],
-            colormap=colormap,
-            quantile_percent=quantile_percent,
-            quantile_bias=quantile_bias,
-            invert_colormap=invert_colormap,
+        backend_scene = sk.GaussianScene3D(
+            center_position=scene.center_positions,
+            log_scales=scene.log_half_extents,
+            quaternion_orientation=scene.quaternion_orientation,
+            logit_opacity=scene.opacity_logits.squeeze(-1),
+            feature=scene.spherical_harmonics,
+            sh_degree=scene.sh_degree,
         )
-    else:
-        image = render_output.render[0].clamp(0.0, 1.0).cpu().numpy()
-        image_uint8 = (image * 255).astype(np.uint8)
+        render_output = sk.render(
+            backend_scene,
+            backend_camera.to(scene.center_positions.device),
+            backend="faster_gs.gaussian_pop",
+            return_depth=view_mode == "depth",
+            return_gaussian_impact_score=True,
+        )
+        score_values = (
+            render_output.gaussian_impact_score[0]
+            .detach()
+            .cpu()
+            .numpy()
+            .copy()
+        )
+        if view_mode == "depth":
+            image_uint8 = depth_to_image(
+                render_output.depth[0],
+                colormap=colormap,
+                quantile_percent=quantile_percent,
+                quantile_bias=quantile_bias,
+                invert_colormap=invert_colormap,
+            )
+        else:
+            image = render_output.render[0].clamp(0.0, 1.0).cpu().numpy()
+            image_uint8 = (image * 255).astype(np.uint8)
 
-    return RenderResult(image=image_uint8), score_values
+        return RenderResult(image=image_uint8), score_values
+
+    return (rasterize_scene,)
 
 
-@app.cell
+@app.cell(column=1)
 def _():
     backend_bundle = gs_backend_bundle()
     viewer_pipeline = backend_bundle.pipeline()
     return backend_bundle, viewer_pipeline
 
 
-@app.cell
+@app.cell(column=1)
 def _(scene, viewer_pipeline, viewer_state):
     pipeline_result = viewer_pipeline.build(scene, viewer_state)
     return (pipeline_result,)
 
 
-@app.cell
+@app.cell(column=1)
 def _(filtered_viewer_state, scene, viewer_pipeline):
     filtered_pipeline_result = viewer_pipeline.build(scene, filtered_viewer_state)
     return (filtered_pipeline_result,)
 
 
-@app.cell
+@app.cell(column=2, hide_code=True)
 def _(backend_bundle, pipeline_result, viewer_state):
     viewer_controls = viewer_pipeline_controls_gui(
         viewer_state,
@@ -676,20 +685,20 @@ def _(backend_bundle, pipeline_result, viewer_state):
     return (viewer_controls_gui,)
 
 
-@app.cell
+@app.cell(column=1)
 def _():
     score_store = {"values": None}
     score_store_lock = threading.Lock()
     return score_store, score_store_lock
 
 
-@app.cell
+@app.cell(column=1)
 def _():
     render_revision_state, set_render_revision_state = mo.state(0)
     return render_revision_state, set_render_revision_state
 
 
-@app.cell
+@app.cell(column=1)
 def _(
     colormap,
     invert_colormap,
@@ -755,7 +764,7 @@ def _(
     return (viewer,)
 
 
-@app.cell
+@app.cell(column=1)
 def _(
     colormap,
     filtered_pipeline_result,
@@ -830,7 +839,7 @@ def _(
     return (filtered_viewer,)
 
 
-@app.cell
+@app.cell(column=1)
 def _(filtered_viewer_state, viewer_state):
     if active_link["handle"] is not None:
         active_link["handle"].close()
@@ -851,7 +860,7 @@ def _(filtered_viewer_state, viewer_state):
     return
 
 
-@app.cell
+@app.cell(column=1)
 def _(filtered_viewer, set_render_revision_state, viewer):
     previous_widget = active_render_observer["widget"]
     previous_callback = active_render_observer["callback"]
@@ -871,7 +880,7 @@ def _(filtered_viewer, set_render_revision_state, viewer):
     return
 
 
-@app.cell
+@app.cell(column=1)
 def _(
     keep_mode,
     render_revision_state,

@@ -20,8 +20,9 @@ from splatkit.data.contracts import (
     DatasetFrame,
     PathCameraImageSource,
     PointCloudState,
-    SceneDataset,
+    SceneRecord,
 )
+from splatkit.data import PreparedFrameDataset, PreparedFrameDatasetConfig, prepare_frame_dataset
 from splatkit.densification import (
     DensificationContext,
     DensificationRenderRequirements,
@@ -55,14 +56,37 @@ from splatkit.training.config import (
     ModelSpec,
     OptimizationConfig,
     ParameterGroupConfig,
+    ParameterTargetSpec,
     ParameterSpec,
     RenderPipelineSpec,
     RuntimeConfig,
+    TensorSliceSpec,
+    TensorViewSpec,
 )
 from splatkit.training.protocols import TrainState
 from torch import nn
 
 MODULE_NAME = __name__
+
+
+def scene_target(
+    name: str,
+    *,
+    view: TensorViewSpec | None = None,
+) -> ParameterTargetSpec:
+    return ParameterTargetSpec(scope="scene", name=name, view=view)
+
+
+def module_target(name: str) -> ParameterTargetSpec:
+    return ParameterTargetSpec(scope="modules", name=name)
+
+
+def parameter_target(
+    name: str,
+    *,
+    view: TensorViewSpec | None = None,
+) -> ParameterTargetSpec:
+    return ParameterTargetSpec(scope="parameters", name=name, view=view)
 
 
 def register_test_backend() -> None:
@@ -116,16 +140,32 @@ def rgb_l2_loss(
     weights: dict[str, float],
 ) -> LossResult:
     del state, weights
-    target = batch.images.permute(0, 2, 3, 1)
+    target = batch.images
     loss = ((render_output.render - target) ** 2).mean()
     return LossResult(
         loss=loss, metrics={"rgb_mse": float(loss.detach().item())}
     )
 
 
-def test_batching_config_rejects_single_materialization_worker() -> None:
+def feature_regularization_loss(
+    state: TrainState,
+    batch: object,
+    render_output: RenderOutput,
+    *,
+    weights: dict[str, float],
+) -> LossResult:
+    del batch, render_output, weights
+    scene = state.model.scene
+    assert isinstance(scene, GaussianScene3D)
+    loss = scene.feature.square().mean()
+    return LossResult(loss=loss)
+
+
+def test_prepared_frame_materialization_rejects_single_worker() -> None:
     with pytest.raises(ValueError, match="0, None, or >= 2"):
-        BatchingConfig(materialization_num_workers=1)
+        PreparedFrameDatasetConfig(
+            materialization={"num_workers": 1},
+        )
 
 
 def apply_color_mlp(
@@ -239,12 +279,12 @@ class CloneFirstSplatDensification:
 
 
 def build_sparse_voxel_model(
-    dataset: SceneDataset,
+    scene_record: SceneRecord,
     *,
     modules: dict[str, nn.Module],
     parameters: dict[str, nn.Parameter],
 ) -> InitializedModel:
-    del dataset
+    del scene_record
     scene = SparseVoxelScene(
         backend_name="new_cuda",
         active_sh_degree=0,
@@ -270,7 +310,7 @@ def _write_image(path: Path, color: tuple[int, int, int]) -> None:
     Image.fromarray(np.array([[color]], dtype=np.uint8)).save(path)
 
 
-def build_dataset(tmp_path: Path) -> SceneDataset:
+def build_dataset(tmp_path: Path) -> PreparedFrameDataset:
     image_a = tmp_path / "frame_a.png"
     image_b = tmp_path / "frame_b.png"
     _write_image(image_a, (255, 255, 255))
@@ -309,7 +349,7 @@ def build_dataset(tmp_path: Path) -> SceneDataset:
             frame_paths={"0": image_a, "1": image_b}
         ),
     )
-    return SceneDataset(
+    scene_record = SceneRecord(
         sensors=(camera_sensor,),
         source_format="colmap",
         default_camera_sensor_id="camera",
@@ -319,15 +359,19 @@ def build_dataset(tmp_path: Path) -> SceneDataset:
             colors=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float32),
         ),
     )
+    return prepare_frame_dataset(
+        scene_record,
+        PreparedFrameDatasetConfig(camera_sensor_id="camera"),
+    )
 
 
 def build_config(output_dir: Path) -> TrainingConfig:
     return TrainingConfig(
         runtime=RuntimeConfig(device="cpu", seed=123, max_steps=3),
-        batching=BatchingConfig(batch_size=1, shuffle=False, normalize=True),
+        batching=BatchingConfig(batch_size=1, shuffle=False),
         initialization=InitializationSpec(
             initializer=CallableSpec(
-                target="splatkit.initialization.initialize_gaussian_model_from_dataset",
+                target="splatkit.initialization.initialize_gaussian_model_from_scene_record",
                 kwargs={"sh_degree": 0},
             )
         ),
@@ -338,7 +382,7 @@ def build_config(output_dir: Path) -> TrainingConfig:
         ),
         optimization=OptimizationConfig(
             parameter_groups=[
-                ParameterGroupConfig(selector="scene.feature", lr=0.2),
+                ParameterGroupConfig(target=scene_target("feature"), lr=0.2),
             ]
         ),
         loss=LossConfig(
@@ -371,10 +415,10 @@ def test_train_step_supports_modules_parameters_and_hooks(
     dataset = build_dataset(tmp_path)
     config = TrainingConfig(
         runtime=RuntimeConfig(device="cpu", seed=7, max_steps=1),
-        batching=BatchingConfig(batch_size=1, shuffle=False, normalize=True),
+        batching=BatchingConfig(batch_size=1, shuffle=False),
         initialization=InitializationSpec(
             initializer=CallableSpec(
-                target="splatkit.initialization.initialize_gaussian_model_from_dataset"
+                target="splatkit.initialization.initialize_gaussian_model_from_scene_record"
             )
         ),
         model=ModelSpec(
@@ -399,9 +443,15 @@ def test_train_step_supports_modules_parameters_and_hooks(
         ),
         optimization=OptimizationConfig(
             parameter_groups=[
-                ParameterGroupConfig(selector="scene.feature", lr=0.1),
-                ParameterGroupConfig(selector="modules.color_mlp", lr=0.1),
-                ParameterGroupConfig(selector="parameters.temperature", lr=0.1),
+                ParameterGroupConfig(target=scene_target("feature"), lr=0.1),
+                ParameterGroupConfig(
+                    target=module_target("color_mlp"),
+                    lr=0.1,
+                ),
+                ParameterGroupConfig(
+                    target=parameter_target("temperature"),
+                    lr=0.1,
+                ),
             ]
         ),
         loss=LossConfig(
@@ -410,7 +460,7 @@ def test_train_step_supports_modules_parameters_and_hooks(
         hooks=HookConfig(),
         checkpoint=CheckpointExportConfig(output_dir=tmp_path / "unused"),
     )
-    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
     state = TrainState(
         model=model,
         step=0,
@@ -446,7 +496,7 @@ def test_train_step_supports_direct_densification_injection(
     register_test_backend()
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
-    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
     state = TrainState(
         model=model,
         step=0,
@@ -475,6 +525,162 @@ def test_train_step_supports_direct_densification_injection(
     assert state.model.scene.feature.shape[0] == 2
 
 
+def test_view_backed_optimizer_updates_only_selected_slice(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    feature = torch.ones_like(cpu_scene.feature).requires_grad_(True)
+    state = TrainState(
+        model=InitializedModel(
+            scene=replace(cpu_scene, feature=feature),
+            modules={},
+            parameters={},
+        ),
+        step=0,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    config = TrainingConfig(
+        render=RenderPipelineSpec(backend="unit_test_backend", return_alpha=False),
+        loss=LossConfig(
+            target=CallableSpec(target=f"{MODULE_NAME}.feature_regularization_loss"),
+        ),
+        optimization=OptimizationConfig(
+            parameter_groups=[
+                ParameterGroupConfig(
+                    target=scene_target(
+                        "feature",
+                        view=TensorViewSpec(
+                            slices=(TensorSliceSpec(axis=1, start=0, stop=1),)
+                        ),
+                    ),
+                    optimizer="sgd",
+                    lr=0.1,
+                    weight_decay=0.2,
+                )
+            ]
+        ),
+    )
+
+    optimizers = build_optimizer_set(state, config)
+    before = state.model.scene.feature.detach().clone()
+    state.model.scene.feature.square().mean().backward()
+
+    optimizers[0].step()
+
+    after = state.model.scene.feature.detach()
+    assert not torch.equal(after[:, :1, :], before[:, :1, :])
+    torch.testing.assert_close(after[:, 1:, :], before[:, 1:, :])
+
+
+def test_build_optimizer_set_rejects_overlapping_views(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    state = TrainState(
+        model=InitializedModel(scene=cpu_scene, modules={}, parameters={}),
+        step=0,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    config = TrainingConfig(
+        render=RenderPipelineSpec(backend="unit_test_backend", return_alpha=False),
+        loss=LossConfig(target=CallableSpec(target=f"{MODULE_NAME}.rgb_l2_loss")),
+        optimization=OptimizationConfig(
+            parameter_groups=[
+                ParameterGroupConfig(
+                    target=scene_target(
+                        "feature",
+                        view=TensorViewSpec(
+                            slices=(TensorSliceSpec(axis=1, start=0, stop=2),)
+                        ),
+                    ),
+                    lr=0.1,
+                ),
+                ParameterGroupConfig(
+                    target=scene_target(
+                        "feature",
+                        view=TensorViewSpec(
+                            slices=(TensorSliceSpec(axis=1, start=1, stop=3),)
+                        ),
+                    ),
+                    lr=0.1,
+                ),
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Overlapping optimizer views"):
+        build_optimizer_set(state, config)
+
+
+def test_scheduler_steps_after_optimizer_step(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    feature = cpu_scene.feature.clone().requires_grad_(True)
+    state = TrainState(
+        model=InitializedModel(
+            scene=replace(cpu_scene, feature=feature),
+            modules={},
+            parameters={},
+        ),
+        step=0,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    config = TrainingConfig(
+        render=RenderPipelineSpec(backend="unit_test_backend", return_alpha=False),
+        loss=LossConfig(
+            target=CallableSpec(target=f"{MODULE_NAME}.feature_regularization_loss"),
+        ),
+        optimization=OptimizationConfig(
+            parameter_groups=[
+                ParameterGroupConfig(
+                    target=scene_target("feature"),
+                    optimizer="sgd",
+                    lr=1.0,
+                    scheduler=CallableSpec(
+                        target="splatkit.training.schedules.exponential_decay_to",
+                        kwargs={"final_lr": 0.01, "max_steps": 2},
+                    ),
+                )
+            ]
+        ),
+    )
+
+    optimizers = build_optimizer_set(state, config)
+    binding = optimizers[0]
+    state.model.scene.feature.square().mean().backward()
+    binding.step()
+    assert binding.current_lr() == pytest.approx(0.1)
+
+    binding.zero_grad()
+    state.model.scene.feature.square().mean().backward()
+    binding.step()
+    assert binding.current_lr() == pytest.approx(0.01)
+
+
+def test_rgb_l2_loss_uses_nhwc_batch_images(tmp_path: Path) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    state = TrainState(
+        model=model,
+        step=0,
+        seed=config.runtime.seed,
+        device=torch.device("cpu"),
+    )
+    batch = next(iter(build_dataset_loader(dataset, config)))
+    render_fn = build_render_fn(config)
+    render_output = render_fn(state.model, batch.camera)
+
+    assert batch.images.shape == render_output.render.shape
+
+    loss_result = rgb_l2_loss(state, batch, render_output, weights={})
+
+    expected_loss = ((render_output.render - batch.images) ** 2).mean()
+    torch.testing.assert_close(loss_result.loss, expected_loss)
+
+
 def test_build_raw_render_fn_skips_postprocess(tmp_path: Path) -> None:
     register_test_backend()
     dataset = build_dataset(tmp_path)
@@ -482,7 +688,7 @@ def test_build_raw_render_fn_skips_postprocess(tmp_path: Path) -> None:
     config.render.postprocess_fn = CallableSpec(
         target=f"{MODULE_NAME}.one_render_postprocess"
     )
-    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
     batch = next(iter(build_dataset_loader(dataset, config)))
     raw_render_fn = build_raw_render_fn(config)
     render_fn = build_render_fn(config)
@@ -536,7 +742,7 @@ def test_merge_densification_requirements_propagates_gaussian_impact_score(
 
 
 def build_dataset_loader(
-    dataset: SceneDataset,
+    dataset: PreparedFrameDataset,
     config: TrainingConfig,
 ) -> torch.utils.data.DataLoader:
     from splatkit.training.runtime import build_dataloader
@@ -565,7 +771,11 @@ def test_checkpoint_metadata_records_reproducibility_fields(
     register_test_backend()
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
-    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    config.optimization.parameter_groups[0].scheduler = CallableSpec(
+        target="splatkit.training.schedules.exponential_decay_to",
+        kwargs={"final_lr": 0.02, "max_steps": 3},
+    )
+    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
     state = TrainState(
         model=model,
         step=2,
@@ -573,11 +783,19 @@ def test_checkpoint_metadata_records_reproducibility_fields(
         device=torch.device("cpu"),
     )
 
-    metadata = build_checkpoint_metadata(state, config, dataset=dataset)
+    metadata = build_checkpoint_metadata(
+        state,
+        config,
+        frame_dataset=dataset,
+    )
 
     assert metadata.seed == config.runtime.seed
     assert metadata.backend_name == "unit_test_backend"
     assert f"{MODULE_NAME}.rgb_l2_loss" in metadata.import_paths
+    assert (
+        "splatkit.training.schedules.exponential_decay_to"
+        in metadata.import_paths
+    )
     assert metadata.dataset_summary["num_frames"] == 2
     assert metadata.dataset_summary["source_format"] == "colmap"
     assert metadata.dataset_summary["source_uris"] == [str(tmp_path)]
@@ -594,7 +812,7 @@ def test_export_ply_omits_scene_payload_for_gaussian_scene(
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
     config.checkpoint.export_ply = True
-    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
     state = TrainState(
         model=model,
         step=0,
@@ -606,7 +824,7 @@ def test_export_ply_omits_scene_payload_for_gaussian_scene(
         tmp_path / "exported",
         state,
         config,
-        dataset=dataset,
+        frame_dataset=dataset,
     )
     payload = torch.load(checkpoint_dir / "model.ckpt", weights_only=False)
 
@@ -631,7 +849,7 @@ def test_export_ply_rejects_unsupported_scene_types(tmp_path: Path) -> None:
         ),
         optimization=OptimizationConfig(
             parameter_groups=[
-                ParameterGroupConfig(selector="scene.sh0", lr=0.1),
+                ParameterGroupConfig(target=scene_target("sh0"), lr=0.1),
             ]
         ),
         loss=LossConfig(
@@ -642,7 +860,7 @@ def test_export_ply_rejects_unsupported_scene_types(tmp_path: Path) -> None:
             export_ply=True,
         ),
     )
-    model = initialize_model(dataset, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
     state = TrainState(
         model=model,
         step=0,
@@ -652,7 +870,10 @@ def test_export_ply_rejects_unsupported_scene_types(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="PLY export"):
         save_checkpoint_dir(
-            tmp_path / "unsupported", state, config, dataset=dataset
+            tmp_path / "unsupported",
+            state,
+            config,
+            frame_dataset=dataset,
         )
 
 

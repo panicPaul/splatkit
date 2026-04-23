@@ -19,10 +19,10 @@ from splatkit.data.contracts import (
     HorizonAdjustmentSpec,
     PathCameraImageSource,
     PointCloudState,
-    SceneDataset,
+    SceneRecord,
     horizontal_fov_degrees,
 )
-from splatkit.data.postprocess import adjust_dataset_horizon
+from splatkit.data.postprocess import adjust_scene_record_horizon
 
 _CAMERA_MODEL_IDS = {
     0: ("SIMPLE_PINHOLE", 3),
@@ -382,7 +382,7 @@ def _build_scene_dataset(
     images: dict[int, _ColmapImage],
     points: dict[int, _ColmapPoint],
     undistorted_images: dict[int, tuple[Path, Float[Tensor, " 3 3"]]] | None,
-) -> SceneDataset:
+) -> SceneRecord:
     frames: list[DatasetFrame] = []
     frame_paths: dict[str, Path] = {}
     widths: list[int] = []
@@ -461,7 +461,7 @@ def _build_scene_dataset(
         image_source=PathCameraImageSource(frame_paths=frame_paths),
     )
 
-    return SceneDataset(
+    return SceneRecord(
         sensors=(camera_sensor,),
         source_format="colmap",
         default_camera_sensor_id=_COLMAP_CAMERA_SENSOR_ID,
@@ -477,8 +477,8 @@ def load_colmap_dataset(
     image_root: str | Path | None = None,
     undistort_output_dir: str | Path | None = None,
     horizon_adjustment: HorizonAdjustmentSpec | None = None,
-) -> SceneDataset:
-    """Load a COLMAP sparse model into a SceneDataset."""
+) -> SceneRecord:
+    """Load a COLMAP sparse model into a SceneRecord."""
     source_root = Path(path)
     cameras_path, images_path, points_path = _resolve_sparse_paths(source_root)
     if cameras_path.suffix == ".bin":
@@ -511,5 +511,5 @@ def load_colmap_dataset(
         undistorted_images=undistorted_images,
     )
     if horizon_adjustment is not None:
-        dataset = adjust_dataset_horizon(dataset, horizon_adjustment)
+        dataset = adjust_scene_record_horizon(dataset, horizon_adjustment)
     return dataset

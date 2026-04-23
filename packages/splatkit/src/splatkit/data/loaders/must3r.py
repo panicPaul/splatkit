@@ -20,10 +20,10 @@ from splatkit.data.contracts import (
     HorizonAdjustmentSpec,
     PathCameraImageSource,
     PointCloudState,
-    SceneDataset,
+    SceneRecord,
     horizontal_fov_degrees,
 )
-from splatkit.data.postprocess import adjust_dataset_horizon
+from splatkit.data.postprocess import adjust_scene_record_horizon
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 _MUST3R_CAMERA_SENSOR_ID = "camera"
@@ -215,7 +215,7 @@ def _scene_dataset_from_arrays(
     image_paths: list[Path],
     point_cloud: PointCloudState | None,
     source_root: Path,
-) -> SceneDataset:
+) -> SceneRecord:
     if cam_to_world.shape[0] != len(image_paths):
         raise ValueError("MUSt3R camera count does not match image path count.")
     if intrinsics.shape[0] != len(image_paths):
@@ -263,7 +263,7 @@ def _scene_dataset_from_arrays(
         ),
         image_source=PathCameraImageSource(frame_paths=frame_paths),
     )
-    return SceneDataset(
+    return SceneRecord(
         sensors=(camera_sensor,),
         source_format="must3r",
         default_camera_sensor_id=_MUST3R_CAMERA_SENSOR_ID,
@@ -276,7 +276,7 @@ def _load_must3r_json(
     path: Path,
     *,
     image_root: str | Path | None,
-) -> SceneDataset:
+) -> SceneRecord:
     payload = json.loads(path.read_text())
     frames_payload = payload["frames"]
     image_paths = _resolve_image_paths(
@@ -317,7 +317,7 @@ def _load_must3r_npz(
     path: Path,
     *,
     image_root: str | Path | None,
-) -> SceneDataset:
+) -> SceneRecord:
     payload = dict(np.load(path, allow_pickle=True))
     cam_to_world = np.asarray(
         _first_present(payload, ("cam_to_world", "poses", "all_poses")),
@@ -356,8 +356,8 @@ def load_must3r_dataset(
     *,
     image_root: str | Path | None = None,
     horizon_adjustment: HorizonAdjustmentSpec | None = None,
-) -> SceneDataset:
-    """Load MUSt3R outputs into a SceneDataset."""
+) -> SceneRecord:
+    """Load MUSt3R outputs into a SceneRecord."""
     artifact_path = Path(path)
     if artifact_path.is_dir():
         dataset_json = artifact_path / "dataset.json"
@@ -376,7 +376,7 @@ def load_must3r_dataset(
             f"Unsupported MUSt3R artifact format {artifact_path.suffix!r}."
         )
     if horizon_adjustment is not None:
-        dataset = adjust_dataset_horizon(dataset, horizon_adjustment)
+        dataset = adjust_scene_record_horizon(dataset, horizon_adjustment)
     return dataset
 
 
@@ -392,7 +392,7 @@ def run_must3r_dataset(
     cache_dir: str | Path | None = None,
     runtime: Must3rRuntime | None = None,
     horizon_adjustment: HorizonAdjustmentSpec | None = None,
-) -> SceneDataset:
+) -> SceneRecord:
     """Run MUSt3R through a runtime adapter and import the produced dataset."""
     checkpoints = resolve_must3r_checkpoints(
         checkpoint_repo_id=checkpoint_repo_id,

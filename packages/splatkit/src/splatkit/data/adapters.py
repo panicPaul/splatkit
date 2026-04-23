@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 
 from splatkit.core.contracts import CameraState
 from splatkit.data.config_contracts import (
-    FrameDatasetConfig,
+    PreparedFrameDatasetConfig,
     ImagePreparationConfig,
     SplitConfig,
 )
@@ -26,7 +26,7 @@ from splatkit.data.contracts import (
     PreparedFrameBatch,
     PreparedFrameSample,
     ResizeSpec,
-    SceneDataset,
+    SceneRecord,
 )
 from splatkit.data.preprocess import (
     prepare_decoded_image_and_camera,
@@ -102,21 +102,21 @@ def _build_preparation(
 
 
 @beartype
-class FrameDataset(Dataset[PreparedFrameSample]):
-    """Dataset wrapper over a SceneDataset with staged caching."""
+class PreparedFrameDataset(Dataset[PreparedFrameSample]):
+    """Prepared frame dataset view over a scene record."""
 
     def __init__(
         self,
-        dataset: SceneDataset,
+        scene_record: SceneRecord,
         *,
-        config: FrameDatasetConfig | None = None,
+        config: PreparedFrameDatasetConfig | None = None,
         camera_sensor_id: str | None = None,
         preparation: ImagePreparationSpec | None = None,
         materialization_stage: MaterializationStage = "decoded",
         materialization_mode: MaterializationMode = "eager",
         materialization_num_workers: int | None = 0,
     ) -> None:
-        self.dataset = dataset
+        self.scene_record = scene_record
         self.config = config
         resolved_camera_sensor_id = camera_sensor_id
         if config is not None:
@@ -135,7 +135,7 @@ class FrameDataset(Dataset[PreparedFrameSample]):
                 self.materialization_num_workers = (
                     resolved_materialization.num_workers
                 )
-            self.camera_stream = dataset.resolve_camera_sensor(
+            self.camera_stream = scene_record.resolve_camera_sensor(
                 resolved_camera_sensor_id
             )
             self.indices = _resolve_split_indices(
@@ -147,7 +147,7 @@ class FrameDataset(Dataset[PreparedFrameSample]):
             self.materialization_stage = materialization_stage
             self.materialization_mode = materialization_mode
             self.materialization_num_workers = materialization_num_workers
-            self.camera_stream = dataset.resolve_camera_sensor(
+            self.camera_stream = scene_record.resolve_camera_sensor(
                 resolved_camera_sensor_id
             )
             self.indices = tuple(range(len(self.camera_stream.frames)))

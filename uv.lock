@@ -19,6 +19,9 @@ conflicts = [[
     { package = "splatkit-dev-environment", extra = "cu130" },
 ]]
 
+[options]
+prerelease-mode = "allow"
+
 [[package]]
 name = "altair"
 version = "6.1.0"
@@ -1771,12 +1774,129 @@ wheels = [
 ]
 
 [[package]]
+name = "max"
+version = "26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+dependencies = [
+    { name = "max-core" },
+    { name = "numpy" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "typing-extensions" },
+]
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:a46e07d52a6dff798fdc62ee06b01cae82ea12a60bb2795e8a0ac4bc841c0608" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp311-cp311-manylinux_2_34_aarch64.whl", hash = "sha256:5bf4b5e5607d615a500e8f885d6d32466abdb4341ae56a6f3454d53a53b7c5db" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:5d6e8529094c8b52b223fdb6de704d6d2aa982687e079a6651322334616014e9" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:baf6d246f1c3a80d2604ef70b93a102dd763a5f3550d91bdbbb0e3034b7cefc3" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:5553d6bfef3fac579191452e2784d3e838db050e4a9194ef4a7914231cfad62a" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:16e92b3615a20f7b2455f3b905b1edc4e371639cabf3891277208bed1a5b05bb" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:feb2ac8f1da88b34ff368a5fb7491ea2b9aac17f5df21f292d1cd867731812b1" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:b277616c5eb6b36eec6b06c819b2e3e06ff2c650ad9fc4dff4995ea9af35be1c" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:f2a774b0df4a5219e6c32217bf7526953289f6f0d46fa41aa70ea25f6b2bba20" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp314-cp314-macosx_13_0_arm64.whl", hash = "sha256:29eb57f2a000056d47e4c0cc7e9730dec73a0550d3069200922d5ce3c7c55501" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp314-cp314-manylinux_2_34_aarch64.whl", hash = "sha256:1e7804377401eeab39f9cef8a5aa7e15561bd5f4c7bba88406acf0ddf7b4e56b" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max/max-26.3.0.dev2026042305-cp314-cp314-manylinux_2_34_x86_64.whl", hash = "sha256:f2f85cf00d7026beeb10c02e11b6ffc4f51862b9632a0dc9ebbee60f51f09ea6" },
+]
+
+[[package]]
+name = "max-core"
+version = "26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+dependencies = [
+    { name = "max-mojo-libs" },
+    { name = "max-mojo-mogg-libs" },
+    { name = "mojo-compiler" },
+]
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max-core/max_core-26.3.0.dev2026042305-py3-none-macosx_13_0_arm64.whl", hash = "sha256:4067fbd435715327c1719458a32d49757654c61bdcb86c1a51bf45e1ed2b59b6" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max-core/max_core-26.3.0.dev2026042305-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:c5ef925c43ad1ceb548d931d3f50fb64ddd53cb972ede6f7943d5541d81f078d" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max-core/max_core-26.3.0.dev2026042305-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:68e1ea7086a1706012443489d8a45a60742eebfc6eb087dec5d5f864ed9af3b8" },
+]
+
+[[package]]
+name = "max-mojo-libs"
+version = "26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max-mojo-libs/max_mojo_libs-26.3.0.dev2026042305-py3-none-any.whl", hash = "sha256:34dc32dff5c232802c985292a16f53cb675eb29d40a08b9b3af9d6074b5ca58b" },
+]
+
+[[package]]
+name = "max-mojo-mogg-libs"
+version = "26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/max-mojo-mogg-libs/max_mojo_mogg_libs-26.3.0.dev2026042305-py3-none-any.whl", hash = "sha256:609c20448d03edf81f798f45e4ef4918f195544480f8f907534b0e2ba0d00c45" },
+]
+
+[[package]]
+name = "mblack"
+version = "26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+dependencies = [
+    { name = "click" },
+    { name = "mypy-extensions" },
+    { name = "pathspec" },
+    { name = "platformdirs" },
+]
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mblack/mblack-26.3.0.dev2026042305-py3-none-any.whl", hash = "sha256:cbe8bebb11e1f58d97d1fd84009dc2f766ea3ff3dba3b6b8df04af1ff72b9fe1" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "mojo"
+version = "0.26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+dependencies = [
+    { name = "mblack" },
+    { name = "mojo-compiler" },
+    { name = "mojo-lldb-libs" },
+]
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026042305-py3-none-macosx_13_0_arm64.whl", hash = "sha256:0525fb7d3eeab2c31f02b48e55a501cba06f8ba5439b6df0fb25ae8f3398a81a" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026042305-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:c38e5f38e8f9c2e2f491c2e8959464ce5fd17c176d1d3e407b85b5c4b5a9b050" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026042305-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:7b2762a163b3448f4b6615cb18605eae7f6f60ca46972a4e79b1ba1ecff01bf8" },
+]
+
+[[package]]
+name = "mojo-compiler"
+version = "0.26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+dependencies = [
+    { name = "mojo-compiler-mojo-libs" },
+]
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026042305-py3-none-macosx_13_0_arm64.whl", hash = "sha256:483972e582a68e8511da23457d0618140c7cd03bcc5590a8f8e973e1311d4b2c" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026042305-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:9b4a0d2b79a772127c6c37c5e1252db6ee0e0b1b32f144306204c71f87d928b3" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026042305-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:3bad6669e3c3095de7106cfe48ebb7e54f19cf8695f444869d863d6e6d9731f0" },
+]
+
+[[package]]
+name = "mojo-compiler-mojo-libs"
+version = "0.26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler-mojo-libs/mojo_compiler_mojo_libs-0.26.3.0.dev2026042305-py3-none-any.whl", hash = "sha256:c8c5638c83d6b605bdfa896d08a43de66d1e312c04014742ebf73cfc9d20008c" },
+]
+
+[[package]]
+name = "mojo-lldb-libs"
+version = "0.26.3.0.dev2026042305"
+source = { registry = "https://whl.modular.com/nightly/simple/" }
+wheels = [
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026042305-py3-none-macosx_13_0_arm64.whl", hash = "sha256:ca902e5dd5d44d2cb775f5ca49674fce3621e5021f6f8ed0a174ad22bff4cf2b" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026042305-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:29a648b06886b787072c64c4f0a9432639659a204272718d24cf794f40e809b4" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026042305-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:a937875ac64a56fe0f0e05e325196be06df5d34e84d56e1aa23e679bc3c7cc33" },
 ]
 
 [[package]]
@@ -1834,6 +1954,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/42/b4/c0f54632103846b658a10930025f4de41c8724b5e4805a5f3b395586cb7e/msgspec-0.21.1-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:0d03867786e5d7ba25d666df4b11320c27170f4aeafcb8e3a8b0a50a4fb742ca", size = 231822, upload-time = "2026-04-12T21:44:46.343Z" },
     { url = "https://files.pythonhosted.org/packages/ea/1d/0d85cc79d0ccf5508e9c846cc66552a6a16bf92abd1dbd8362617f7b35cd/msgspec-0.21.1-cp314-cp314t-win_amd64.whl", hash = "sha256:740fbf1c9d59992ca3537d6fbe9ebbf9eaf726a65fbf31448e0ecbc710697a63", size = 206650, upload-time = "2026-04-12T21:44:47.601Z" },
     { url = "https://files.pythonhosted.org/packages/90/91/56c5d560f20e6c20e9e4f55bd0e458f7f162aa689ee350346c04c48eac0b/msgspec-0.21.1-cp314-cp314t-win_arm64.whl", hash = "sha256:0d2cc73df6058d811a126ac3a8ad63a4dfa210c82f9cf5a004802eaf4712de90", size = 183149, upload-time = "2026-04-12T21:44:48.833Z" },
+]
+
+[[package]]
+name = "mypy-extensions"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/6e/371856a3fb9d31ca8dac321cda606860fa4548858c0cc45d9d1d4ca2628b/mypy_extensions-1.1.0.tar.gz", hash = "sha256:52e68efc3284861e772bbcd66823fde5ae21fd2fdb51c62a211403730b916558", size = 6343, upload-time = "2025-04-22T14:54:24.164Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/7b/2c79738432f5c924bef5071f933bcc9efd0473bac3b4aa584a6f7c1c8df8/mypy_extensions-1.1.0-py3-none-any.whl", hash = "sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505", size = 4963, upload-time = "2025-04-22T14:54:22.983Z" },
 ]
 
 [[package]]
@@ -3501,6 +3630,7 @@ all = [
     { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
+    { name = "splatkit-native-faster-gs-mojo" },
     { name = "splatkit-native-svraster" },
 ]
 all-backends = [
@@ -3510,6 +3640,7 @@ all-native = [
     { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
+    { name = "splatkit-native-faster-gs-mojo" },
     { name = "splatkit-native-svraster" },
 ]
 all-unrestricted = [
@@ -3517,6 +3648,7 @@ all-unrestricted = [
     { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
+    { name = "splatkit-native-faster-gs-mojo" },
 ]
 cu128 = [
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
@@ -3526,6 +3658,7 @@ cu128-dev = [
     { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
+    { name = "splatkit-native-faster-gs-mojo" },
     { name = "splatkit-native-svraster" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
 ]
@@ -3537,6 +3670,7 @@ cu130-dev = [
     { name = "splatkit-gaussian-training" },
     { name = "splatkit-native-3dgrt" },
     { name = "splatkit-native-faster-gs" },
+    { name = "splatkit-native-faster-gs-mojo" },
     { name = "splatkit-native-svraster" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
 ]
@@ -3549,8 +3683,14 @@ native-3dgrt = [
 native-faster-gs = [
     { name = "splatkit-native-faster-gs" },
 ]
+native-faster-gs-mojo = [
+    { name = "splatkit-native-faster-gs-mojo" },
+]
 native-svraster = [
     { name = "splatkit-native-svraster" },
+]
+svraster-adapter = [
+    { name = "new-svraster-cuda" },
 ]
 
 [package.metadata]
@@ -3559,6 +3699,7 @@ requires-dist = [
     { name = "marimo", specifier = ">=0.22.4" },
     { name = "marimo-3dv", editable = "third_party/marimo-3dv" },
     { name = "marimo-config-gui", editable = "packages/marimo-config-gui" },
+    { name = "new-svraster-cuda", marker = "extra == 'svraster-adapter'", editable = "third_party/sv_raster/backends/new_cuda" },
     { name = "ruff", specifier = ">=0.15.10" },
     { name = "splatkit", extras = ["all"], editable = "packages/splatkit" },
     { name = "splatkit-adapter-backends", marker = "extra == 'adapter-backends'", editable = "packages/splatkit-adapter-backends" },
@@ -3585,6 +3726,12 @@ requires-dist = [
     { name = "splatkit-native-faster-gs", marker = "extra == 'cu128-dev'", editable = "packages/splatkit-native-faster-gs" },
     { name = "splatkit-native-faster-gs", marker = "extra == 'cu130-dev'", editable = "packages/splatkit-native-faster-gs" },
     { name = "splatkit-native-faster-gs", marker = "extra == 'native-faster-gs'", editable = "packages/splatkit-native-faster-gs" },
+    { name = "splatkit-native-faster-gs-mojo", marker = "extra == 'all'", editable = "packages/splatkit-native-faster-gs-mojo" },
+    { name = "splatkit-native-faster-gs-mojo", marker = "extra == 'all-native'", editable = "packages/splatkit-native-faster-gs-mojo" },
+    { name = "splatkit-native-faster-gs-mojo", marker = "extra == 'all-unrestricted'", editable = "packages/splatkit-native-faster-gs-mojo" },
+    { name = "splatkit-native-faster-gs-mojo", marker = "extra == 'cu128-dev'", editable = "packages/splatkit-native-faster-gs-mojo" },
+    { name = "splatkit-native-faster-gs-mojo", marker = "extra == 'cu130-dev'", editable = "packages/splatkit-native-faster-gs-mojo" },
+    { name = "splatkit-native-faster-gs-mojo", marker = "extra == 'native-faster-gs-mojo'", editable = "packages/splatkit-native-faster-gs-mojo" },
     { name = "splatkit-native-svraster", marker = "extra == 'all'", editable = "packages/splatkit-native-svraster" },
     { name = "splatkit-native-svraster", marker = "extra == 'all-native'", editable = "packages/splatkit-native-svraster" },
     { name = "splatkit-native-svraster", marker = "extra == 'cu128-dev'", editable = "packages/splatkit-native-svraster" },
@@ -3597,7 +3744,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'cu130-dev'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "splatkit-dev-environment", extra = "cu130-dev" } },
     { name = "ty", specifier = ">=0.0.29" },
 ]
-provides-extras = ["adapter-backends", "native-faster-gs", "native-3dgrt", "native-svraster", "gaussian-training", "all-backends", "all-native", "all-unrestricted", "all", "cu128", "cu130", "cu128-dev", "cu130-dev"]
+provides-extras = ["adapter-backends", "native-faster-gs", "native-faster-gs-mojo", "native-3dgrt", "native-svraster", "svraster-adapter", "gaussian-training", "all-backends", "all-native", "all-unrestricted", "all", "cu128", "cu130", "cu128-dev", "cu130-dev"]
 
 [[package]]
 name = "splatkit-gaussian-training"
@@ -3671,12 +3818,40 @@ requires-dist = [
 provides-extras = ["all", "cu128", "cu130"]
 
 [[package]]
+name = "splatkit-native-faster-gs-mojo"
+source = { editable = "packages/splatkit-native-faster-gs-mojo" }
+dependencies = [
+    { name = "beartype" },
+    { name = "jaxtyping" },
+    { name = "max" },
+    { name = "mojo" },
+    { name = "splatkit" },
+    { name = "splatkit-native-faster-gs" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130-dev') or (extra == 'extra-24-splatkit-dev-environment-cu128-dev' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128-dev' and extra == 'extra-24-splatkit-dev-environment-cu130-dev') or (extra != 'extra-24-splatkit-dev-environment-cu128' and extra != 'extra-24-splatkit-dev-environment-cu128-dev' and extra != 'extra-24-splatkit-dev-environment-cu130' and extra != 'extra-24-splatkit-dev-environment-cu130-dev')" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-24-splatkit-dev-environment-cu128' or extra == 'extra-24-splatkit-dev-environment-cu128-dev'" },
+    { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-24-splatkit-dev-environment-cu130' or extra == 'extra-24-splatkit-dev-environment-cu130-dev'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beartype", specifier = ">=0.22.9" },
+    { name = "jaxtyping", specifier = ">=0.3.9" },
+    { name = "max", specifier = "==26.3.0.dev2026042305", index = "https://whl.modular.com/nightly/simple/" },
+    { name = "mojo", specifier = "==0.26.3.0.dev2026042305", index = "https://whl.modular.com/nightly/simple/" },
+    { name = "splatkit", editable = "packages/splatkit" },
+    { name = "splatkit-native-faster-gs", editable = "packages/splatkit-native-faster-gs" },
+    { name = "torch", specifier = ">=2.11.0" },
+    { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "splatkit-native-faster-gs-mojo", extra = "cu128" } },
+    { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "splatkit-native-faster-gs-mojo", extra = "cu130" } },
+]
+provides-extras = ["all", "cu128", "cu130"]
+
+[[package]]
 name = "splatkit-native-svraster"
 source = { editable = "packages/splatkit-native-svraster" }
 dependencies = [
     { name = "beartype" },
     { name = "jaxtyping" },
-    { name = "new-svraster-cuda" },
     { name = "splatkit" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128' and extra == 'extra-24-splatkit-dev-environment-cu130-dev') or (extra == 'extra-24-splatkit-dev-environment-cu128-dev' and extra == 'extra-24-splatkit-dev-environment-cu130') or (extra == 'extra-24-splatkit-dev-environment-cu128-dev' and extra == 'extra-24-splatkit-dev-environment-cu130-dev') or (extra != 'extra-24-splatkit-dev-environment-cu128' and extra != 'extra-24-splatkit-dev-environment-cu128-dev' and extra != 'extra-24-splatkit-dev-environment-cu130' and extra != 'extra-24-splatkit-dev-environment-cu130-dev')" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-24-splatkit-dev-environment-cu128' or extra == 'extra-24-splatkit-dev-environment-cu128-dev'" },
@@ -3687,7 +3862,6 @@ dependencies = [
 requires-dist = [
     { name = "beartype", specifier = ">=0.22.9" },
     { name = "jaxtyping", specifier = ">=0.3.9" },
-    { name = "new-svraster-cuda", editable = "third_party/sv_raster/backends/new_cuda" },
     { name = "splatkit", editable = "packages/splatkit" },
     { name = "torch", specifier = ">=2.11.0" },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "splatkit-native-svraster", extra = "cu128" } },

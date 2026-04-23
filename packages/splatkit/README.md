@@ -4,7 +4,7 @@ Minimal, backend-agnostic scene contracts, scene I/O, initialization, and declar
 
 ## What It Contains
 - `splatkit.core`: canonical scene/camera contracts, output capability protocols, backend registry, and the generic `render(...)` wrapper
-- `splatkit.data`: dataset ingestion plus lazy camera-batched image preparation
+- `splatkit.data`: scene-record ingestion plus prepared-frame dataset construction
 - `splatkit.initialization`: reusable scene/model initialization helpers for training
 - `splatkit.io`: scene-only load/save helpers for 3DGS PLY and SV Raster checkpoints
 - `splatkit.training`: declarative training configs, render/loss builders, and reproducible checkpoint-directory export
@@ -57,13 +57,20 @@ Typical flow:
 ```python
 import splatkit as sk
 
-dataset = sk.load_dataset(
-    sk.ColmapDatasetConfig(
+scene_record = sk.load_scene_record(
+    sk.ColmapSceneConfig(
         path="scene_dir",
         source_pipes=(sk.HorizonAlignPipeConfig(),),
-        cache_pipes=(sk.ResizePipeConfig(width_target=1980),),
-        prepare_pipes=(sk.NormalizePipeConfig(),),
     )
+)
+dataset = sk.prepare_frame_dataset(
+    scene_record,
+    sk.PreparedFrameDatasetConfig(
+        image_preparation=sk.ImagePreparationConfig(
+            resize_width_target=1980,
+            normalize=True,
+        ),
+    ),
 )
 config = sk.TrainingConfig(
     render=sk.RenderPipelineSpec(backend="adapter.gsplat"),
@@ -72,7 +79,13 @@ config = sk.TrainingConfig(
     ),
     optimization=sk.OptimizationConfig(
         parameter_groups=[
-            sk.ParameterGroupConfig(selector="scene.feature", lr=1e-2),
+            sk.ParameterGroupConfig(
+                target=sk.ParameterTargetSpec(
+                    scope="scene",
+                    name="feature",
+                ),
+                lr=1e-2,
+            ),
         ]
     ),
 )
@@ -80,15 +93,14 @@ result = sk.run_training(dataset, config)
 checkpoint = sk.load_checkpoint_dir(result.checkpoint_dir)
 ```
 
-`ColmapDatasetConfig` is the default user path. For extensions, subclass the
-concrete dataset config, register any new pipe spec classes plus runtime
-implementations, and override the ordered `source_pipes`, `cache_pipes`, and
-`prepare_pipes` tuples on that subclass.
+`ColmapSceneConfig` is the default scene-loading entrypoint. Prepared-frame
+policies such as camera selection, split, materialization, and image resizing
+live in `PreparedFrameDatasetConfig`.
 
 Built-in presets:
-- `ColmapDatasetConfig`: plain COLMAP defaults
-- `MipNerf360IndoorDatasetConfig`: default cache resize with `width_scale=0.25`
-- `MipNerf360OutdoorDatasetConfig`: default cache resize with `width_scale=0.5`
+- `ColmapSceneConfig`: plain COLMAP scene-record defaults
+- `MipNerf360IndoorPreparedFrameDatasetConfig`: default image resize with `width_scale=0.25`
+- `MipNerf360OutdoorPreparedFrameDatasetConfig`: default image resize with `width_scale=0.5`
 
 Checkpoints are saved as directories containing `config.json`, `metadata.json`, `model.ckpt`, and optionally `scene.ply`.
 

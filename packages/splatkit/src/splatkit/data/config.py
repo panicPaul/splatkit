@@ -1,9 +1,4 @@
-"""Concrete user-facing dataset configuration defaults.
-
-Most users should only need ``ColmapDatasetConfig`` or a preset subclass.
-Researchers extending dataset semantics should subclass a concrete dataset
-config, register any new pipe specs, and override the ordered phase tuples.
-"""
+"""Concrete user-facing scene-load and frame-preparation defaults."""
 
 from __future__ import annotations
 
@@ -12,20 +7,20 @@ from typing import Literal
 
 from pydantic import Field
 
-from splatkit.data.config_contracts import DatasetConfig, DatasetRuntimeConfig
-from splatkit.data.pipes import (
-    HorizonAlignPipeConfig,
-    NormalizePipeConfig,
-    ResizePipeConfig,
+from splatkit.data.config_contracts import (
+    ImagePreparationConfig,
+    PreparedFrameDatasetConfig,
+    SceneLoadConfig,
 )
+from splatkit.data.pipes import HorizonAlignPipeConfig
 
 
-class ColmapDatasetConfig(DatasetConfig):
-    """Default end-to-end COLMAP dataset spec."""
+class ColmapSceneConfig(SceneLoadConfig):
+    """Default COLMAP scene-record loading spec."""
 
     kind: Literal["colmap"] = Field(
         default="colmap",
-        description="Dataset source family handled by this concrete config.",
+        description="Scene-record source family handled by this config.",
     )
     path: Path = Field(
         description="Root path containing the COLMAP scene and sparse model.",
@@ -44,69 +39,22 @@ class ColmapDatasetConfig(DatasetConfig):
             "the COLMAP source contains distorted cameras."
         ),
     )
-    runtime: DatasetRuntimeConfig = Field(
-        default_factory=DatasetRuntimeConfig,
-        description=(
-            "Runtime split and materialization settings applied after the scene "
-            "is loaded."
-        ),
-    )
     source_pipes: tuple[HorizonAlignPipeConfig] = Field(
         default=(HorizonAlignPipeConfig(),),
         description=(
-            "Ordered source-phase pipes applied to the raw loaded scene before "
-            "prepared dataset construction. The default COLMAP pipeline aligns "
-            "the scene horizon to a canonical up direction."
-        ),
-    )
-    cache_pipes: tuple[ResizePipeConfig] = Field(
-        default=(ResizePipeConfig(width_target=1980),),
-        description=(
-            "Ordered cache-phase pipes compiled into cached sample "
-            "materialization behavior. The default COLMAP pipeline resizes "
-            "images to a width target of 1980 pixels."
-        ),
-    )
-    prepare_pipes: tuple[NormalizePipeConfig] = Field(
-        default=(NormalizePipeConfig(),),
-        description=(
-            "Ordered prepare-phase pipes applied to training-facing samples "
-            "after loading and cache-time transforms. The default COLMAP "
-            "pipeline normalizes RGB intensities."
+            "Ordered source-phase pipes applied while loading the scene "
+            "record. The default COLMAP pipeline aligns the scene horizon to "
+            "a canonical up direction."
         ),
     )
 
 
-class MipNerf360IndoorDatasetConfig(ColmapDatasetConfig):
-    """COLMAP preset tuned for MipNeRF360-style indoor scenes."""
-
-    cache_pipes: tuple[ResizePipeConfig] = Field(
-        default=(ResizePipeConfig(width_scale=0.25, width_target=None),),
-        description=(
-            "Default cache-phase pipeline for indoor MipNeRF360 scenes, using "
-            "quarter-resolution resizing."
-        ),
-    )
-
-
-class MipNerf360OutdoorDatasetConfig(ColmapDatasetConfig):
-    """COLMAP preset tuned for MipNeRF360-style outdoor scenes."""
-
-    cache_pipes: tuple[ResizePipeConfig] = Field(
-        default=(ResizePipeConfig(width_scale=0.5, width_target=None),),
-        description=(
-            "Default cache-phase pipeline for outdoor MipNeRF360 scenes, using "
-            "half-resolution resizing."
-        ),
-    )
-
-
-class NCoreDatasetConfig(DatasetConfig):
-    """Default end-to-end ncore dataset spec."""
+class NCoreSceneConfig(SceneLoadConfig):
+    """Default ncore scene-record loading spec."""
 
     kind: Literal["ncore"] = Field(
         default="ncore",
-        description="Dataset source family handled by this concrete config.",
+        description="Scene-record source family handled by this config.",
     )
     component_group_paths: tuple[Path, ...] = Field(
         description=(
@@ -114,46 +62,44 @@ class NCoreDatasetConfig(DatasetConfig):
             "and optional point-cloud sources."
         )
     )
-    camera_sensor_id: str | None = Field(
-        default=None,
-        description=(
-            "Optional default camera sensor id to bind at load time when the "
-            "ncore source contains multiple camera streams."
-        ),
-    )
-    runtime: DatasetRuntimeConfig = Field(
-        default_factory=DatasetRuntimeConfig,
-        description=(
-            "Runtime split, camera selection, and materialization settings "
-            "applied after the scene is loaded."
-        ),
-    )
     source_pipes: tuple[HorizonAlignPipeConfig] = Field(
         default=(HorizonAlignPipeConfig(),),
         description=(
-            "Ordered source-phase pipes applied to the raw loaded scene before "
-            "prepared dataset construction."
+            "Ordered source-phase pipes applied while loading the scene "
+            "record."
         ),
     )
-    cache_pipes: tuple[ResizePipeConfig] = Field(
-        default=(ResizePipeConfig(width_target=1980),),
-        description=(
-            "Ordered cache-phase pipes compiled into cached sample "
-            "materialization behavior."
-        ),
+
+
+class MipNerf360IndoorPreparedFrameDatasetConfig(PreparedFrameDatasetConfig):
+    """Prepared-frame defaults for MipNeRF360-style indoor scenes."""
+
+    image_preparation: ImagePreparationConfig | None = Field(
+        default_factory=lambda: ImagePreparationConfig(
+            resize_width_scale=0.25,
+            resize_width_target=None,
+            normalize=True,
+            interpolation="bicubic",
+        )
     )
-    prepare_pipes: tuple[NormalizePipeConfig] = Field(
-        default=(NormalizePipeConfig(),),
-        description=(
-            "Ordered prepare-phase pipes applied to training-facing samples "
-            "after loading and cache-time transforms."
-        ),
+
+
+class MipNerf360OutdoorPreparedFrameDatasetConfig(PreparedFrameDatasetConfig):
+    """Prepared-frame defaults for MipNeRF360-style outdoor scenes."""
+
+    image_preparation: ImagePreparationConfig | None = Field(
+        default_factory=lambda: ImagePreparationConfig(
+            resize_width_scale=0.5,
+            resize_width_target=None,
+            normalize=True,
+            interpolation="bicubic",
+        )
     )
 
 
 __all__ = [
-    "ColmapDatasetConfig",
-    "MipNerf360IndoorDatasetConfig",
-    "MipNerf360OutdoorDatasetConfig",
-    "NCoreDatasetConfig",
+    "ColmapSceneConfig",
+    "MipNerf360IndoorPreparedFrameDatasetConfig",
+    "MipNerf360OutdoorPreparedFrameDatasetConfig",
+    "NCoreSceneConfig",
 ]

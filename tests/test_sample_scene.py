@@ -4,8 +4,8 @@ from pathlib import Path
 
 from splatkit import (
     get_sample_scene_path,
-    initialize_gaussian_scene_from_point_cloud,
-    load_colmap_dataset,
+    initialize_gaussian_scene_from_scene_record,
+    load_colmap_scene_record,
 )
 
 
@@ -18,11 +18,11 @@ def test_get_sample_scene_path_resolves_packaged_colmap_root() -> None:
 
 
 def test_bundled_sample_scene_loads_and_initializes() -> None:
-    dataset = load_colmap_dataset(get_sample_scene_path())
-    assert dataset.num_frames == 6
-    assert dataset.point_cloud is not None
-    assert dataset.point_cloud.points.shape == (8332, 3)
+    scene_record = load_colmap_scene_record(get_sample_scene_path())
+    assert scene_record.num_frames == 6
+    assert scene_record.point_cloud is not None
+    assert scene_record.point_cloud.points.shape == (8332, 3)
 
-    scene = initialize_gaussian_scene_from_point_cloud(dataset)
+    scene = initialize_gaussian_scene_from_scene_record(scene_record)
     assert scene.center_position.shape == (8332, 3)
     assert scene.feature.shape == (8332, 1, 3)

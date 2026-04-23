@@ -11,7 +11,7 @@ from jaxtyping import Float
 from torch import Tensor, nn
 
 from splatkit.core.contracts import GaussianScene3D, Scene
-from splatkit.data.contracts import PointCloudState, SceneDataset
+from splatkit.data.contracts import PointCloudState, SceneRecord
 
 
 @beartype
@@ -67,20 +67,20 @@ def _build_sh_features(
 
 
 def _require_point_cloud(
-    dataset: SceneDataset,
+    scene_record: SceneRecord,
     explicit_point_cloud: PointCloudState | None,
 ) -> PointCloudState:
-    point_cloud = explicit_point_cloud or dataset.point_cloud
+    point_cloud = explicit_point_cloud or scene_record.point_cloud
     if point_cloud is None:
         raise ValueError(
-            "SFM initialization requires a point cloud either on the dataset "
-            "or passed explicitly."
+            "SFM initialization requires a point cloud either on the scene "
+            "record or passed explicitly."
         )
     return point_cloud
 
 
-def initialize_gaussian_scene_from_point_cloud(
-    dataset: SceneDataset,
+def initialize_gaussian_scene_from_scene_record(
+    scene_record: SceneRecord,
     *,
     sh_degree: int = 0,
     initial_scale: float = 0.01,
@@ -89,7 +89,7 @@ def initialize_gaussian_scene_from_point_cloud(
     point_cloud: PointCloudState | None = None,
 ) -> GaussianScene3D:
     """Build a GaussianScene3D from an SfM point cloud."""
-    resolved_point_cloud = _require_point_cloud(dataset, point_cloud)
+    resolved_point_cloud = _require_point_cloud(scene_record, point_cloud)
     centers = resolved_point_cloud.points.to(torch.float32)
     num_points = int(centers.shape[0])
     log_scales = torch.full(
@@ -117,8 +117,8 @@ def initialize_gaussian_scene_from_point_cloud(
     )
 
 
-def initialize_gaussian_model_from_dataset(
-    dataset: SceneDataset,
+def initialize_gaussian_model_from_scene_record(
+    scene_record: SceneRecord,
     *,
     modules: dict[str, nn.Module] | None = None,
     parameters: dict[str, nn.Parameter] | None = None,
@@ -130,9 +130,9 @@ def initialize_gaussian_model_from_dataset(
     default_color: tuple[float, float, float] = (0.5, 0.5, 0.5),
     point_cloud: PointCloudState | None = None,
 ) -> InitializedModel:
-    """Build a default Gaussian training payload from dataset geometry."""
-    scene = initialize_gaussian_scene_from_point_cloud(
-        dataset,
+    """Build a default Gaussian training payload from scene geometry."""
+    scene = initialize_gaussian_scene_from_scene_record(
+        scene_record,
         sh_degree=sh_degree,
         initial_scale=initial_scale,
         initial_opacity=initial_opacity,
@@ -150,6 +150,6 @@ def initialize_gaussian_model_from_dataset(
 
 __all__ = [
     "InitializedModel",
-    "initialize_gaussian_model_from_dataset",
-    "initialize_gaussian_scene_from_point_cloud",
+    "initialize_gaussian_model_from_scene_record",
+    "initialize_gaussian_scene_from_scene_record",
 ]

@@ -13,7 +13,8 @@ import torch
 from torch import nn
 
 from splatkit.core.contracts import GaussianScene3D, Scene
-from splatkit.data.contracts import SceneDataset
+from splatkit.data.adapters import PreparedFrameDataset
+from splatkit.data.contracts import SceneRecord
 from splatkit.initialization import InitializedModel
 from splatkit.io import load_gaussian_ply, save_gaussian_ply
 from splatkit.training.config import CheckpointMetadata, TrainingConfig
@@ -81,19 +82,24 @@ def _import_paths(config: TrainingConfig) -> list[str]:
     if config.densification is not None and config.densification.builder is not None:
         import_paths.append(config.densification.builder.target)
     import_paths.extend(builder.target for builder in config.hooks.builders)
+    import_paths.extend(
+        group.scheduler.target
+        for group in config.optimization.parameter_groups
+        if group.scheduler is not None
+    )
     return sorted(set(import_paths))
 
 
-def _dataset_summary(dataset: SceneDataset) -> dict[str, Any]:
+def _scene_record_summary(scene_record: SceneRecord) -> dict[str, Any]:
     return {
-        "num_frames": dataset.num_frames,
-        "source_format": dataset.source_format,
+        "num_frames": scene_record.num_frames,
+        "source_format": scene_record.source_format,
         "source_uris": None
-        if dataset.source_uris is None
-        else list(dataset.source_uris),
-        "available_camera_sensor_ids": list(dataset.available_camera_sensor_ids),
-        "default_camera_sensor_id": dataset.default_camera_sensor_id,
-        "has_point_cloud": dataset.point_cloud is not None,
+        if scene_record.source_uris is None
+        else list(scene_record.source_uris),
+        "available_camera_sensor_ids": list(scene_record.available_camera_sensor_ids),
+        "default_camera_sensor_id": scene_record.default_camera_sensor_id,
+        "has_point_cloud": scene_record.point_cloud is not None,
     }
 
 
@@ -101,10 +107,14 @@ def build_checkpoint_metadata(
     state: TrainState,
     config: TrainingConfig,
     *,
-    dataset: SceneDataset | None = None,
+    frame_dataset: PreparedFrameDataset | None = None,
 ) -> CheckpointMetadata:
     """Build reproducibility metadata for a checkpoint directory."""
-    dataset_summary = {} if dataset is None else _dataset_summary(dataset)
+    dataset_summary = (
+        {}
+        if frame_dataset is None
+        else _scene_record_summary(frame_dataset.scene_record)
+    )
     return CheckpointMetadata(
         timestamp_utc=datetime.now(UTC).isoformat(),
         seed=state.seed,
@@ -157,7 +167,7 @@ def save_checkpoint_dir(
     state: TrainState,
     config: TrainingConfig,
     *,
-    dataset: SceneDataset | None = None,
+    frame_dataset: PreparedFrameDataset | None = None,
 ) -> Path:
     """Save a reproducible checkpoint directory."""
     checkpoint_dir = Path(path)
@@ -166,7 +176,11 @@ def save_checkpoint_dir(
         checkpoint_dir / "config.json",
         config.model_dump_json(indent=2),
     )
-    metadata = build_checkpoint_metadata(state, config, dataset=dataset)
+    metadata = build_checkpoint_metadata(
+        state,
+        config,
+        frame_dataset=frame_dataset,
+    )
     _json_write(
         checkpoint_dir / "metadata.json",
         metadata.model_dump_json(indent=2),

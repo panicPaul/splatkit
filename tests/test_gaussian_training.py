@@ -23,7 +23,10 @@ from splatkit.training.config import (
     LossConfig,
     OptimizationConfig,
     ParameterGroupConfig,
+    ParameterTargetSpec,
     RenderPipelineSpec,
+    TensorSliceSpec,
+    TensorViewSpec,
     TrainingConfig,
 )
 from splatkit.training.protocols import TrainState
@@ -52,6 +55,14 @@ class RecordingOptimizer(Optimizer):
                 if parameter.grad is None:
                     continue
                 parameter.data.add_(parameter.grad, alpha=-group["lr"])
+
+
+def scene_target(
+    name: str,
+    *,
+    view: TensorViewSpec | None = None,
+) -> ParameterTargetSpec:
+    return ParameterTargetSpec(scope="scene", name=name, view=view)
 
 
 def _register_unit_test_backend() -> None:
@@ -116,7 +127,7 @@ def _training_config(
         optimization=OptimizationConfig(
             parameter_groups=[
                 ParameterGroupConfig(
-                    selector="scene.logit_opacity",
+                    target=scene_target("logit_opacity"),
                     optimizer=optimizer,
                     optimizer_kwargs=dict(optimizer_kwargs or {}),
                     lr=0.1,
@@ -198,8 +209,10 @@ def test_gaussian_family_ops_copy_append_reorder_and_reset_state(
     state = _state_for_scene(scene)
     optimizer = torch.optim.Adam([state.model.scene.logit_opacity], lr=0.1)
     binding = OptimizerBinding(
-        selector="scene.logit_opacity",
+        target=scene_target("logit_opacity"),
         optimizer=optimizer,
+        base_parameter=state.model.scene.logit_opacity,
+        field_name="logit_opacity",
     )
 
     state.model.scene.logit_opacity.sum().backward()
@@ -234,6 +247,83 @@ def test_gaussian_family_ops_copy_append_reorder_and_reset_state(
         "exp_avg"
     ]
     assert torch.equal(reordered_state, before_reorder[order])
+
+
+def test_gaussian_family_ops_updates_all_bindings_for_shared_scene_field(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    scene = replace(
+        cpu_scene,
+        feature=cpu_scene.feature.detach().clone().requires_grad_(True),
+    )
+    state = _state_for_scene(scene)
+    dc_optimizer = torch.optim.Adam([state.model.scene.feature], lr=0.1)
+    rest_optimizer = torch.optim.Adam([state.model.scene.feature], lr=0.1)
+    dc_binding = OptimizerBinding(
+        target=scene_target(
+            "feature",
+            view=TensorViewSpec(
+                slices=(TensorSliceSpec(axis=1, start=0, stop=1),)
+            ),
+        ),
+        optimizer=dc_optimizer,
+        base_parameter=state.model.scene.feature,
+        field_name="feature",
+    )
+    rest_binding = OptimizerBinding(
+        target=scene_target(
+            "feature",
+            view=TensorViewSpec(
+                slices=(TensorSliceSpec(axis=1, start=1, stop=None),)
+            ),
+        ),
+        optimizer=rest_optimizer,
+        base_parameter=state.model.scene.feature,
+        field_name="feature",
+    )
+
+    state.model.scene.feature.square().mean().backward()
+    dc_binding.step()
+    rest_binding.step()
+    dc_binding.zero_grad()
+    rest_binding.zero_grad()
+
+    family_ops = GaussianFamilyOps(state, [dc_binding, rest_binding])
+    family_ops.append_from_indices(torch.tensor([1]))
+
+    updated_parameter = dc_optimizer.param_groups[0]["params"][0]
+    dc_state = dc_optimizer.state[updated_parameter]["exp_avg"]
+    rest_state = rest_optimizer.state[updated_parameter]["exp_avg"]
+    assert updated_parameter.shape[0] == int(cpu_scene.feature.shape[0]) + 1
+    assert dc_state.shape == updated_parameter.shape
+    assert rest_state.shape == updated_parameter.shape
+
+    dc_before_reset = dc_state.clone()
+    rest_before_reset = rest_state.clone()
+    family_ops.reset_optimizer_state(torch.tensor([1]), ("feature",))
+    dc_reset = dc_optimizer.state[dc_optimizer.param_groups[0]["params"][0]][
+        "exp_avg"
+    ]
+    rest_reset = rest_optimizer.state[
+        rest_optimizer.param_groups[0]["params"][0]
+    ]["exp_avg"]
+    assert torch.allclose(dc_reset[1, 0, :], torch.zeros_like(dc_reset[1, 0, :]))
+    assert torch.equal(dc_reset[1, 1:, :], dc_before_reset[1, 1:, :])
+    assert torch.allclose(
+        rest_reset[1, 1:, :],
+        torch.zeros_like(rest_reset[1, 1:, :]),
+    )
+    assert torch.equal(rest_reset[1, :1, :], rest_before_reset[1, :1, :])
+
+    before_reorder_dc = dc_reset.clone()
+    before_reorder_rest = rest_reset.clone()
+    order = torch.arange(updated_parameter.shape[0] - 1, -1, -1)
+    family_ops.reorder(order)
+    reordered_parameter = dc_optimizer.param_groups[0]["params"][0]
+    reordered_dc = dc_optimizer.state[reordered_parameter]["exp_avg"]
+    reordered_rest = rest_optimizer.state[reordered_parameter]["exp_avg"]
+    assert torch.equal(reordered_dc, before_reorder_dc[order])
+    assert torch.equal(reordered_rest, before_reorder_rest[order])
 
 
 def test_gaussian_training_package_exports() -> None:

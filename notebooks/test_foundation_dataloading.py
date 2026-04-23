@@ -122,14 +122,16 @@ def load_must3r_dataset_from_artifact(load_config):
     """Load an existing MUSt3R artifact."""
     if not load_config.artifact_path.exists():
         return None
-    horizon_adjustment = sk.HorizonAdjustmentSpec(
-        enabled=load_config.apply_horizon_adjustment
-    )
-    return sk.load_must3r_dataset(
+    scene_record = sk.load_must3r_scene_record(
         load_config.artifact_path,
         image_root=load_config.image_root,
-        horizon_adjustment=horizon_adjustment,
     )
+    if load_config.apply_horizon_adjustment:
+        return sk.adjust_scene_record_horizon(
+            scene_record,
+            sk.HorizonAdjustmentSpec(enabled=True),
+        )
+    return scene_record
 
 
 @app.function
@@ -139,18 +141,20 @@ def run_must3r_dataset_from_form(load_config):
         return None
     if not load_config.checkpoint_repo_id:
         return None
-    horizon_adjustment = sk.HorizonAdjustmentSpec(
-        enabled=load_config.apply_horizon_adjustment
-    )
-    return sk.run_must3r_dataset(
+    scene_record = sk.run_must3r_scene_record(
         load_config.image_dir,
         output_dir=load_config.output_dir,
         checkpoint_repo_id=load_config.checkpoint_repo_id,
         checkpoint_filename=load_config.checkpoint_filename,
         image_size=load_config.image_size,
         device=load_config.device,
-        horizon_adjustment=horizon_adjustment,
     )
+    if load_config.apply_horizon_adjustment:
+        return sk.adjust_scene_record_horizon(
+            scene_record,
+            sk.HorizonAdjustmentSpec(enabled=True),
+        )
+    return scene_record
 
 
 @app.cell

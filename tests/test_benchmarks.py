@@ -6,16 +6,16 @@ import pytest
 import torch
 from splatkit import (
     CameraState,
-    FrameDataset,
-    FrameDatasetConfig,
     GaussianScene3D,
     ImagePreparationConfig,
     MaterializationConfig,
+    PreparedFrameDataset,
+    PreparedFrameDatasetConfig,
     RenderOptions,
     RenderOutput,
     get_sample_scene_path,
-    initialize_gaussian_scene_from_point_cloud,
-    load_colmap_dataset,
+    initialize_gaussian_scene_from_scene_record,
+    load_colmap_scene_record,
 )
 from splatkit.benchmarks import benchmark_backend_render, benchmark_dataloader
 from splatkit.core import BACKEND_REGISTRY, register_backend
@@ -75,10 +75,10 @@ def _first_camera(camera: CameraState) -> CameraState:
 
 
 def test_benchmark_dataloader_reports_expected_metrics() -> None:
-    dataset = load_colmap_dataset(get_sample_scene_path())
-    frame_dataset = FrameDataset(
-        dataset,
-        config=FrameDatasetConfig(
+    scene_record = load_colmap_scene_record(get_sample_scene_path())
+    frame_dataset = PreparedFrameDataset(
+        scene_record,
+        config=PreparedFrameDatasetConfig(
             split=None,
             materialization=MaterializationConfig(
                 stage="prepared",
@@ -110,9 +110,9 @@ def test_benchmark_dataloader_reports_expected_metrics() -> None:
 
 def test_benchmark_backend_render_reports_expected_metrics() -> None:
     _register_unit_test_backend()
-    dataset = load_colmap_dataset(get_sample_scene_path())
-    scene = initialize_gaussian_scene_from_point_cloud(dataset)
-    camera = _first_camera(dataset.resolve_camera_sensor().camera)
+    scene_record = load_colmap_scene_record(get_sample_scene_path())
+    scene = initialize_gaussian_scene_from_scene_record(scene_record)
+    camera = _first_camera(scene_record.resolve_camera_sensor().camera)
 
     result = benchmark_backend_render(
         scene,
@@ -141,11 +141,11 @@ def test_gsplat_render_benchmark_runs_on_bundled_sample() -> None:
     gsplat_backend = pytest.importorskip("splatkit_adapter_backends.gsplat")
     gsplat_backend.register()
 
-    dataset = load_colmap_dataset(get_sample_scene_path())
-    scene = initialize_gaussian_scene_from_point_cloud(dataset).to(
+    scene_record = load_colmap_scene_record(get_sample_scene_path())
+    scene = initialize_gaussian_scene_from_scene_record(scene_record).to(
         torch.device("cuda")
     )
-    camera = _first_camera(dataset.resolve_camera_sensor().camera).to(
+    camera = _first_camera(scene_record.resolve_camera_sensor().camera).to(
         torch.device("cuda")
     )
 

@@ -18,9 +18,12 @@ from splatkit.training.config import (
     ModelSpec,
     OptimizationConfig,
     ParameterGroupConfig,
+    ParameterTargetSpec,
     ParameterSpec,
     RenderPipelineSpec,
     RuntimeConfig,
+    TensorSliceSpec,
+    TensorViewSpec,
     TrainingConfig,
 )
 from splatkit.training.protocols import (
@@ -32,6 +35,7 @@ from splatkit.training.protocols import (
     TrainingResult,
     TrainState,
 )
+from splatkit.training.schedules import exponential_decay_to
 from splatkit.training.runtime import (
     build_dataloader,
     build_hooks,
@@ -64,10 +68,13 @@ __all__ = [
     "ModelSpec",
     "OptimizationConfig",
     "ParameterGroupConfig",
+    "ParameterTargetSpec",
     "ParameterSpec",
     "RenderFn",
     "RenderPipelineSpec",
     "RuntimeConfig",
+    "TensorSliceSpec",
+    "TensorViewSpec",
     "TrainState",
     "TrainingConfig",
     "TrainingHook",
@@ -90,4 +97,5 @@ __all__ = [
     "run_training",
     "save_checkpoint_dir",
     "train_step",
+    "exponential_decay_to",
 ]

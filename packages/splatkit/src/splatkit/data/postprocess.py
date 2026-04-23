@@ -1,4 +1,4 @@
-"""Optional dataset post-processing helpers."""
+"""Optional scene-record post-processing helpers."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from torch import Tensor
 from splatkit.data.contracts import (
     CameraSensorDataset,
     HorizonAdjustmentSpec,
-    SceneDataset,
+    SceneRecord,
 )
 from splatkit.data.pipes import HorizonAlignPipeConfig, register_source_pipe
 
@@ -84,18 +84,18 @@ def _estimate_focus_point(
     return focus_point, bool(torch.isfinite(focus_point).all())
 
 
-def adjust_dataset_horizon(
-    dataset: SceneDataset,
+def adjust_scene_record_horizon(
+    scene_record: SceneRecord,
     spec: HorizonAdjustmentSpec,
-) -> SceneDataset:
-    """Rotate and translate dataset geometry into a canonical up-aligned frame."""
+) -> SceneRecord:
+    """Rotate and translate scene geometry into a canonical up-aligned frame."""
     if not spec.enabled:
-        return dataset
-    if not dataset.camera_sensors:
-        return dataset
+        return scene_record
+    if not scene_record.camera_sensors:
+        return scene_record
 
     all_cam_to_world = torch.cat(
-        [sensor.camera.cam_to_world for sensor in dataset.camera_sensors],
+        [sensor.camera.cam_to_world for sensor in scene_record.camera_sensors],
         dim=0,
     )
     estimated_up = _estimate_world_up(all_cam_to_world)
@@ -116,7 +116,7 @@ def adjust_dataset_horizon(
     world_transform[:3, :3] = rotation
     world_transform[:3, 3] = translation
 
-    point_cloud = dataset.point_cloud
+    point_cloud = scene_record.point_cloud
     if point_cloud is not None:
         point_cloud = point_cloud.transformed(rotation, translation)
 
@@ -130,11 +130,11 @@ def adjust_dataset_horizon(
         )
         if isinstance(sensor, CameraSensorDataset)
         else sensor
-        for sensor in dataset.sensors
+        for sensor in scene_record.sensors
     )
 
     return replace(
-        dataset,
+        scene_record,
         sensors=transformed_sensors,
         point_cloud=point_cloud,
         world_up=spec.target_up,
@@ -144,8 +144,8 @@ def adjust_dataset_horizon(
 
 @register_source_pipe(kind="horizon_align", spec_cls=HorizonAlignPipeConfig)
 def apply_horizon_align_pipe(
-    dataset: SceneDataset,
+    scene_record: SceneRecord,
     pipe: HorizonAlignPipeConfig,
-) -> SceneDataset:
+) -> SceneRecord:
     """Registered source pipe wrapper for horizon alignment."""
-    return adjust_dataset_horizon(dataset, pipe.to_spec())
+    return adjust_scene_record_horizon(scene_record, pipe.to_spec())

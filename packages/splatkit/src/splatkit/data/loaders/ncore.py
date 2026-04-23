@@ -15,7 +15,7 @@ from splatkit.data.contracts import (
     DatasetSensor,
     NCoreCameraImageSource,
     PointCloudState,
-    SceneDataset,
+    SceneRecord,
     SensorKind,
 )
 
@@ -293,8 +293,8 @@ def load_ncore_dataset(
     component_group_paths: tuple[str | Path, ...],
     *,
     camera_sensor_id: str | None = None,
-) -> SceneDataset:
-    """Load an ncore component-group inventory into a SceneDataset."""
+) -> SceneRecord:
+    """Load an ncore component-group inventory into a SceneRecord."""
     resolved_paths = tuple(Path(path) for path in component_group_paths)
     ncore_module = _require_ncore()
     groups = _load_component_groups(ncore_module, resolved_paths)
@@ -324,7 +324,7 @@ def load_ncore_dataset(
     default_camera_sensor_id = camera_sensor_id
     if default_camera_sensor_id is None and len(camera_sensor_ids) == 1:
         default_camera_sensor_id = camera_sensor_ids[0]
-    return SceneDataset(
+    return SceneRecord(
         sensors=tuple(sensors),
         source_format="ncore",
         default_camera_sensor_id=default_camera_sensor_id,

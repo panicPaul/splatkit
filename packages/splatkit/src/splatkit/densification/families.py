@@ -68,11 +68,15 @@ class _SceneOptimizerAdapter:
     """Update scene selectors and optimizer state after topology edits."""
 
     def __init__(self, optimizers: list[Any]) -> None:
-        self._bindings = {
-            binding.selector.removeprefix("scene."): binding
-            for binding in optimizers
-            if binding.selector.startswith("scene.")
-        }
+        self._bindings: dict[str, list[Any]] = {}
+        for binding in optimizers:
+            matches_target = getattr(binding, "matches_target", None)
+            field_name = getattr(binding, "field_name", None)
+            if not callable(matches_target) or field_name is None:
+                continue
+            if not matches_target("scene", field_name):
+                continue
+            self._bindings.setdefault(field_name, []).append(binding)
 
     def replace_scene_fields(
         self,
@@ -82,24 +86,14 @@ class _SceneOptimizerAdapter:
     ) -> Any:
         """Replace scene fields and update optimizer references/state."""
         for name, value in updates.items():
-            binding = self._bindings.get(name)
-            if binding is None:
+            bindings = self._bindings.get(name)
+            if bindings is None:
                 continue
-            optimizer = binding.optimizer
-            group = optimizer.param_groups[0]
-            old_param = group["params"][0]
-            state = optimizer.state.pop(old_param, {})
-            group["params"] = [value]
-            new_state: dict[Any, Any] = {}
             transform = state_transforms[name]
-            for key, old_value in state.items():
-                if key == "step":
-                    new_state[key] = old_value
-                elif isinstance(old_value, Tensor):
-                    new_state[key] = transform(key, old_value)
-                else:
-                    new_state[key] = old_value
-            optimizer.state[value] = new_state
+            for binding in bindings:
+                replace_parameter = getattr(binding, "replace_parameter", None)
+                if callable(replace_parameter):
+                    replace_parameter(value, transform)
         return replace(scene, **updates)
 
     def reset_state(
@@ -108,17 +102,13 @@ class _SceneOptimizerAdapter:
         indices: Tensor,
     ) -> None:
         for name in field_names:
-            binding = self._bindings.get(name)
-            if binding is None:
+            bindings = self._bindings.get(name)
+            if bindings is None:
                 continue
-            optimizer = binding.optimizer
-            group = optimizer.param_groups[0]
-            parameter = group["params"][0]
-            state = optimizer.state.get(parameter, {})
-            for key, value in state.items():
-                if key == "step" or not isinstance(value, Tensor):
-                    continue
-                value[indices] = 0
+            for binding in bindings:
+                reset_state = getattr(binding, "reset_state_for_indices", None)
+                if callable(reset_state):
+                    reset_state(indices)
 
 
 def _is_per_splat_tensor(name: str, value: Any, num_splats: int) -> bool:

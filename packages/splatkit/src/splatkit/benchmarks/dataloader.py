@@ -11,12 +11,12 @@ from torch.utils.data import DataLoader
 
 from splatkit.benchmarks import benchmark_dataloader
 from splatkit.data import (
-    FrameDataset,
-    FrameDatasetConfig,
     ImagePreparationConfig,
     MaterializationConfig,
+    PreparedFrameDataset,
+    PreparedFrameDatasetConfig,
     collate_frame_samples,
-    load_colmap_dataset,
+    load_colmap_scene_record,
     resolve_colmap_scene_path,
 )
 
@@ -45,10 +45,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _build_dataloader(args: argparse.Namespace) -> DataLoader[object]:
     dataset_root = resolve_colmap_scene_path(args.colmap_root)
-    scene_dataset = load_colmap_dataset(dataset_root)
-    frame_dataset = FrameDataset(
-        scene_dataset,
-        config=FrameDatasetConfig(
+    scene_record = load_colmap_scene_record(dataset_root)
+    frame_dataset = PreparedFrameDataset(
+        scene_record,
+        config=PreparedFrameDatasetConfig(
             split=None,
             materialization=MaterializationConfig(
                 stage=args.materialization_stage,

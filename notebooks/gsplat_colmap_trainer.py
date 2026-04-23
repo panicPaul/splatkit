@@ -29,12 +29,13 @@ with app.setup:
     from pydantic import BaseModel, Field
     from splatkit.benchmarks import benchmark_dataloader
     from splatkit.data import (
-        DatasetRuntimeConfig,
+        ColmapSceneConfig,
         MaterializationConfig,
-        MipNerf360IndoorDatasetConfig,
+        MipNerf360IndoorPreparedFrameDatasetConfig,
         SplitConfig,
         collate_frame_samples,
-        load_dataset,
+        load_scene_record,
+        prepare_frame_dataset,
     )
     from splatkit.io.scene import save_scene
     from torch.utils.data import DataLoader
@@ -276,23 +277,26 @@ def _():
 
 @app.cell
 def _():
-    def _default_data_config() -> MipNerf360IndoorDatasetConfig:
-        return MipNerf360IndoorDatasetConfig(
+    def _default_scene_config() -> ColmapSceneConfig:
+        return ColmapSceneConfig(
             path=Path(
                 os.environ.get(
                     "SPLATKIT_COLMAP_ROOT",
                     str(sk.get_sample_scene_path()),
                 )
             ),
-            runtime=DatasetRuntimeConfig(
-                split=None,
-                materialization=MaterializationConfig(
-                    stage="prepared",
-                    mode="eager",
-                    num_workers=0,
-                ),
-            ),
             undistort_output_dir=None,
+        )
+
+    def _default_prepared_dataset_config(
+    ) -> MipNerf360IndoorPreparedFrameDatasetConfig:
+        return MipNerf360IndoorPreparedFrameDatasetConfig(
+            split=None,
+            materialization=MaterializationConfig(
+                stage="prepared",
+                mode="eager",
+                num_workers=0,
+            ),
         )
 
     class ModelConfig(BaseModel):
@@ -314,8 +318,11 @@ def _():
 
     class Config(BaseModel):
         execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
-        data: MipNerf360IndoorDatasetConfig = Field(
-            default_factory=_default_data_config
+        scene: ColmapSceneConfig = Field(
+            default_factory=_default_scene_config
+        )
+        prepared_data: MipNerf360IndoorPreparedFrameDatasetConfig = Field(
+            default_factory=_default_prepared_dataset_config
         )
         model: ModelConfig = Field(default_factory=ModelConfig)
         optimization: OptimizationConfig = Field(
@@ -419,22 +426,27 @@ def _():
 
 @app.cell
 def _(Config):
-    def build_colmap_dataset_config(
+    def build_scene_record_config(
         config: Config,
-    ) -> MipNerf360IndoorDatasetConfig:
-        data = config.data
-        root = data.path.expanduser()
+    ) -> ColmapSceneConfig:
+        scene = config.scene
+        root = scene.path.expanduser()
         undistort_output_dir = (
-            data.undistort_output_dir.expanduser()
-            if data.undistort_output_dir is not None
+            scene.undistort_output_dir.expanduser()
+            if scene.undistort_output_dir is not None
             else None
         )
-        return data.model_copy(
+        return scene.model_copy(
             update={
                 "path": root,
                 "undistort_output_dir": undistort_output_dir,
             }
         )
+
+    def build_prepared_dataset_config(
+        config: Config,
+    ) -> MipNerf360IndoorPreparedFrameDatasetConfig:
+        return config.prepared_data
 
     def build_config_from_form(payload: dict[str, object]) -> Config | None:
         form_gui_state, json_gui_state, config_bindings = create_config_state(
@@ -447,10 +459,10 @@ def _(Config):
         )
         if model_value is None:
             return None
-        if not str(model_value.data.path).strip():
+        if not str(model_value.scene.path).strip():
             return None
 
-        root = model_value.data.path.expanduser()
+        root = model_value.scene.path.expanduser()
         if not root.exists():
             raise ValueError(f"COLMAP root `{root}` does not exist.")
         if (
@@ -465,12 +477,12 @@ def _(Config):
         if not output_dir:
             raise ValueError("output_dir must be set.")
 
-        data = model_value.data.model_copy(
+        scene = model_value.scene.model_copy(
             update={
                 "path": root,
                 "undistort_output_dir": (
-                    model_value.data.undistort_output_dir.expanduser()
-                    if model_value.data.undistort_output_dir is not None
+                    model_value.scene.undistort_output_dir.expanduser()
+                    if model_value.scene.undistort_output_dir is not None
                     else None
                 ),
             }
@@ -479,14 +491,15 @@ def _(Config):
             execution=model_value.execution.model_copy(
                 update={"output_dir": output_dir}
             ),
-            data=data,
+            scene=scene,
+            prepared_data=model_value.prepared_data,
             model=model_value.model,
             optimization=model_value.optimization,
             training=model_value.training,
             run_immediately=True,
         )
 
-    return build_colmap_dataset_config, build_config_from_form
+    return build_prepared_dataset_config, build_config_from_form, build_scene_record_config
 
 
 @app.cell
@@ -530,50 +543,50 @@ def build_frame_dataset_dataloader(
 
 
 @app.cell
-def _(Config, build_colmap_dataset_config):
+def _(Config, build_prepared_dataset_config, build_scene_record_config):
     def load_dataset_from_config(config: Config | None):
         if config is None:
             return None
-        dataset_config = build_colmap_dataset_config(config)
-        dataset = load_dataset(dataset_config)
-        scene_dataset = (
-            dataset.dataset if hasattr(dataset, "dataset") else dataset
-        )
-        if scene_dataset.point_cloud is None:
+        scene_record_config = build_scene_record_config(config)
+        scene_record = load_scene_record(scene_record_config)
+        if scene_record.point_cloud is None:
             raise RuntimeError(
-                "Loaded COLMAP dataset has no point cloud; this backend needs points."
+                "Loaded COLMAP scene record has no point cloud; this backend needs points."
             )
-        return dataset
+        return prepare_frame_dataset(
+            scene_record,
+            build_prepared_dataset_config(config),
+        )
 
     return (load_dataset_from_config,)
 
 
 @app.cell
 def _(Config):
-    def _get_scene_dataset(dataset):
-        return dataset.dataset if hasattr(dataset, "dataset") else dataset
+    def _get_scene_record(dataset):
+        return dataset.scene_record if hasattr(dataset, "scene_record") else dataset
 
     def build_trainer_bundle(config: Config | None, dataset):
         if config is None or dataset is None:
             return None
 
-        scene_dataset = _get_scene_dataset(dataset)
-        if scene_dataset.camera.camera_convention != "opencv":
+        scene_record = _get_scene_record(dataset)
+        if scene_record.camera.camera_convention != "opencv":
             raise RuntimeError(
                 "gsplat backend in this version expects opencv camera convention."
             )
 
-        if scene_dataset.point_cloud is None:
+        if scene_record.point_cloud is None:
             raise RuntimeError(
                 "Initialized models require point cloud data in the dataset."
             )
 
         if config.training.batch_size > 1:
             widths = set(
-                int(value) for value in scene_dataset.camera.width.tolist()
+                int(value) for value in scene_record.camera.width.tolist()
             )
             heights = set(
-                int(value) for value in scene_dataset.camera.height.tolist()
+                int(value) for value in scene_record.camera.height.tolist()
             )
             if len(widths) != 1 or len(heights) != 1:
                 raise RuntimeError(
@@ -586,8 +599,8 @@ def _(Config):
             batch_size=config.training.batch_size,
             num_workers=config.execution.num_data_workers,
         )
-        model = sk.initialize_gaussian_model_from_dataset(
-            scene_dataset,
+        model = sk.initialize_gaussian_model_from_scene_record(
+            scene_record,
             sh_degree=config.model.sh_degree,
             initial_scale=config.model.initial_scale,
             initial_opacity=config.model.initial_opacity,
@@ -676,7 +689,7 @@ def _(Config):
                 options=render_options,
             )
             loss = F.mse_loss(
-                render_output.render.permute(0, 3, 1, 2),
+                render_output.render,
                 batch.images,
             )
             loss.backward()
@@ -723,15 +736,13 @@ def _():
     ## Notes
 
     - No densification branch is used.
-    - A single top-level `Config` now flows through setup → dataloader → training,
-      with `data`, `model`, `optimization`, and `training` subconfigs.
-    - Data backend behavior is driven by a single
-      `MipNerf360IndoorDatasetConfig` exposed directly in the top-level
-      `Config` and passed through `build_colmap_dataset_config`.
+    - A single top-level `Config` now flows through setup → scene loading →
+      prepared-frame dataset construction → training, with `scene`,
+      `prepared_data`, `model`, `optimization`, and `training` subconfigs.
     - This notebook keeps batch checks strict for backend compatibility.
     - Defaults intentionally mirror the simple gsplat training baseline.
-    - Indoor preset cache scaling is inherited from
-      `MipNerf360IndoorDatasetConfig` unless overridden by direct config edits.
+    - Indoor prepared-frame defaults are inherited from
+      `MipNerf360IndoorPreparedFrameDatasetConfig` unless overridden by direct config edits.
     """)
     return
 

@@ -21,7 +21,7 @@ from typing import Any, Generic, Literal, TypeVar
 import torch
 from pydantic import BaseModel, Field
 
-from splatkit.data.contracts import HorizonAdjustmentSpec, SceneDataset
+from splatkit.data.contracts import HorizonAdjustmentSpec, SceneRecord
 
 SourcePipeKind = Literal["horizon_align"]
 CachePipeKind = Literal["resize"]
@@ -53,7 +53,7 @@ class PreparePipeConfig(PipeConfigBase):
 
 
 class HorizonAlignPipeConfig(SourcePipeConfig):
-    """Rotate and center a scene dataset into a canonical up frame."""
+    """Rotate and center a scene record into a canonical up frame."""
 
     kind: SourcePipeKind = "horizon_align"
     enabled: bool = True
@@ -160,14 +160,14 @@ def register_prepare_pipe(
 
 
 def apply_source_pipe(
-    dataset: SceneDataset,
+    scene_record: SceneRecord,
     pipe: SourcePipeConfig,
-) -> SceneDataset:
+) -> SceneRecord:
     """Apply one registered source-phase pipe."""
     registered = SOURCE_PIPE_REGISTRY.get(type(pipe))
     if registered is None:
         raise ValueError(f"Unregistered source pipe spec {type(pipe)!r}.")
-    return registered.apply_fn(dataset, pipe)
+    return registered.apply_fn(scene_record, pipe)
 
 
 register_cache_pipe(kind="resize", spec_cls=ResizePipeConfig)

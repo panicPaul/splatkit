@@ -17,9 +17,7 @@ with app.setup:
     import torch
     from splatkit.benchmarks import benchmark_backend_render
     from splatkit.core import BACKEND_REGISTRY, GaussianScene3D
-    from splatkit.initialization import (
-        initialize_gaussian_scene_from_point_cloud,
-    )
+    from splatkit.initialization import initialize_gaussian_scene_from_scene_record
 
     OPTIONAL_BACKEND_MODULES = (
         "splatkit_adapter_backends.fastgs",
@@ -192,12 +190,14 @@ def _(
                 benchmark_result = None
                 _ = mo.callout("CUDA is not available.", kind="warn")
             else:
-                dataset = sk.load_colmap_dataset(root)
-                scene = initialize_gaussian_scene_from_point_cloud(dataset).to(
+                scene_record = sk.load_colmap_scene_record(root)
+                scene = initialize_gaussian_scene_from_scene_record(
+                    scene_record
+                ).to(
                     resolved_device
                 )
                 camera = select_first_camera(
-                    dataset.resolve_camera_sensor().camera
+                    scene_record.resolve_camera_sensor().camera
                 ).to(
                     resolved_device
                 )
