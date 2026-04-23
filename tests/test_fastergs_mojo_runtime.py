@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+from textwrap import dedent
+
 import pytest
 import torch
 from splatkit_native_faster_gs.faster_gs.runtime.ops.blend import (
@@ -34,6 +40,43 @@ def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float,
         float(intrinsics[0, 2].item()),
         float(intrinsics[1, 2].item()),
     )
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _subprocess_env() -> dict[str, str]:
+    repo_root = _repo_root()
+    pythonpath_parts = [
+        str(repo_root / "packages" / "splatkit-native-faster-gs-mojo" / "src"),
+        str(repo_root / "packages" / "splatkit-native-faster-gs" / "src"),
+        str(repo_root / "packages" / "splatkit-adapter-backends" / "src"),
+        str(repo_root / "packages" / "splatkit" / "src"),
+    ]
+    existing = os.environ.get("PYTHONPATH")
+    if existing:
+        pythonpath_parts.append(existing)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+    return env
+
+
+def _run_subprocess_check(script: str) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=_repo_root(),
+        env=_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "subprocess check failed\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
 
 
 def _prepare_blend_stage_inputs(
@@ -263,6 +306,104 @@ def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> N
     ):
         assert grad is not None
         assert torch.isfinite(grad).all()
+
+
+@pytest.mark.cuda
+def test_blend_backward_large_scene_repeated_call_does_not_crash() -> None:
+    script = dedent(
+        """
+        import torch
+        from splatkit.io import load_gaussian_ply
+        from splatkit.core import CameraState
+        from splatkit_native_faster_gs_mojo.core.runtime import preprocess, sort
+        from splatkit_native_faster_gs_mojo.core.runtime.ops import blend_bwd_op, blend_fwd_op
+
+        device = torch.device("cuda")
+        scene = load_gaussian_ply("point_cloud.ply").to(device)
+        width = 640
+        height = 480
+        cam_to_world = torch.eye(4, dtype=torch.float32, device=device)[None]
+        cam_to_world[:, 2, 3] = 3.0
+        camera = CameraState(
+            width=torch.tensor([width], dtype=torch.int64, device=device),
+            height=torch.tensor([height], dtype=torch.int64, device=device),
+            fov_degrees=torch.tensor([60.0], dtype=torch.float32, device=device),
+            cam_to_world=cam_to_world,
+            camera_convention="opencv",
+        )
+        intrinsics = camera.get_intrinsics()[0]
+        cam_to_world0 = camera.cam_to_world[0]
+        preprocess_result = preprocess(
+            scene.center_position,
+            scene.log_scales,
+            scene.quaternion_orientation,
+            scene.logit_opacity[:, None],
+            scene.feature[:, :1, :],
+            scene.feature[:, 1:, :],
+            torch.linalg.inv(cam_to_world0),
+            cam_to_world0[:3, 3],
+            near_plane=0.01,
+            far_plane=1000.0,
+            width=width,
+            height=height,
+            focal_x=float(intrinsics[0, 0].item()),
+            focal_y=float(intrinsics[1, 1].item()),
+            center_x=float(intrinsics[0, 2].item()),
+            center_y=float(intrinsics[1, 2].item()),
+            proper_antialiasing=False,
+            active_sh_bases=int(scene.feature.shape[1]),
+        )
+        sort_result = sort(
+            preprocess_result.depth_keys,
+            preprocess_result.primitive_indices,
+            preprocess_result.num_touched_tiles,
+            preprocess_result.screen_bounds,
+            preprocess_result.projected_means,
+            preprocess_result.conic_opacity,
+            preprocess_result.visible_count,
+            preprocess_result.instance_count,
+            width=width,
+            height=height,
+        )
+        forward = blend_fwd_op(
+            sort_result.instance_primitive_indices,
+            sort_result.tile_instance_ranges,
+            sort_result.tile_bucket_offsets,
+            sort_result.bucket_count,
+            preprocess_result.projected_means,
+            preprocess_result.conic_opacity,
+            preprocess_result.colors_rgb,
+            torch.zeros(3, device=device),
+            False,
+            width,
+            height,
+        )
+        grad_image = torch.randn_like(forward[0])
+        for _ in range(3):
+            grads = blend_bwd_op(
+                grad_image,
+                forward[0],
+                sort_result.instance_primitive_indices,
+                sort_result.tile_instance_ranges,
+                sort_result.tile_bucket_offsets,
+                preprocess_result.projected_means,
+                preprocess_result.conic_opacity,
+                preprocess_result.colors_rgb,
+                torch.zeros(3, device=device),
+                forward[1],
+                forward[2],
+                forward[3],
+                forward[4],
+                forward[5],
+                False,
+                width,
+                height,
+            )
+            torch.cuda.synchronize()
+            assert all(torch.isfinite(grad).all().item() for grad in grads)
+        """
+    )
+    _run_subprocess_check(script)
 
 
 def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:

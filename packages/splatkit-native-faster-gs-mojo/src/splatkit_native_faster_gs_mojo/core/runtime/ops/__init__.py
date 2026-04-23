@@ -1,6 +1,7 @@
 """Torch custom ops for the FasterGS Mojo runtime."""
 
 from splatkit_native_faster_gs_mojo.core.runtime.ops.blend import (
+    blend_image_only,
     blend_bwd_op,
     blend_fwd_op,
     blend_op,
@@ -21,6 +22,7 @@ from splatkit_native_faster_gs_mojo.core.runtime.ops.sort import (
 )
 
 __all__ = [
+    "blend_image_only",
     "blend_bwd_op",
     "blend_fwd_op",
     "blend_op",

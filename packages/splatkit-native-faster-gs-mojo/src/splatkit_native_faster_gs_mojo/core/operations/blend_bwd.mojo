@@ -32,13 +32,6 @@ comptime SHARED_GRAD_INFO = Layout.row_major(BUCKET_SIZE, 4)
 
 
 @always_inline
-def zero_f32_kernel(ptr: UnsafePointer[Float32, MutAnyOrigin], n: Int):
-    var idx = Int(global_idx.x)
-    if idx < n:
-        ptr[idx] = Float32(0.0)
-
-
-@always_inline
 def atomic_add_f32(ptr: UnsafePointer[Float32, MutAnyOrigin], value: Float32):
     _ = Atomic[DType.float32].fetch_add(ptr, value)
 
@@ -430,6 +423,7 @@ struct BlendBackward:
     @staticmethod
     def execute[
         target: StaticString,
+        proper_antialiasing_flag: Int,
     ](
         grad_projected_means: OutputTensor[dtype=DType.float32, rank=2, ...],
         grad_conic_opacity: OutputTensor[dtype=DType.float32, rank=2, ...],
@@ -448,7 +442,6 @@ struct BlendBackward:
         tile_n_processed: InputTensor[dtype=DType.int32, rank=1, ...],
         bucket_tile_index: InputTensor[dtype=DType.int32, rank=1, ...],
         bucket_color_transmittance: InputTensor[dtype=DType.float32, rank=2, ...],
-        proper_antialiasing_flag: InputTensor[dtype=DType.int32, rank=1, ...],
         ctx: DeviceContextPtr,
     ) raises:
         comptime if target == "gpu":
@@ -459,34 +452,6 @@ struct BlendBackward:
             var grid_width = div_round_up(width, TILE_WIDTH)
             var grid_height = div_round_up(height, TILE_HEIGHT)
             var tile_count = grid_width * grid_height
-            var zero_block_dim = 256
-
-            var projected_grad_size = n_primitives * 2
-            if projected_grad_size > 0:
-                gpu_ctx.enqueue_function[zero_f32_kernel, zero_f32_kernel](
-                    grad_projected_means.unsafe_ptr(),
-                    projected_grad_size,
-                    grid_dim=div_round_up(projected_grad_size, zero_block_dim),
-                    block_dim=zero_block_dim,
-                )
-
-            var conic_grad_size = n_primitives * 4
-            if conic_grad_size > 0:
-                gpu_ctx.enqueue_function[zero_f32_kernel, zero_f32_kernel](
-                    grad_conic_opacity.unsafe_ptr(),
-                    conic_grad_size,
-                    grid_dim=div_round_up(conic_grad_size, zero_block_dim),
-                    block_dim=zero_block_dim,
-                )
-
-            var color_grad_size = n_primitives * 3
-            if color_grad_size > 0:
-                gpu_ctx.enqueue_function[zero_f32_kernel, zero_f32_kernel](
-                    grad_colors_rgb.unsafe_ptr(),
-                    color_grad_size,
-                    grid_dim=div_round_up(color_grad_size, zero_block_dim),
-                    block_dim=zero_block_dim,
-                )
 
             var n_buckets = bucket_tile_index.dim_size[0]()
             if n_buckets > 0:
@@ -758,7 +723,7 @@ struct BlendBackward:
                     height,
                     grid_width,
                     n_buckets,
-                    Int(proper_antialiasing_flag.unsafe_ptr()[0]),
+                    proper_antialiasing_flag,
                     grid_dim=n_buckets,
                     block_dim=BUCKET_SIZE,
                 )
