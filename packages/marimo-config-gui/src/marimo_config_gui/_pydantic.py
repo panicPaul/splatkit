@@ -93,6 +93,13 @@ class ConfigBindings(Generic[ModelT]):
 class _JsonConfigSource:
     path: Annotated[Path, tyro.conf.Positional]
 
+
+ScriptConfigLoader = Callable[
+    [type[BaseModel], BaseModel | dict[str, Any] | None, Sequence[str] | None],
+    BaseModel,
+]
+
+
 @dataclass(frozen=True)
 class _FieldGuiConfig:
     render: _RenderMode = "auto"
@@ -1548,9 +1555,18 @@ def _initial_config_payload(
     model_cls: type[ModelT],
     *,
     value: ModelT | dict[str, Any] | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     if not mo.running_in_notebook():
-        parsed = load_script_config(model_cls, value=value)
+        if script_loader is None:
+            parsed = load_script_config(
+                model_cls,
+                value=value,
+                args=script_args,
+            )
+        else:
+            parsed = script_loader(model_cls, value, script_args)
         resolved_value: ModelT | dict[str, Any] | None = parsed
     else:
         resolved_value = value
@@ -1604,6 +1620,8 @@ def create_config_state(
     model_cls: type[ModelT],
     *,
     value: ModelT | dict[str, Any] | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> tuple[Any, Any, ConfigBindings[ModelT]]: ...
 
 
@@ -1611,12 +1629,19 @@ def create_config_state(
     model_cls: type[ModelT],
     *,
     value: ModelT | dict[str, Any] | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> Any:
     """Create reactive state for form and JSON config GUIs.
 
     Args:
         model_cls: Pydantic model type to edit.
         value: Optional initial model instance or payload override.
+        script_loader: Optional override for script-mode config loading. When
+            given, it replaces the default `load_script_config(...)` behavior.
+        script_args: Optional CLI args forwarded to the script loader in
+            script mode. When omitted, loaders should typically fall back to
+            `sys.argv`.
 
     Returns:
         A tuple of `(form_gui_state, json_gui_state, config_bindings)`, where
@@ -1625,7 +1650,12 @@ def create_config_state(
         `config_bindings` contains the model type and setter callbacks used by
         the helper constructors.
     """
-    initial_payload = _initial_config_payload(model_cls, value=value)
+    initial_payload = _initial_config_payload(
+        model_cls,
+        value=value,
+        script_loader=script_loader,
+        script_args=script_args,
+    )
     payload_state, set_payload_state = mo.state(
         initial_payload,
         allow_self_loops=True,
@@ -1650,6 +1680,8 @@ def create_committed_config_state(
     model_cls: type[ModelT],
     *,
     value: ModelT | dict[str, Any] | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> tuple[Any, Callable[[dict[str, Any]], None]]: ...
 
 
@@ -1657,9 +1689,16 @@ def create_committed_config_state(
     model_cls: type[ModelT],
     *,
     value: ModelT | dict[str, Any] | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> tuple[Any, Callable[[dict[str, Any]], None]]:
     """Create reactive state for the last committed config payload."""
-    initial_payload = _initial_config_payload(model_cls, value=value)
+    initial_payload = _initial_config_payload(
+        model_cls,
+        value=value,
+        script_loader=script_loader,
+        script_args=script_args,
+    )
     committed_state, set_committed_state = mo.state(
         initial_payload,
         allow_self_loops=True,
@@ -1678,6 +1717,8 @@ def config_gui(
     return_json: Literal[False] = False,
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> tuple[Any, PydanticGui[ModelT]]: ...
 
 
@@ -1692,6 +1733,8 @@ def config_gui(
     return_json: Literal[True],
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> tuple[Any, UIElement[Any, Any]]: ...
 
 
@@ -1706,6 +1749,8 @@ def config_gui(
     return_json: Literal[False] = False,
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> PydanticGui[ModelT]: ...
 
 
@@ -1720,6 +1765,8 @@ def config_gui(
     return_json: Literal[True],
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> UIElement[Any, Any]: ...
 
 
@@ -1733,6 +1780,8 @@ def config_gui(
     return_json: bool = False,
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
+    script_loader: ScriptConfigLoader[ModelT] | None = None,
+    script_args: Sequence[str] | None = None,
 ) -> Any:
     """Create renderable config GUI elements over shared reactive state.
 
@@ -1748,7 +1797,12 @@ def config_gui(
         payload_state,
         json_text_state,
         bindings,
-    ) = create_config_state(model_cls, value=value)
+    ) = create_config_state(
+        model_cls,
+        value=value,
+        script_loader=script_loader,
+        script_args=script_args,
+    )
 
     outputs: list[Any] = []
     if return_error_element:

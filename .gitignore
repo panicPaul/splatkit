@@ -215,3 +215,6 @@ __marimo__/
 
 # Native backend staged/generated sources
 packages/splatkit-native-backends/src/splatkit_native_backends/traced_native_core/native/stoch3dgs/build/
+
+# Paper notebook checkpoints
+checkpoints/

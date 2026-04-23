@@ -391,6 +391,85 @@ def test_script_mode_uses_tyro(monkeypatch: pytest.MonkeyPatch) -> None:
     assert form_gui_state() == {"title": "cli", "count": 4}
 
 
+def test_script_mode_forwards_explicit_script_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
+    captured: dict[str, object] = {}
+
+    def _fake_loader(model_cls, value=None, args=None):
+        captured["model_cls"] = model_cls
+        captured["value"] = value
+        captured["args"] = args
+        return model_cls(title="cli", count=6)
+
+    monkeypatch.setattr(pgui, "load_script_config", _fake_loader)
+
+    form_gui_state, *_rest = create_config_state(
+        _RequiredModel,
+        script_args=["cli", "--title", "cli", "--count", "6"],
+    )
+
+    assert captured["model_cls"] is _RequiredModel
+    assert captured["args"] == ["cli", "--title", "cli", "--count", "6"]
+    assert form_gui_state() == {"title": "cli", "count": 6}
+
+
+def test_script_mode_supports_custom_script_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
+
+    def _custom_loader(model_cls, value=None, args=None):
+        del args
+        assert value == {"title": "base", "count": 2}
+        return model_cls(title="preset", count=9)
+
+    form_gui_state, *_rest = create_config_state(
+        _RequiredModel,
+        value={"title": "base", "count": 2},
+        script_loader=_custom_loader,
+        script_args=["preset", "demo"],
+    )
+
+    assert form_gui_state() == {"title": "preset", "count": 9}
+
+
+def test_committed_script_state_supports_custom_script_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
+
+    def _custom_loader(model_cls, value=None, args=None):
+        del value, args
+        return model_cls(title="committed", count=8)
+
+    committed_state, _set_committed_state = create_committed_config_state(
+        _RequiredModel,
+        script_loader=_custom_loader,
+    )
+
+    assert committed_state() == {"title": "committed", "count": 8}
+
+
+def test_config_gui_supports_custom_script_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
+
+    def _custom_loader(model_cls, value=None, args=None):
+        del value, args
+        return model_cls(title="gui", count=3)
+
+    error_view, form_view = config_gui(
+        _RequiredModel,
+        script_loader=_custom_loader,
+    )
+
+    assert error_view.text == pgui.mo.md("").text
+    assert form_view.value == _RequiredModel(title="gui", count=3)
+
+
 def test_load_script_config_supports_cli_subcommand() -> None:
     loaded = load_script_config(
         _RequiredModel,

@@ -53,10 +53,13 @@ def add_noise(
 
 def _find_optimizer_binding(
     context: DensificationContext,
-    selector: str,
+    *,
+    scope: str,
+    name: str,
 ) -> Any | None:
     for binding in context.optimizers:
-        if getattr(binding, "selector", None) == selector:
+        matches_target = getattr(binding, "matches_target", None)
+        if callable(matches_target) and matches_target(scope, name):
             return binding
     return None
 
@@ -107,10 +110,19 @@ class GaussianMCMC(BaseDensificationMethod):
         context: DensificationContext,
         scene: GaussianScene,
     ) -> None:
-        means_binding = _find_optimizer_binding(context, "scene.center_position")
+        means_binding = _find_optimizer_binding(
+            context,
+            scope="scene",
+            name="center_position",
+        )
         if means_binding is None:
             return
-        current_lr = float(means_binding.optimizer.param_groups[0]["lr"])
+        current_lr_getter = getattr(means_binding, "current_lr", None)
+        current_lr = (
+            float(current_lr_getter())
+            if callable(current_lr_getter)
+            else float(means_binding.optimizer.param_groups[0]["lr"])
+        )
         if current_lr <= 0.0:
             return
         add_noise(

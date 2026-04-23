@@ -28,3 +28,18 @@ def project(
 ```
 
 - Read the NORTH_STAR.md, which is a rough sketch of what i want to achieve. Be careful it may be slightly outdated.
+- For `marimo` notebooks, prefer `app = marimo.App(width="columns")` when a
+  split layout is useful. Keep the main flow for the pure display cells that
+  show the primary UI elements directly, especially cells that contain only a
+  `load_form` or only a `viewer`, plus any short contextual text. Put the
+  supporting notebook machinery in `column=1`: section markdown, helper
+  functions, state/config cells, scene loading, controls, and other plumbing.
+  For very long notebooks, it is fine to add `column=2` for notebook-specific
+  side material, usually GUI/control cells, when that keeps the main flow and
+  primary support column cleaner.
+- When using `marimo-config-gui`, create config state in `app.setup` rather
+  than in a notebook cell. This keeps a single interactive GUI form and keeps
+  script mode aligned with the `tyro` CLI path.
+- For `marimo` notebooks, hide code by default for pure GUI/reactive display
+  cells such as `config_form(...)`, `config_json(...)`, `config_error(...)`,
+  buttons, and similar UI-only cells.
