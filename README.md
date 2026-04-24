@@ -27,10 +27,24 @@ Opt into specific backend families as needed:
 ```bash
 uv sync --extra adapter-backends --extra cu130
 uv sync --extra native-faster-gs --extra cu130
+uv sync --extra native-faster-gs-mojo --extra cu130
 uv sync --extra native-3dgrt --extra cu130
 uv sync --extra native-svraster --extra cu130
 uv sync --extra native-svraster --extra svraster-adapter --extra cu130
 ```
+
+Or install only the first-party native backend families:
+
+```bash
+uv sync --extra all-native --extra cu130
+```
+
+Here "native" means the backend kernels are vendored into this repository,
+modernized, and split into reusable stages such as preprocess, sort, and
+blend. Those stages are exposed as Torch custom ops where useful. When an
+adapter-backed reference exists, the native path is tested against it; some
+native families are true first-party implementations without a corresponding
+adapter.
 
 Or install the full CUDA-specific developer environment in one step, including
 all adapter backends, all native families, and the restricted SVRaster family:
