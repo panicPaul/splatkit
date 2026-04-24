@@ -1,0 +1,62 @@
+[project]
+name = "splatkit-native-faster-gs"
+dynamic = ["version"]
+description = "Official FasterGS-family native backends for splatkit."
+requires-python = ">=3.11"
+dependencies = [
+    "beartype>=0.22.9",
+    "jaxtyping>=0.3.9",
+    "splatkit",
+    "torch>=2.11.0",
+]
+
+[project.optional-dependencies]
+all = []
+cu128 = [
+    "torch>=2.11.0",
+]
+cu130 = [
+    "torch>=2.11.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.27.0", "hatch-vcs>=0.5.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cu128" },
+        { extra = "cu130" },
+    ],
+]
+
+[tool.uv.sources]
+splatkit = { path = "../splatkit", editable = true }
+torch = [
+    { index = "pytorch-cu128", extra = "cu128" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.1a0"
+
+[tool.hatch.version.raw-options]
+version_scheme = "no-guess-dev"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/splatkit_native_faster_gs/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/splatkit_native_faster_gs"]

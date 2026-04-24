@@ -7,7 +7,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-
 class TrainingConfigBase(BaseModel):
     """Base config with strict validation."""
 
@@ -43,36 +42,10 @@ class RuntimeConfig(TrainingConfigBase):
 
 
 class BatchingConfig(TrainingConfigBase):
-    """Image and dataloader preparation settings."""
+    """Dataloader batching settings."""
 
     batch_size: int = Field(default=1, ge=1)
     shuffle: bool = True
-    normalize: bool = True
-    resize_width: int | None = Field(default=None, ge=1)
-    resize_height: int | None = Field(default=None, ge=1)
-    resize_max_long_edge: int | None = Field(default=None, ge=1)
-    interpolation: Literal["nearest", "bilinear", "bicubic", "lanczos"] = (
-        "lanczos"
-    )
-
-    @model_validator(mode="after")
-    def _validate_resize(self) -> BatchingConfig:
-        has_exact_shape = (
-            self.resize_width is not None or self.resize_height is not None
-        )
-        if has_exact_shape and self.resize_max_long_edge is not None:
-            raise ValueError(
-                "BatchingConfig must use either exact resize shape or max_long_edge."
-            )
-        if self.resize_width is None and self.resize_height is not None:
-            raise ValueError(
-                "BatchingConfig.resize_width is required when resize_height is set."
-            )
-        if self.resize_height is None and self.resize_width is not None:
-            raise ValueError(
-                "BatchingConfig.resize_height is required when resize_width is set."
-            )
-        return self
 
 
 class InitializationSpec(TrainingConfigBase):
@@ -81,7 +54,7 @@ class InitializationSpec(TrainingConfigBase):
     initializer: CallableSpec = Field(
         default_factory=lambda: CallableSpec(
             target=(
-                "splatkit.initialization.initialize_gaussian_model_from_dataset"
+                "splatkit.initialization.initialize_gaussian_model_from_scene_record"
             )
         )
     )
@@ -103,20 +76,61 @@ class RenderPipelineSpec(TrainingConfigBase):
     postprocess_fn: CallableSpec | None = None
     return_alpha: bool = True
     return_depth: bool = False
+    return_gaussian_impact_score: bool = False
     return_normals: bool = False
     return_2d_projections: bool = False
     return_projective_intersection_transforms: bool = False
 
 
-class ParameterGroupConfig(TrainingConfigBase):
-    """Optimization settings for one parameter selector."""
+class TensorSliceSpec(TrainingConfigBase):
+    """Contiguous slice selection along one tensor axis."""
 
-    selector: str
-    optimizer: Literal["adam", "sgd"] = "adam"
+    axis: int = Field(ge=0)
+    start: int | None = None
+    stop: int | None = None
+
+
+class TensorViewSpec(TrainingConfigBase):
+    """Structured tensor view declaration."""
+
+    slices: tuple[TensorSliceSpec, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_unique_axes(self) -> TensorViewSpec:
+        axes = [slice_spec.axis for slice_spec in self.slices]
+        if len(set(axes)) != len(axes):
+            raise ValueError("TensorViewSpec axes must be unique.")
+        return self
+
+
+class ParameterTargetSpec(TrainingConfigBase):
+    """Declarative parameter target selection."""
+
+    scope: Literal["scene", "modules", "parameters"]
+    name: str
+    view: TensorViewSpec | None = None
+
+
+class ParameterGroupConfig(TrainingConfigBase):
+    """Optimization settings for one parameter target."""
+
+    target: ParameterTargetSpec
+    optimizer: str = "adam"
     lr: float = Field(gt=0.0)
     weight_decay: float = Field(default=0.0, ge=0.0)
     betas: tuple[float, float] = (0.9, 0.999)
     momentum: float = Field(default=0.0, ge=0.0)
+    optimizer_kwargs: dict[str, Any] = Field(default_factory=dict)
+    scheduler: CallableSpec | None = None
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> ParameterGroupConfig:
+        if self.target.view is not None and self.target.scope == "modules":
+            raise ValueError(
+                "ParameterGroupConfig.target.view is only supported for "
+                "scene and parameters targets."
+            )
+        return self
 
 
 class OptimizationConfig(TrainingConfigBase):
@@ -138,6 +152,12 @@ class HookConfig(TrainingConfigBase):
     builders: list[CallableSpec] = Field(default_factory=list)
 
 
+class DensificationConfig(TrainingConfigBase):
+    """Declarative densification builder configuration."""
+
+    builder: CallableSpec | None = None
+
+
 class CheckpointExportConfig(TrainingConfigBase):
     """Checkpoint directory export settings."""
 
@@ -157,6 +177,7 @@ class TrainingConfig(TrainingConfigBase):
     render: RenderPipelineSpec
     optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
     loss: LossConfig
+    densification: DensificationConfig | None = None
     hooks: HookConfig = Field(default_factory=HookConfig)
     checkpoint: CheckpointExportConfig = Field(
         default_factory=CheckpointExportConfig
@@ -183,14 +204,18 @@ __all__ = [
     "CallableSpec",
     "CheckpointExportConfig",
     "CheckpointMetadata",
+    "DensificationConfig",
     "HookConfig",
     "InitializationSpec",
     "LossConfig",
     "ModelSpec",
     "OptimizationConfig",
     "ParameterGroupConfig",
+    "ParameterTargetSpec",
     "ParameterSpec",
     "RenderPipelineSpec",
     "RuntimeConfig",
+    "TensorSliceSpec",
+    "TensorViewSpec",
     "TrainingConfig",
 ]

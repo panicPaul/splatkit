@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 
-"""Fail when a checked-out top-level submodule commit is not on its remote."""
+"""Warn when a checked-out top-level submodule commit is not on its remote."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+STRICT_ENV_VAR = "SPLATKIT_SUBMODULE_REMOTE_CHECK"
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,12 @@ def _remote_contains_commit(submodule: SubmoduleInfo, commit: str) -> bool:
     return commit in advertised_commits
 
 
+def _should_fail() -> bool:
+    """Return whether missing remote commits should fail the hook."""
+    mode = os.environ.get(STRICT_ENV_VAR, "warn").strip().lower()
+    return mode in {"fail", "error", "strict", "1", "true", "yes"}
+
+
 def main() -> int:
     """Validate that checked-out submodule commits are available on remotes."""
     try:
@@ -83,22 +91,30 @@ def main() -> int:
     if not missing:
         return 0
 
+    fail = _should_fail()
+    stream = sys.stderr if fail else sys.stdout
+    mode_text = (
+        "Failing because "
+        f"`{STRICT_ENV_VAR}` requests strict enforcement."
+        if fail
+        else "Continuing with a warning."
+    )
     print(
         "The following submodule commits are checked out locally but are not "
-        "advertised by their `origin` remotes:",
-        file=sys.stderr,
+        f"advertised by their `origin` remotes. {mode_text}",
+        file=stream,
     )
     for submodule, commit in missing:
         print(
             f"- {submodule.path.relative_to(REPO_ROOT)}: {commit}",
-            file=sys.stderr,
+            file=stream,
         )
         print(
             f"  Push it first: git -C {submodule.path.relative_to(REPO_ROOT)} "
             f"push origin {commit}:refs/heads/<branch>",
-            file=sys.stderr,
+            file=stream,
         )
-    return 1
+    return 1 if fail else 0
 
 
 if __name__ == "__main__":

@@ -39,10 +39,14 @@ def _get_backend_utils(
     if backend_name != "new_cuda":
         return None
     try:
-        import new_svraster_cuda
+        from splatkit_native_svraster.core.runtime import utils as native_utils
     except ImportError:
-        return None
-    return new_svraster_cuda.utils
+        try:
+            import new_svraster_cuda
+        except ImportError:
+            return None
+        return new_svraster_cuda.utils
+    return native_utils
 
 
 def _get_backend_max_num_levels(
@@ -53,10 +57,14 @@ def _get_backend_max_num_levels(
     if backend_name != "new_cuda":
         return fallback_max_num_levels
     try:
-        import new_svraster_cuda
+        from splatkit_native_svraster.core.runtime import utils as native_utils
     except ImportError:
-        return fallback_max_num_levels
-    return int(new_svraster_cuda.meta.MAX_NUM_LEVELS)
+        try:
+            import new_svraster_cuda
+        except ImportError:
+            return fallback_max_num_levels
+        return int(new_svraster_cuda.meta.MAX_NUM_LEVELS)
+    return native_utils.max_num_levels()
 
 
 def svraster_rgb_to_sh_zero(

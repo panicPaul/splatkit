@@ -1,6 +1,6 @@
 [project]
 name = "splatkit-dev-environment"
-version = "0.1.0"
+version = "0.0.1"
 description = "Dev environment for splatkit."
 readme = "README.md"
 authors = [
@@ -11,22 +11,85 @@ dependencies = [
     "torch>=2.11.0",
     # Editable dependencies
     "splatkit[all]",
-    "splatkit-backends[all]",
+    "marimo-config-gui>=0.0.1",
     "marimo-3dv>=0.1.1",
     # Non editable dependencies
     "marimo>=0.22.4",
     "ruff>=0.15.10",
     "ty>=0.0.29",
+    "altair>=6.1.0",
 ]
 [project.optional-dependencies]
+adapter-backends = ["splatkit-adapter-backends"]
+native-faster-gs = ["splatkit-native-faster-gs"]
+native-faster-gs-mojo = ["splatkit-native-faster-gs-mojo"]
+native-3dgrt = ["splatkit-native-3dgrt"]
+native-svraster = ["splatkit-native-svraster"]
+svraster-adapter = ["new-svraster-cuda"]
+gaussian-training = ["splatkit-gaussian-training"]
+all-backends = ["splatkit-adapter-backends[all]"]
+all-native = [
+    "splatkit-gaussian-training",
+    "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
+    "splatkit-native-3dgrt",
+    "splatkit-native-svraster",
+]
+all-unrestricted = [
+    "splatkit-adapter-backends[all]",
+    "splatkit-gaussian-training",
+    "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
+    "splatkit-native-3dgrt",
+]
+all = [
+    "splatkit-adapter-backends[all]",
+    "splatkit-gaussian-training",
+    "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
+    "splatkit-native-3dgrt",
+    "splatkit-native-svraster",
+]
 cu128 = ["torch>=2.11.0"]
 cu130 = ["torch>=2.11.0"]
+cu128-dev = [
+    "splatkit-adapter-backends[all]",
+    "splatkit-gaussian-training",
+    "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
+    "splatkit-native-3dgrt",
+    "splatkit-native-svraster",
+    "torch>=2.11.0",
+]
+cu130-dev = [
+    "splatkit-adapter-backends[all]",
+    "splatkit-gaussian-training",
+    "splatkit-native-faster-gs",
+    "splatkit-native-faster-gs-mojo",
+    "splatkit-native-3dgrt",
+    "splatkit-native-svraster",
+    "torch>=2.11.0",
+]
 
 [tool.uv]
 package = false
+prerelease = "allow"
+no-build-isolation-package = ["diff-gaussian-rasterization-fastgs"]
 conflicts = [
     [
         { extra = "cu128" },
+        { extra = "cu130" },
+    ],
+    [
+        { extra = "cu128-dev" },
+        { extra = "cu130-dev" },
+    ],
+    [
+        { extra = "cu128" },
+        { extra = "cu130-dev" },
+    ],
+    [
+        { extra = "cu128-dev" },
         { extra = "cu130" },
     ],
 ]
@@ -37,14 +100,29 @@ FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
 new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.sources]
+marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
 marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
 splatkit = { path = "packages/splatkit", editable = true }
-splatkit-backends = { path = "packages/splatkit-backends", editable = true }
+splatkit-gaussian-training = { path = "packages/splatkit-gaussian-training", editable = true }
+splatkit-adapter-backends = { path = "packages/splatkit-adapter-backends", editable = true }
+splatkit-native-faster-gs = { path = "packages/splatkit-native-faster-gs", editable = true }
+splatkit-native-faster-gs-mojo = { path = "packages/splatkit-native-faster-gs-mojo", editable = true }
+splatkit-native-3dgrt = { path = "packages/splatkit-native-3dgrt", editable = true }
+splatkit-native-svraster = { path = "packages/splatkit-native-svraster", editable = true }
+diff-gaussian-rasterization-fastgs = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
+max = { index = "modular-nightly" }
+mojo = { index = "modular-nightly" }
 torch = [
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },
+    { index = "pytorch-cu128", extra = "cu128-dev" },
+    { index = "pytorch-cu130", extra = "cu130-dev" },
 ]
+
+[[tool.uv.index]]
+name = "modular-nightly"
+url = "https://whl.modular.com/nightly/simple/"
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -139,6 +217,12 @@ markers = [
 ]
 
 
+[tool.marimo.runtime]
+# Torch, MAX, and custom CUDA modules register process-global dispatch state
+# during import. marimo autoreload can corrupt that state by reloading those
+# modules, so keep notebook module autoreload off for this repository.
+auto_reload = "off"
+
 
 
 # --- pixi specific ---
@@ -198,15 +282,19 @@ cu130 = ["cu130"]
 
 
 [tool.pixi.pypi-dependencies]
-splatkit-backends = { path = "packages/splatkit-backends", editable = true }
+marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
+splatkit = { path = "packages/splatkit", editable = true }
+splatkit-gaussian-training = { path = "packages/splatkit-gaussian-training", editable = true }
 marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
 diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
+"diff-gaussian-rasterization-fastgs" = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 "FasterGSCudaBackend" = { path = "third_party/faster-gaussian-splatting/FasterGSCudaBackend", editable = true }
 new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
 
 [tool.pixi.pypi-options]
 no-build-isolation = [
     "diff-gaussian-rasterization",
+    "diff-gaussian-rasterization-fastgs",
     "FasterGSCudaBackend",
     "new-svraster-cuda",
 ]
@@ -224,6 +312,9 @@ libgl-devel = ">=1.7.0,<2"
 libegl-devel = ">=1.7.0,<2"
 
 [tool.pixi.tasks]
+sync_cu128_dev_serial = "UV_CONCURRENT_BUILDS=1 uv sync --extra cu128-dev"
+sync_cu130_dev_serial = "UV_CONCURRENT_BUILDS=1 uv sync --extra cu130-dev"
 rebuild_svraster = "uv pip install --no-cache --no-build-isolation --reinstall third_party/sv_raster/backends/new_cuda"
 rebuild_fastergs = "uv pip install --no-cache --no-build-isolation --reinstall third_party/faster-gaussian-splatting/FasterGSCudaBackend"
+rebuild_fastgs = "uv pip install --no-cache --no-build-isolation --reinstall third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs"
 rebuild_inria = "uv pip install --no-cache --no-build-isolation --reinstall third_party/diff-gaussian-rasterization"

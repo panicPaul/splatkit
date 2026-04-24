@@ -14,13 +14,15 @@ from torch import Tensor
 
 from splatkit.core.contracts import CameraState
 from splatkit.data.contracts import (
+    CameraSensorDataset,
     DatasetFrame,
     HorizonAdjustmentSpec,
+    PathCameraImageSource,
     PointCloudState,
-    SceneDataset,
+    SceneRecord,
     horizontal_fov_degrees,
 )
-from splatkit.data.postprocess import adjust_dataset_horizon
+from splatkit.data.postprocess import adjust_scene_record_horizon
 
 _CAMERA_MODEL_IDS = {
     0: ("SIMPLE_PINHOLE", 3),
@@ -33,6 +35,7 @@ _CAMERA_MODELS = {
     name: num_params for name, num_params in _CAMERA_MODEL_IDS.values()
 }
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+_COLMAP_CAMERA_SENSOR_ID = "camera"
 
 
 @dataclass(frozen=True)
@@ -379,8 +382,9 @@ def _build_scene_dataset(
     images: dict[int, _ColmapImage],
     points: dict[int, _ColmapPoint],
     undistorted_images: dict[int, tuple[Path, Float[Tensor, " 3 3"]]] | None,
-) -> SceneDataset:
+) -> SceneRecord:
     frames: list[DatasetFrame] = []
+    frame_paths: dict[str, Path] = {}
     widths: list[int] = []
     heights: list[int] = []
     fov_degrees: list[float] = []
@@ -415,12 +419,13 @@ def _build_scene_dataset(
         frames.append(
             DatasetFrame(
                 frame_id=str(image.image_id),
-                image_path=image_path,
+                sensor_id=_COLMAP_CAMERA_SENSOR_ID,
                 camera_index=camera_index,
                 width=camera.width,
                 height=camera.height,
             )
         )
+        frame_paths[str(image.image_id)] = image_path
 
     point_cloud = None
     if points:
@@ -440,8 +445,11 @@ def _build_scene_dataset(
             ),
         )
 
-    return SceneDataset(
+    camera_sensor = CameraSensorDataset(
+        sensor_id=_COLMAP_CAMERA_SENSOR_ID,
+        kind="camera",
         frames=tuple(frames),
+        timestamps_us=tuple(frame.timestamp_us for frame in frames),
         camera=CameraState(
             width=torch.tensor(widths, dtype=torch.int64),
             height=torch.tensor(heights, dtype=torch.int64),
@@ -450,8 +458,14 @@ def _build_scene_dataset(
             intrinsics=torch.stack(intrinsics, dim=0),
             camera_convention="opencv",
         ),
+        image_source=PathCameraImageSource(frame_paths=frame_paths),
+    )
+
+    return SceneRecord(
+        sensors=(camera_sensor,),
         source_format="colmap",
-        root_path=source_root,
+        default_camera_sensor_id=_COLMAP_CAMERA_SENSOR_ID,
+        source_uris=(str(source_root),),
         point_cloud=point_cloud,
     )
 
@@ -463,8 +477,8 @@ def load_colmap_dataset(
     image_root: str | Path | None = None,
     undistort_output_dir: str | Path | None = None,
     horizon_adjustment: HorizonAdjustmentSpec | None = None,
-) -> SceneDataset:
-    """Load a COLMAP sparse model into a SceneDataset."""
+) -> SceneRecord:
+    """Load a COLMAP sparse model into a SceneRecord."""
     source_root = Path(path)
     cameras_path, images_path, points_path = _resolve_sparse_paths(source_root)
     if cameras_path.suffix == ".bin":
@@ -497,5 +511,5 @@ def load_colmap_dataset(
         undistorted_images=undistorted_images,
     )
     if horizon_adjustment is not None:
-        dataset = adjust_dataset_horizon(dataset, horizon_adjustment)
+        dataset = adjust_scene_record_horizon(dataset, horizon_adjustment)
     return dataset

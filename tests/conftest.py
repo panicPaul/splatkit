@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 import torch
 from splatkit.core import (
@@ -106,6 +108,15 @@ def cpu_sparse_voxel_scene() -> SparseVoxelScene:
 
 
 @pytest.fixture
+def cuda_sparse_voxel_scene(
+    cpu_sparse_voxel_scene: SparseVoxelScene,
+) -> SparseVoxelScene:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for SVRaster native tests.")
+    return cpu_sparse_voxel_scene.to(torch.device("cuda"))
+
+
+@pytest.fixture
 def cpu_camera() -> CameraState:
     cam_to_world = torch.eye(4, dtype=torch.float32)[None]
     cam_to_world[:, 2, 3] = 3.0
@@ -123,6 +134,22 @@ def cuda_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required for gsplat backend tests.")
     return cpu_scene.to(torch.device("cuda"))
+
+
+@pytest.fixture
+def cpu_visible_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
+    return replace(
+        cpu_scene,
+        center_position=cpu_scene.center_position
+        + torch.tensor([0.0, 0.0, 5.0], dtype=torch.float32),
+    )
+
+
+@pytest.fixture
+def cuda_visible_scene(cpu_visible_scene: GaussianScene3D) -> GaussianScene3D:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for gsplat backend tests.")
+    return cpu_visible_scene.to(torch.device("cuda"))
 
 
 @pytest.fixture

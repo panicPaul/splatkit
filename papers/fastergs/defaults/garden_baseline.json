@@ -1,0 +1,83 @@
+{
+  "preset": "garden_baseline",
+  "backend": "adapter.fastergs",
+  "scene": {
+    "path": "dataset/mipnerf360/garden",
+    "image_root": null,
+    "undistort_output_dir": null,
+    "align_horizon": true
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 0.25,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "decoded",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 0,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "model": {
+    "sh_degree": 3,
+    "initial_scale": 0.01,
+    "initial_opacity": 0.1,
+    "default_color": [
+      0.5,
+      0.5,
+      0.5
+    ]
+  },
+  "render": {
+    "proper_antialiasing": false,
+    "near_plane": 0.2,
+    "far_plane": 10000.0,
+    "background_color": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "optimization": {
+    "optimizer": "splatkit_gaussian_training.FusedAdam",
+    "means_lr_init": 0.00016,
+    "means_lr_final": 0.0000016,
+    "means_lr_max_steps": 30000,
+    "sh_dc_lr": 0.0025,
+    "sh_rest_lr": 0.000125,
+    "opacity_lr": 0.025,
+    "scale_lr": 0.005,
+    "rotation_lr": 0.001
+  },
+  "loss": {
+    "lambda_l1": 0.8,
+    "lambda_dssim": 0.2,
+    "lambda_opacity_regularization": 0.0,
+    "lambda_scale_regularization": 0.0
+  },
+  "densification": {
+    "use_mcmc": false,
+    "refine_every": 100,
+    "start_iter": 600,
+    "stop_iter": 14900,
+    "grad_threshold": 0.0002,
+    "dense_fraction": 0.01,
+    "prune_opacity_threshold": 0.005,
+    "opacity_reset_every": 3000,
+    "max_reset_opacity": 0.01,
+    "min_opacity": 0.005,
+    "max_primitives": 1000000,
+    "noise_lr_scale": 500000.0
+  },
+  "checkpoint": {
+    "output_dir": "checkpoints/papers/fastergs/garden_baseline/adapter.fastergs",
+    "export_ply": true
+  },
+  "execution": {
+    "device": "cuda",
+    "seed": 0,
+    "max_steps": 30000,
+    "batch_size": 1,
+    "shuffle": true
+  }
+}

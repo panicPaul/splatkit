@@ -13,3 +13,6 @@
 [submodule "third_party/Stoch3DGS"]
 	path = third_party/Stoch3DGS
 	url = https://github.com/panicPaul/Stoch3DGS.git
+[submodule "third_party/FastGS"]
+	path = third_party/FastGS
+	url = https://github.com/fastgs/FastGS.git

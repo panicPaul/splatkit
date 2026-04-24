@@ -1,8 +1,8 @@
 """Structural typing for backend output capabilities."""
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
-from jaxtyping import Float
+from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 
@@ -16,6 +16,43 @@ class HasDepth(Protocol):
     """Output capability for depth."""
 
     depth: Float[Tensor, "num_cams height width"]
+
+
+class HasGaussianImpactScore(Protocol):
+    """Output capability for backend-defined per-Gaussian impact scores."""
+
+    gaussian_impact_score: Float[Tensor, "num_cams num_splats"]
+
+
+@runtime_checkable
+class HasViewspacePoints(Protocol):
+    """Output capability for per-Gaussian view-space point buffers."""
+
+    viewspace_points: Float[Tensor, "num_cams num_splats 4"]
+
+
+@runtime_checkable
+class HasVisibilityFilter(Protocol):
+    """Output capability for per-Gaussian visibility masks."""
+
+    visibility_filter: Bool[Tensor, "num_cams num_splats"]
+
+
+@runtime_checkable
+class HasScreenSpaceRadii(Protocol):
+    """Output capability for per-Gaussian screen-space radii."""
+
+    radii: Int[Tensor, "num_cams num_splats"]
+
+
+@runtime_checkable
+class HasScreenSpaceDensificationSignals(
+    HasViewspacePoints,
+    HasVisibilityFilter,
+    HasScreenSpaceRadii,
+    Protocol,
+):
+    """Output capability for densification-relevant screen-space signals."""
 
 
 class HasNormals(Protocol):
@@ -67,6 +104,13 @@ class RenderWithDepth(Protocol):
     depth: Float[Tensor, "num_cams height width"]
 
 
+class RenderWithGaussianImpactScore(Protocol):
+    """Render output that guarantees Gaussian impact scores."""
+
+    render: Float[Tensor, "num_cams height width 3"]
+    gaussian_impact_score: Float[Tensor, "num_cams num_splats"]
+
+
 class RenderWithNormals(Protocol):
     """Render output that guarantees normals."""
 
@@ -80,6 +124,12 @@ class RenderWithAlphaDepth(Protocol):
     render: Float[Tensor, "num_cams height width 3"]
     alphas: Float[Tensor, "num_cams height width"]
     depth: Float[Tensor, "num_cams height width"]
+
+
+class RenderWithDepthGaussianImpactScore(
+    RenderWithDepth, HasGaussianImpactScore, Protocol
+):
+    """Render output that guarantees depth and Gaussian impact scores."""
 
 
 class RenderWith2DProjections(Protocol):

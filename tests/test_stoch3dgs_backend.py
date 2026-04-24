@@ -6,14 +6,14 @@ import pytest
 import torch
 from beartype.roar import BeartypeCallHintParamViolation
 from splatkit.core import BACKEND_REGISTRY, RenderOptions, render
-from splatkit_backends.stoch3dgs import (
+from splatkit_adapter_backends.stoch3dgs import (
     Stoch3DGSAlphaRenderOutput,
     Stoch3DGSRenderOptions,
     Stoch3DGSRenderOutput,
     register,
     render_stoch3dgs,
 )
-from splatkit_backends.stoch3dgs.renderer import _flatten_sh_features
+from splatkit_adapter_backends.stoch3dgs.renderer import _flatten_sh_features
 
 register()
 
@@ -60,11 +60,11 @@ def test_render_stoch3dgs_rgb_alpha_shapes(
 ) -> None:
     fake_tracer = _FakeTracer()
     monkeypatch.setattr(
-        "splatkit_backends.stoch3dgs.renderer._get_tracer",
+        "splatkit_adapter_backends.stoch3dgs.renderer._get_tracer",
         lambda scene, options: fake_tracer,
     )
     monkeypatch.setattr(
-        "splatkit_backends.stoch3dgs.renderer._import_stoch_runtime",
+        "splatkit_adapter_backends.stoch3dgs.renderer._import_stoch_runtime",
         lambda: (object, _FakeBatch),
     )
 
@@ -91,11 +91,11 @@ def test_render_stoch3dgs_depth_and_background(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_backends.stoch3dgs.renderer._get_tracer",
+        "splatkit_adapter_backends.stoch3dgs.renderer._get_tracer",
         lambda scene, options: _FakeTracer(),
     )
     monkeypatch.setattr(
-        "splatkit_backends.stoch3dgs.renderer._import_stoch_runtime",
+        "splatkit_adapter_backends.stoch3dgs.renderer._import_stoch_runtime",
         lambda: (object, _FakeBatch),
     )
 
@@ -165,9 +165,9 @@ def test_render_stoch3dgs_beartype_rejects_wrong_options(
 
 
 def test_registry_contains_stoch3dgs() -> None:
-    assert "stoch3dgs" in BACKEND_REGISTRY
+    assert "adapter.stoch3dgs" in BACKEND_REGISTRY
     assert isinstance(
-        BACKEND_REGISTRY["stoch3dgs"].default_options,
+        BACKEND_REGISTRY["adapter.stoch3dgs"].default_options,
         Stoch3DGSRenderOptions,
     )
 
@@ -183,11 +183,11 @@ def test_generic_render_stoch3dgs_returns_depth(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_backends.stoch3dgs.renderer._get_tracer",
+        "splatkit_adapter_backends.stoch3dgs.renderer._get_tracer",
         lambda scene, options: _FakeTracer(),
     )
     monkeypatch.setattr(
-        "splatkit_backends.stoch3dgs.renderer._import_stoch_runtime",
+        "splatkit_adapter_backends.stoch3dgs.renderer._import_stoch_runtime",
         lambda: (object, _FakeBatch),
     )
 
@@ -196,7 +196,7 @@ def test_generic_render_stoch3dgs_returns_depth(
         render(
             cuda_scene,
             cuda_camera,
-            backend="stoch3dgs",
+            backend="adapter.stoch3dgs",
             return_depth=True,
         ),
     )

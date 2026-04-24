@@ -16,27 +16,68 @@ git submodule update --init --recursive
 uv venv
 ```
 
-Then install dependencies with the default `torch` build:
+Then install just the core dev environment:
 
 ```bash
 uv sync
 ```
 
-To try a CUDA-specific PyTorch wheel through `uv`, select an extra:
+Opt into specific backend families as needed:
 
 ```bash
-uv sync --extra cu128
+uv sync --extra adapter-backends --extra cu130
+uv sync --extra native-faster-gs --extra cu130
+uv sync --extra native-faster-gs-mojo --extra cu130
+uv sync --extra native-3dgrt --extra cu130
+uv sync --extra native-svraster --extra cu130
+uv sync --extra native-svraster --extra svraster-adapter --extra cu130
 ```
 
-or:
+Or install only the first-party native backend families:
 
 ```bash
-uv sync --extra cu130
+uv sync --extra all-native --extra cu130
+```
+
+Here "native" means the backend kernels are vendored into this repository,
+modernized, and split into reusable stages such as preprocess, sort, and
+blend. Those stages are exposed as Torch custom ops where useful. When an
+adapter-backed reference exists, the native path is tested against it; some
+native families are true first-party implementations without a corresponding
+adapter.
+
+Or install the full CUDA-specific developer environment in one step, including
+all adapter backends, all native families, and the restricted SVRaster family:
+
+```bash
+uv sync --extra cu130-dev
+```
+
+If you want the same install with lower peak memory usage during native builds,
+you can do that with `uv` directly by forcing serial builds:
+
+```bash
+UV_CONCURRENT_BUILDS=1 uv sync --extra cu128-dev
+UV_CONCURRENT_BUILDS=1 uv sync --extra cu130-dev
 ```
 
 Notes:
-- plain `uv sync` uses the default `torch` dependency
-- `cu128` and `cu130` are mutually exclusive
+- plain `uv sync` keeps the root environment minimal
+- `adapter-backends`, `native-faster-gs`, `native-3dgrt`, and
+  `native-svraster` are opt-in family/category extras
+- `svraster-adapter` is a separate opt-in for the upstream
+  `new-svraster-cuda` comparison path used by the SVRaster notebook
+- `cu128` and `cu130` are mutually exclusive, as are `cu128-dev` and
+  `cu130-dev`
+- `cu128-dev` and `cu130-dev` install everything in this monorepo’s Python
+  package graph, including `splatkit-adapter-backends[all]` and
+  `splatkit-native-svraster`
+- `UV_CONCURRENT_BUILDS=1` forces `uv` to build packages serially, which is
+  slower but avoids the very high RAM spikes from parallel native extension
+  builds
+- all first-party native backends are JIT-compiled on first use, so expect some
+  compile time the first time you launch a viewer or render through a native
+  family backend
 - the CUDA extras only affect Python package resolution, especially the PyTorch
   wheel index
 - prefer `uv` first because it is the simplest path
@@ -64,6 +105,14 @@ pixi shell -e cu128
 ```bash
 pixi install -e cu130
 pixi shell -e cu130
+```
+
+If you prefer not to remember those `uv` commands, there are also optional Pixi
+task wrappers for the same serial `uv` installs:
+
+```bash
+pixi run sync_cu128_dev_serial
+pixi run sync_cu130_dev_serial
 ```
 
 ## What This Repository Is For
@@ -123,7 +172,7 @@ those pieces easier to share and compare without forcing them into one monolith.
 
 - `splatkit`: the stripped-down core package for contracts, traits,
   registration, and shared optional modules over time.
-- `splatkit-backends`: a separate package containing wrappers for commonly used
+- `splatkit-adapter-backends`: a separate package containing wrappers for commonly used
   backend implementations.
 - `marimo-3dv`: today a separate third-party package in this repo, eventually
   intended to become part of the broader splatkit ecosystem as the notebook/UI
@@ -151,7 +200,10 @@ once.
 ```text
 packages/
   splatkit/                Minimal core contracts and shared abstractions
-  splatkit-backends/       Official backend adapters and wrappers
+  splatkit-adapter-backends/ Official backend adapters and wrappers
+  splatkit-native-faster-gs/ FasterGS-family native backends
+  splatkit-native-3dgrt/    3DGRT-family native backends
+  splatkit-native-svraster/ SVRaster-family native backends
 third_party/
   marimo-3dv/              Viewer and marimo utility layer
   diff-gaussian-rasterization/  Forked Inria rasterizer
@@ -167,11 +219,36 @@ notebooks/                 Monorepo-level examples
   registration, and shared runtime helpers, with opt-in extras like
   `viewer`, `training`, `eval`, and `all`; the viewer stack remains separate
   from `all` for now
-- `splatkit-backends`: wrappers around commonly used implementations such as
-  `gsplat`, the local Inria path, and the local `Stoch3DGS` path, with
+- `splatkit-adapter-backends`: wrappers around third-party implementations such
+  as `adapter.gsplat`, `adapter.inria`, and `adapter.stoch3dgs`, with
   per-backend extras plus `all`
+- `splatkit-native-faster-gs`: the FasterGS native family with
+  `faster_gs.core`, `faster_gs.depth`, and `faster_gs.gaussian_pop`
+- `splatkit-native-3dgrt`: the 3DGRT native family with the reusable `core`
+  module and the `3dgrt.stoch3dgs` backend
+- `splatkit-native-svraster`: the SVRaster native family with the reusable
+  `core` module and the `svraster.core` backend; the upstream
+  `new-svraster-cuda` adapter path remains a separate optional install
 - `marimo-3dv`: utilities for `marimo`, desktop viewers, and auto-generated GUI
   options that work well with serializable configs
+
+All first-party native family packages use JIT compilation for their native
+extensions. The first render or viewer launch for a given native backend will
+usually spend some time compiling kernels before the runtime is warm.
+
+## Upstream Inspirations
+
+The backend families in this repository started from existing upstream
+implementations and papers. The main references are:
+
+- GraphDeco / Inria 3D Gaussian Splatting: https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/
+- gsplat: https://docs.gsplat.studio/main/
+- FasterGS: https://fhahlbohm.github.io/faster-gaussian-splatting/
+- FastGS: https://fastgs.github.io/
+- 3DGRT: https://gaussiantracer.github.io/
+- Stoch3DGS: https://xupaya.github.io/stoch3DGS/
+- SVRaster: https://svraster.github.io/
+- GaussianPOP paper: https://arxiv.org/pdf/2602.06830
 
 Typical package install paths:
 
@@ -179,24 +256,37 @@ Typical package install paths:
 pip install splatkit
 pip install "splatkit[viewer]"
 pip install "splatkit[all]"
-pip install "splatkit-backends[gsplat]"
-pip install "splatkit-backends[inria]"
-pip install "splatkit-backends[stoch3dgs]"
-pip install "splatkit-backends[all]"
+pip install "splatkit-adapter-backends[gsplat]"
+pip install "splatkit-adapter-backends[inria]"
+pip install "splatkit-adapter-backends[stoch3dgs]"
+pip install "splatkit-adapter-backends[all]"
+pip install splatkit-native-faster-gs
+pip install splatkit-native-3dgrt
+pip install splatkit-native-svraster
 ```
 
 ## Supported Backends
 
-Currently registered backends in `splatkit-backends`:
+Official adapter backends:
 
 | Backend name | Scene type | Alpha | Depth | Normals | 2D projections | Projective intersection transforms | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gsplat_2dgs` | `GaussianScene2D` | ✅ | ✅ | ❌ | ❌ | ✅ | 2D Gaussian backend via `gsplat.rasterization_2dgs` |
-| `fastergs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB-only FasterGS adapter |
-| `gsplat` | `GaussianScene3D` | ✅ | ✅ | ❌ | ✅ | ❌ | 3D Gaussian backend via `gsplat.rasterization` |
-| `inria` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | GraphDeco/Inria rasterizer adapter |
-| `stoch3dgs` | `GaussianScene3D` | ✅ | ✅ | ❌ | ❌ | ❌ | Stochastic 3DGRT adapter |
-| `svraster` | `SparseVoxelScene` | ❌ | ✅ | ❌ | ❌ | ❌ | Sparse voxel rasterization backend |
+| `adapter.fastgs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB plus backend-specific FastGS refinement signals |
+| `adapter.fastergs` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | RGB-only FasterGS adapter |
+| `adapter.gsplat` | `GaussianScene3D` | ✅ | ✅ | ❌ | ✅ | ❌ | 3D Gaussian backend via `gsplat.rasterization` |
+| `adapter.gsplat_2dgs` | `GaussianScene2D` | ✅ | ✅ | ❌ | ❌ | ✅ | 2D Gaussian backend via `gsplat.rasterization_2dgs` |
+| `adapter.inria` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | GraphDeco/Inria rasterizer adapter |
+| `adapter.stoch3dgs` | `GaussianScene3D` | ✅ | ✅ | ❌ | ❌ | ❌ | Stochastic 3DGRT adapter |
+
+Official native family backends:
+
+| Backend name | Scene type | Alpha | Depth | Normals | 2D projections | Projective intersection transforms | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `faster_gs.core` | `GaussianScene3D` | ❌ | ❌ | ❌ | ❌ | ❌ | FasterGS-family native root backend |
+| `faster_gs.depth` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | FasterGS-family native depth backend |
+| `faster_gs.gaussian_pop` | `GaussianScene3D` | ❌ | ✅ | ❌ | ❌ | ❌ | FasterGS-family native scoring backend |
+| `3dgrt.stoch3dgs` | `GaussianScene3D` | ✅ | ✅ | ✅ | ❌ | ❌ | 3DGRT-family native traced backend |
+| `svraster.core` | `SparseVoxelScene` | ❌ | ✅ | ❌ | ❌ | ❌ | SVRaster-family native backend |
 
 Capability notes:
 - `alpha`: per-pixel accumulated opacity/transmittance output.
@@ -205,10 +295,10 @@ Capability notes:
 - `2d_projections`: projected Gaussian centers plus compact conic coefficients via `projected_means` and `projected_conics`.
 - `projective_intersection_transforms`: projected Gaussian centers plus 2DGS projective intersection geometry via `projected_means` and `projective_intersection_transforms`.
 
-## Stoch3DGS / OptiX
+## 3DGRT / OptiX
 
-The `stoch3dgs` backend requires NVIDIA OptiX to build the upstream 3DGRT
-runtime.
+The `adapter.stoch3dgs` and `3dgrt.stoch3dgs` backends require NVIDIA OptiX to
+build the upstream 3DGRT runtime.
 
 What is required:
 - an NVIDIA driver and GPU that support OptiX
@@ -229,15 +319,16 @@ git submodule update --init --recursive
 ```
 
 If you already had the repo cloned before `Stoch3DGS` was added, rerun the same
-command after pulling the latest changes. In particular, `stoch3dgs` will not
-compile unless the nested `optix-dev` submodule inside `third_party/Stoch3DGS`
-is present.
+command after pulling the latest changes. In particular, the 3DGRT backends
+will not compile unless the nested `optix-dev` submodule inside
+`third_party/Stoch3DGS` is present.
 
 Recommended install flow for the backend:
 
 ```bash
 git submodule update --init --recursive
-uv pip install -e './packages/splatkit-backends[stoch3dgs,cu130]'
+uv pip install -e './packages/splatkit-adapter-backends[stoch3dgs,cu130]'
+uv pip install -e './packages/splatkit-native-3dgrt[cu130]'
 ```
 
 If OptiX headers are still missing after a recursive submodule update, inspect:
@@ -254,41 +345,49 @@ threedgrt_tracer/dependencies/optix-dev
 
 ## Versioning
 
-`packages/splatkit` and `packages/splatkit-backends` now derive their published
-versions from Git tags via `hatch-vcs`.
+`packages/splatkit`, `packages/splatkit-adapter-backends`, and the native family
+packages now derive their published versions from Git tags via `hatch-vcs`.
 
-- tagged commits build stable versions like `0.1.0`
+- tagged commits build stable versions like `0.0.1`
 - commits after a tag build unique dev versions tied to that tagged line
-- before the first tag, builds fall back to `0.1.0a0`
+- before the first tag, builds fall back to `0.0.1a0`
 
 Recommended release flow:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.0.1
+git push origin v0.0.1
 ```
 
 Recommended pinning flow for colleagues:
 
 ```bash
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit"
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-backends"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-adapter-backends"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-native-faster-gs"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-native-3dgrt"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-native-svraster"
 ```
 
 Both packages also expose their installed version at runtime via
-`splatkit.__version__` and `splatkit_backends.__version__`.
+`splatkit.__version__` and `splatkit_adapter_backends.__version__`.
 
 For local monorepo development, `uv` keeps these sources editable:
 
 - `packages/splatkit`
-- `packages/splatkit-backends`
+- `packages/splatkit-adapter-backends`
+- `packages/splatkit-native-faster-gs`
+- `packages/splatkit-native-3dgrt`
+- `packages/splatkit-native-svraster`
 - `third_party/marimo-3dv`
 - `third_party/diff-gaussian-rasterization`
 - `third_party/faster-gaussian-splatting/FasterGSCudaBackend`
+- `third_party/sv_raster/backends/new_cuda`
 
-The workspace root is a development environment package. It depends on
-`splatkit[all]`, `splatkit-backends[all]`, `marimo`, `marimo-3dv`, `torch`,
-`ruff`, and `ty`, rather than depending on individual backend wheels directly.
+The workspace root is a development environment package. Its default install is
+minimal, and backend families are pulled in through opt-in extras such as
+`adapter-backends`, `native-faster-gs`, `native-3dgrt`, `native-svraster`,
+`all-unrestricted`, and `cu130-dev`.
 
 Development note: we tried making `packages/*` true `uv` workspace members, but
 `uv` currently rejects that setup because the package-local `cu128` / `cu130`
@@ -419,11 +518,11 @@ repository-owned multiprocessing workers.
 
 | Goal | Subgoals | Status |
 | --- | --- | --- |
-| Core contracts and traits | Typed scene/camera contracts, capability traits, backend registry, shared render surface across `inria`, `gsplat`, and other registered backends | Done |
+| Core contracts and traits | Typed scene/camera contracts, capability traits, backend registry, shared render surface across `adapter.inria`, `adapter.gsplat`, and other registered backends | Done |
 | Viewer workflow | Viewer works well in `marimo`, plus an experimental desktop viewer that reuses marimo-defined GUI elements | In progress |
 | Notebook to script workflow | Define custom GUI elements in a notebook, then run the notebook as a Python file for a more interactive local viewer flow | In progress |
-| Backend wrappers | Current wrappers for `inria`, `gsplat`, `svraster`, `fastergs`, and `stoch3dgs`, with broader training-oriented wrappers still planned | In progress |
-| Hackable backend implementations | Stripped-down, modular variant of `FasterGS` aimed at rapid experimentation and easier modification while minimizing perfomance cost | Planned |
+| Backend wrappers | Current adapter backends for `adapter.inria`, `adapter.gsplat`, `adapter.fastergs`, and `adapter.stoch3dgs`, with broader training-oriented wrappers still planned | In progress |
+| Hackable backend implementations | Modular native families for `faster_gs.*`, `3dgrt.*`, and `svraster.*`, aimed at rapid experimentation and easier modification while minimizing performance cost | In progress |
 | Training and data pipeline | Dataloading, training scripts, training utilities, and evaluation scripts | Not started |
 | Densification framework | Hackable densification design that stays flexible without becoming overly verbose | Not started |
 

@@ -8,7 +8,7 @@ from splatkit.core import (
     RenderWithDepthProjectiveIntersectionTransforms,
     render,
 )
-from splatkit_backends.gsplat import (
+from splatkit_adapter_backends.gsplat import (
     GsplatAlphaRenderOutput,
     GsplatRenderOptions,
     GsplatRenderOutput,
@@ -56,7 +56,7 @@ def test_generic_render_returns_2d_projections(cuda_scene, cuda_camera) -> None:
     output: RenderWith2DProjections = render(
         cuda_scene,
         cuda_camera,
-        backend="gsplat",
+        backend="adapter.gsplat",
         return_2d_projections=True,
     )
 
@@ -73,7 +73,7 @@ def test_generic_render_returns_depth_and_2d_projections(
     output: RenderWithDepth2DProjections = render(
         cuda_scene,
         cuda_camera,
-        backend="gsplat",
+        backend="adapter.gsplat",
         return_depth=True,
         return_2d_projections=True,
     )
@@ -109,7 +109,7 @@ def test_gsplat_packed_true_rejects_2d_projections(
         render(
             cuda_scene,
             cuda_camera,
-            backend="gsplat",
+            backend="adapter.gsplat",
             return_2d_projections=True,
             options=GsplatRenderOptions(packed=True),
         )
@@ -154,7 +154,7 @@ def test_generic_render_gsplat_2dgs_rejects_2d_projections(
         render(
             cuda_scene_2d,
             cuda_camera,
-            backend="gsplat_2dgs",
+            backend="adapter.gsplat_2dgs",
             return_2d_projections=True,
         )
 
@@ -165,7 +165,7 @@ def test_generic_render_gsplat_2dgs_returns_intersection_transforms(
     output: RenderWithDepthProjectiveIntersectionTransforms = render(
         cuda_scene_2d,
         cuda_camera,
-        backend="gsplat_2dgs",
+        backend="adapter.gsplat_2dgs",
         return_depth=True,
         return_projective_intersection_transforms=True,
     )

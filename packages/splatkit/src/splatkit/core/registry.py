@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal, overload
+from typing import Literal, TypeVar, overload
 
 from beartype import beartype
 
@@ -20,8 +20,10 @@ from splatkit.core.capabilities import (
     RenderWithAlphaProjectiveIntersectionTransforms,
     RenderWithDepth,
     RenderWithDepth2DProjections,
+    RenderWithDepthGaussianImpactScore,
     RenderWithDepthNormals,
     RenderWithDepthProjectiveIntersectionTransforms,
+    RenderWithGaussianImpactScore,
     RenderWithNormals,
     RenderWithProjectiveIntersectionTransforms,
 )
@@ -34,6 +36,8 @@ from splatkit.core.contracts import (
     Scene,
 )
 
+T = TypeVar("T")
+
 
 @dataclass(frozen=True)
 class RegisteredBackend:
@@ -44,6 +48,7 @@ class RegisteredBackend:
     default_options: RenderOptions
     accepted_scene_types: tuple[type[Scene], ...]
     supported_outputs: frozenset[OutputName] = frozenset()
+    trait_providers: tuple[object, ...] = ()
 
 
 BACKEND_REGISTRY: dict[BackendName, RegisteredBackend] = {}
@@ -55,6 +60,7 @@ def register_backend(
     default_options: RenderOptions,
     accepted_scene_types: tuple[type[Scene], ...],
     supported_outputs: frozenset[OutputName] = frozenset(),
+    trait_providers: tuple[object, ...] = (),
 ) -> Callable[[Callable[..., RenderOutput]], Callable[..., RenderOutput]]:
     """Register a backend render function as a decorator."""
 
@@ -67,10 +73,66 @@ def register_backend(
             default_options=default_options,
             accepted_scene_types=accepted_scene_types,
             supported_outputs=supported_outputs,
+            trait_providers=trait_providers,
         )
         return render_fn
 
     return decorator
+
+
+def resolve_backend_trait(backend_name: BackendName, trait_type: type[T]) -> T:
+    """Resolve a runtime-checkable trait provider for a registered backend."""
+    registered_backend = BACKEND_REGISTRY.get(backend_name)
+    if registered_backend is None:
+        available = ", ".join(sorted(BACKEND_REGISTRY)) or "<none>"
+        raise ValueError(
+            f"Unknown backend {backend_name!r}. Available backends: {available}."
+        )
+    try:
+        for provider in registered_backend.trait_providers:
+            if isinstance(provider, trait_type):
+                return provider
+    except TypeError as exc:
+        raise TypeError(
+            "Trait resolution requires a runtime-checkable trait protocol or "
+            f"concrete type, got {trait_type!r}."
+        ) from exc
+    raise ValueError(
+        f"Backend {backend_name!r} does not provide trait "
+        f"{trait_type.__name__}."
+    )
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_gaussian_impact_score: Literal[True],
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[False] = False,
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithGaussianImpactScore: ...
+
+
+@overload
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_gaussian_impact_score: Literal[True],
+    return_alpha: Literal[False] = False,
+    return_depth: Literal[True] = True,
+    return_normals: Literal[False] = False,
+    return_2d_projections: Literal[False] = False,
+    return_projective_intersection_transforms: Literal[False] = False,
+    options: RenderOptions | None = None,
+) -> RenderWithDepthGaussianImpactScore: ...
 
 
 @overload
@@ -321,6 +383,7 @@ def render(
     backend: BackendName,
     return_alpha: bool = False,
     return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
     return_normals: bool = False,
     return_2d_projections: bool = False,
     return_projective_intersection_transforms: bool = False,
@@ -348,6 +411,7 @@ def render(
         for enabled, name in (
             (return_alpha, "alpha"),
             (return_depth, "depth"),
+            (return_gaussian_impact_score, "gaussian_impact_score"),
             (return_normals, "normals"),
             (return_2d_projections, "2d_projections"),
             (
@@ -376,6 +440,7 @@ def render(
         camera,
         return_alpha=return_alpha,
         return_depth=return_depth,
+        return_gaussian_impact_score=return_gaussian_impact_score,
         return_normals=return_normals,
         return_2d_projections=return_2d_projections,
         return_projective_intersection_transforms=(
