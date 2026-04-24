@@ -11,7 +11,12 @@ from typing import Any
 
 import torch
 
-from splatkit.benchmarks import RenderBenchmarkResult, benchmark_backend_render
+from splatkit.benchmarks import (
+    RenderAutogradBenchmarkResult,
+    RenderBenchmarkResult,
+    benchmark_backend_render,
+    benchmark_backend_render_autograd,
+)
 from splatkit.core import BACKEND_REGISTRY, CameraState, GaussianScene3D
 from splatkit.data import load_colmap_scene_record, resolve_colmap_scene_path
 from splatkit.initialization import initialize_gaussian_scene_from_scene_record
@@ -44,6 +49,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--warmup-steps", type=int, default=10)
     parser.add_argument("--measured-steps", type=int, default=100)
+    parser.add_argument(
+        "--include-backward",
+        action="store_true",
+        help="Measure render forward and backward timings separately.",
+    )
     parser.add_argument("--sh-degree", type=int, default=0)
     parser.add_argument("--initial-scale", type=float, default=0.01)
     parser.add_argument("--initial-opacity", type=float, default=0.1)
@@ -118,6 +128,61 @@ def _build_comparison_payload(
     }
 
 
+def _build_autograd_comparison_payload(
+    primary: RenderAutogradBenchmarkResult,
+    comparison: RenderAutogradBenchmarkResult | None = None,
+) -> dict[str, Any]:
+    """Format one or two autograd render benchmark results for JSON output."""
+    if comparison is None:
+        return asdict(primary)
+    faster_forward_backend = (
+        primary.backend
+        if primary.mean_forward_ms <= comparison.mean_forward_ms
+        else comparison.backend
+    )
+    faster_backward_backend = (
+        primary.backend
+        if primary.mean_backward_ms <= comparison.mean_backward_ms
+        else comparison.backend
+    )
+    faster_total_backend = (
+        primary.backend
+        if primary.mean_total_ms <= comparison.mean_total_ms
+        else comparison.backend
+    )
+    return {
+        "primary": asdict(primary),
+        "comparison": asdict(comparison),
+        "delta_mean_forward_ms": float(
+            comparison.mean_forward_ms - primary.mean_forward_ms
+        ),
+        "delta_mean_backward_ms": float(
+            comparison.mean_backward_ms - primary.mean_backward_ms
+        ),
+        "delta_mean_total_ms": float(
+            comparison.mean_total_ms - primary.mean_total_ms
+        ),
+        "ratio_forward_vs_primary": (
+            float(comparison.mean_forward_ms / primary.mean_forward_ms)
+            if primary.mean_forward_ms > 0.0
+            else None
+        ),
+        "ratio_backward_vs_primary": (
+            float(comparison.mean_backward_ms / primary.mean_backward_ms)
+            if primary.mean_backward_ms > 0.0
+            else None
+        ),
+        "ratio_total_vs_primary": (
+            float(comparison.mean_total_ms / primary.mean_total_ms)
+            if primary.mean_total_ms > 0.0
+            else None
+        ),
+        "faster_forward_backend": faster_forward_backend,
+        "faster_backward_backend": faster_backward_backend,
+        "faster_total_backend": faster_total_backend,
+    }
+
+
 def _resolve_device(device_name: str) -> torch.device:
     if device_name == "cpu":
         return torch.device("cpu")
@@ -166,27 +231,52 @@ def main() -> None:
     camera = _select_first_camera(
         scene_record.resolve_camera_sensor().camera
     ).to(device)
-    result = benchmark_backend_render(
-        scene,
-        camera,
-        backend=backend,
-        warmup_steps=args.warmup_steps,
-        measured_steps=args.measured_steps,
-    )
-    comparison = (
-        None
-        if compare_to is None
-        else benchmark_backend_render(
+    if args.include_backward:
+        autograd_result = benchmark_backend_render_autograd(
             scene,
             camera,
-            backend=compare_to,
+            backend=backend,
             warmup_steps=args.warmup_steps,
             measured_steps=args.measured_steps,
         )
-    )
+        autograd_comparison = (
+            None
+            if compare_to is None
+            else benchmark_backend_render_autograd(
+                scene,
+                camera,
+                backend=compare_to,
+                warmup_steps=args.warmup_steps,
+                measured_steps=args.measured_steps,
+            )
+        )
+        payload = _build_autograd_comparison_payload(
+            autograd_result,
+            autograd_comparison,
+        )
+    else:
+        result = benchmark_backend_render(
+            scene,
+            camera,
+            backend=backend,
+            warmup_steps=args.warmup_steps,
+            measured_steps=args.measured_steps,
+        )
+        comparison = (
+            None
+            if compare_to is None
+            else benchmark_backend_render(
+                scene,
+                camera,
+                backend=compare_to,
+                warmup_steps=args.warmup_steps,
+                measured_steps=args.measured_steps,
+            )
+        )
+        payload = _build_comparison_payload(result, comparison)
     print(
         json.dumps(
-            _build_comparison_payload(result, comparison),
+            payload,
             indent=2,
             sort_keys=True,
         )

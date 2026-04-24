@@ -2,8 +2,11 @@
 
 import marimo
 
-__generated_with = "0.23.1"
-app = marimo.App(width="columns")
+__generated_with = "0.23.2"
+app = marimo.App(
+    width="columns",
+    layout_file="layouts/splat_viewer.slides.json",
+)
 
 with app.setup:
     from dataclasses import replace

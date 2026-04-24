@@ -6,6 +6,7 @@
 - If the worktree contains unrelated unstaged user changes, do not run a hook-enabled `git commit`; either use a scoped `git commit --no-verify` for the task's staged files or stop and ask the user. Do not rely on pre-commit's stash/restore cycle to preserve unrelated work.
 - When annotating a single dimension with `jaxtyping`, leave a single space in
   the dimension spec to avoid confusion with forward annotations.
+- For mojo code: read https://docs.modular.com/llms-python.txt for MAX Python API documentation
 
 Examples:
 

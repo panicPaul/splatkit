@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import torch
+from splatkit_native_faster_gs.faster_gs.runtime.ops.sort import _sort_fwd_fake
 from torch import Tensor
 
-from splatkit_native_faster_gs.faster_gs.runtime.ops._common import (
+from splatkit_native_faster_gs_mojo.core.runtime.ops._common import (
     TILE_HEIGHT,
     TILE_WIDTH,
-)
-from splatkit_native_faster_gs.faster_gs.runtime.ops.sort import _sort_fwd_fake
-from splatkit_native_faster_gs_mojo.core.runtime.ops._common import (
     mojo_backend,
     stable_capacity,
+    stable_multiple_capacity,
 )
 
 
@@ -27,6 +26,11 @@ def sort_fwd_op(
     instance_count: Tensor,
     width: int,
     height: int,
+    *,
+    tile_count_minimum: int = 4096,
+    capacity_headroom_numerator: int = 1,
+    capacity_headroom_denominator: int = 1,
+    return_capacity: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Run the MAX/Mojo sort forward stage."""
     if depth_keys.device.type != "cuda":
@@ -43,20 +47,43 @@ def sort_fwd_op(
             height,
         )
 
-    tile_count = (width + TILE_WIDTH - 1) // TILE_WIDTH * (
+    actual_tile_count = (width + TILE_WIDTH - 1) // TILE_WIDTH * (
         (height + TILE_HEIGHT - 1) // TILE_HEIGHT
     )
+    tile_count = stable_capacity(
+        (
+            "sort_tiles",
+            depth_keys.device.type,
+            depth_keys.device.index,
+        ),
+        max(actual_tile_count, tile_count_minimum),
+        minimum=tile_count_minimum,
+    )
+    actual_visible_count = int(visible_count.item())
+    visible_capacity = stable_multiple_capacity(
+        (
+            "sort_visible",
+            depth_keys.device.type,
+            depth_keys.device.index,
+        ),
+        actual_visible_count,
+        minimum=2048,
+        multiple=2048,
+        headroom_numerator=capacity_headroom_numerator,
+        headroom_denominator=capacity_headroom_denominator,
+    )
     actual_instance_count = int(instance_count.item())
-    instance_capacity = stable_capacity(
+    instance_capacity = stable_multiple_capacity(
         (
             "sort_instances",
             depth_keys.device.type,
             depth_keys.device.index,
-            int(depth_keys.shape[0]),
-            width,
-            height,
         ),
         actual_instance_count,
+        minimum=8192,
+        multiple=8192,
+        headroom_numerator=capacity_headroom_numerator,
+        headroom_denominator=capacity_headroom_denominator,
     )
     outputs = (
         torch.empty(
@@ -68,8 +95,15 @@ def sort_fwd_op(
         torch.empty((tile_count,), device=depth_keys.device, dtype=torch.int32),
         torch.empty((1,), device=depth_keys.device, dtype=torch.int32),
     )
+    work_outputs = (
+        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.uint32),
+        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.int32),
+        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.int32),
+        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.int32),
+    )
     mojo_backend().sort_fwd(
         *outputs,
+        *work_outputs,
         depth_keys,
         primitive_indices,
         num_touched_tiles,
@@ -81,7 +115,14 @@ def sort_fwd_op(
         torch.tensor([width], device=depth_keys.device, dtype=torch.int32),
         torch.tensor([height], device=depth_keys.device, dtype=torch.int32),
     )
-    return outputs
+    if return_capacity:
+        return outputs
+    return (
+        outputs[0],
+        outputs[1][:actual_tile_count],
+        outputs[2][:actual_tile_count],
+        outputs[3],
+    )
 
 
 def sort_op(

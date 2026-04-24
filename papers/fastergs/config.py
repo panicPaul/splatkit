@@ -135,6 +135,7 @@ class FasterGSExecutionConfig(FasterGSConfigBase):
     max_steps: int = Field(default=30_000, ge=1)
     batch_size: int = Field(default=1, ge=1)
     shuffle: bool = True
+    new_field: Literal["test", "other"] = "test"
 
 
 class FasterGSExperimentConfig(FasterGSConfigBase):
@@ -394,7 +395,9 @@ def load_default_experiment_config(
     default: FasterGSDefaultName = "garden_baseline",
 ) -> FasterGSExperimentConfig:
     """Load a named default FasterGS experiment config from JSON."""
-    return _resolve_default_config_paths(_load_config_json(_DEFAULT_CONFIG_PATHS[default]))
+    return _resolve_default_config_paths(
+        _load_config_json(_DEFAULT_CONFIG_PATHS[default])
+    )
 
 
 def _resolve_checkpoint_output_dir(

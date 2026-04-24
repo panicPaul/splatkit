@@ -2,33 +2,42 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import cache
 from typing import Any
 
 import torch
-from torch import Tensor
-
-from splatkit_native_faster_gs.faster_gs.reuse.factories import register_render_family
+from splatkit_native_faster_gs.faster_gs.reuse.factories import (
+    register_render_family,
+)
+from splatkit_native_faster_gs.faster_gs.runtime.ops.blend import (
+    _blend_bwd_fake,
+)
 from splatkit_native_faster_gs.faster_gs.runtime.packing import (
     pack_render_outputs,
     parse_render_outputs,
 )
-from splatkit_native_faster_gs_mojo.core.runtime._mojo import custom_op_library_path
+from torch import Tensor
+
+from splatkit_native_faster_gs_mojo.core.runtime._mojo import (
+    custom_op_library_path,
+)
 from splatkit_native_faster_gs_mojo.core.runtime.ops._common import (
+    TILE_HEIGHT,
+    TILE_WIDTH,
     normalize_active_sh_bases,
     requires_grad,
+    stable_extent_capacity,
 )
 from splatkit_native_faster_gs_mojo.core.runtime.ops.blend import (
-    _blend_bwd_fake,
     _blend_fwd_fake,
-    blend_fwd_op,
     blend_bwd_op,
+    blend_fwd_op,
 )
 from splatkit_native_faster_gs_mojo.core.runtime.ops.preprocess import (
     _preprocess_bwd_fake,
     _preprocess_fwd_fake,
-    preprocess_fwd_op,
     preprocess_bwd_op,
+    preprocess_fwd_op,
 )
 from splatkit_native_faster_gs_mojo.core.runtime.ops.sort import (
     _sort_fwd_fake,
@@ -59,7 +68,7 @@ RenderOpOutput = tuple[
 ]
 
 
-@lru_cache(maxsize=None)
+@cache
 def _graph_render_fwd(
     device_index: int,
     proper_antialiasing: bool,
@@ -72,7 +81,7 @@ def _graph_render_fwd(
     focal_y: float,
     center_x: float,
     center_y: float,
-):
+) -> Any:
     from max.dtype import DType as MaxDType
     from max.experimental.torch import graph_op
     from max.graph import DeviceRef, TensorType, ops
@@ -223,6 +232,39 @@ def _graph_device_index(device: torch.device) -> int:
     if device.type != "cuda":
         raise ValueError("The FasterGS Mojo render graph currently requires CUDA tensors.")
     return torch.cuda.current_device() if device.index is None else device.index
+
+
+def _render_image_capacity(
+    *,
+    device: torch.device,
+    width: int,
+    height: int,
+) -> tuple[int, int, int]:
+    """Return stable image extent and the tile capacity it requires."""
+    width_capacity = stable_extent_capacity(
+        (
+            "render_image_width",
+            device.type,
+            device.index,
+        ),
+        width,
+        minimum=max(1024, width),
+    )
+    height_capacity = stable_extent_capacity(
+        (
+            "render_image_height",
+            device.type,
+            device.index,
+        ),
+        height,
+        minimum=max(768, height),
+    )
+    tile_capacity = (
+        (width_capacity + TILE_WIDTH - 1)
+        // TILE_WIDTH
+        * ((height_capacity + TILE_HEIGHT - 1) // TILE_HEIGHT)
+    )
+    return width_capacity, height_capacity, tile_capacity
 
 
 @torch.library.custom_op("faster_gs_mojo::render_fwd", mutates_args=())

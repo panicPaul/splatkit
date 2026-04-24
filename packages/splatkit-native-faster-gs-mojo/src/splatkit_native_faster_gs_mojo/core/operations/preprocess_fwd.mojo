@@ -2,8 +2,8 @@ import compiler
 
 from layout import Layout, LayoutTensor
 from layout.runtime_layout import RuntimeLayout
+from std.atomic import Atomic
 from std.gpu import block_dim, block_idx, thread_idx
-from std.gpu.primitives.block import sum as block_sum
 from std.math import exp, log, max, min, sqrt
 from std.runtime.asyncrt import DeviceContextPtr
 from std.utils import Index
@@ -29,7 +29,11 @@ from .common import (
 comptime ROW_MAJOR_1D = Layout.row_major(Int())
 comptime ROW_MAJOR_2D = Layout.row_major(Int(), Int())
 comptime ROW_MAJOR_3D = Layout.row_major(Int(), Int(), Int())
-comptime COUNT_BLOCK_SIZE = 256
+
+
+@always_inline
+def atomic_add_i32(ptr: UnsafePointer[Int32, MutAnyOrigin], value: Int32) -> Int32:
+    return Atomic[DType.int32].fetch_add(ptr, value)
 
 
 @always_inline
@@ -47,73 +51,6 @@ def zero_preprocess_counters_kernel[
 
 
 @always_inline
-def reduce_preprocess_counts_blocks_kernel[
-    num_touched_tiles_layout: Layout,
-    block_visible_counts_layout: Layout,
-    block_instance_counts_layout: Layout,
-](
-    num_touched_tiles: LayoutTensor[
-        DType.int32,
-        num_touched_tiles_layout,
-        MutAnyOrigin,
-    ],
-    block_visible_counts: LayoutTensor[
-        DType.int32,
-        block_visible_counts_layout,
-        MutAnyOrigin,
-    ],
-    block_instance_counts: LayoutTensor[
-        DType.int32,
-        block_instance_counts_layout,
-        MutAnyOrigin,
-    ],
-    n_primitives: Int,
-):
-    """Reduce per-primitive touched-tile counts into one count pair per block."""
-    primitive_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
-    var visible = Int32(0)
-    var instances = Int32(0)
-    if primitive_idx < n_primitives:
-        touched = rebind[Int32](num_touched_tiles[primitive_idx])
-        if touched > 0:
-            visible = Int32(1)
-            instances = touched
-
-    visible_sum = block_sum[block_dim_x=COUNT_BLOCK_SIZE, block_dim_y=1](
-        SIMD[DType.int32, 1](visible)
-    )
-    instance_sum = block_sum[block_dim_x=COUNT_BLOCK_SIZE, block_dim_y=1](
-        SIMD[DType.int32, 1](instances)
-    )
-    if Int(thread_idx.x) == 0:
-        block_visible_counts[Int(block_idx.x)] = Int32(Int(visible_sum))
-        block_instance_counts[Int(block_idx.x)] = Int32(Int(instance_sum))
-
-
-@always_inline
-def finalize_preprocess_counts_kernel[
-    block_visible_counts_layout: Layout,
-    block_instance_counts_layout: Layout,
-    visible_count_layout: Layout,
-    instance_count_layout: Layout,
-](
-    block_visible_counts: LayoutTensor[DType.int32, block_visible_counts_layout, MutAnyOrigin],
-    block_instance_counts: LayoutTensor[DType.int32, block_instance_counts_layout, MutAnyOrigin],
-    visible_count: LayoutTensor[DType.int32, visible_count_layout, MutAnyOrigin],
-    instance_count: LayoutTensor[DType.int32, instance_count_layout, MutAnyOrigin],
-    block_count: Int,
-):
-    """Finish block-count reduction into the scalar preprocess outputs."""
-    if Int(block_idx.x * block_dim.x + thread_idx.x) == 0:
-        var visible = Int32(0)
-        var instances = Int32(0)
-        for block in range(block_count):
-            visible += rebind[Int32](block_visible_counts[block])
-            instances += rebind[Int32](block_instance_counts[block])
-        visible_count[0] = visible
-        instance_count[0] = instances
-
-
 def preprocess_fwd_kernel[
     proper_antialiasing: Bool,
     active_sh_bases: Int,
@@ -194,6 +131,8 @@ def preprocess_fwd_kernel[
         screen_bounds_layout,
         MutAnyOrigin,
     ],
+    visible_count: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
+    instance_count: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     near_plane: LayoutTensor[DType.float32, ROW_MAJOR_1D, MutAnyOrigin],
     far_plane: LayoutTensor[DType.float32, ROW_MAJOR_1D, MutAnyOrigin],
     image_width: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
@@ -494,7 +433,12 @@ def preprocess_fwd_kernel[
             colors_rgb[primitive_idx, 1] = color.y
             colors_rgb[primitive_idx, 2] = color.z
             local_depth_key = float_bitcast_to_int32(depth)
-            depth_keys[primitive_idx] = local_depth_key
+            visible_offset = Int(
+                atomic_add_i32(visible_count.ptr, Int32(1))
+            )
+            _ = atomic_add_i32(instance_count.ptr, local_touched_tiles)
+            depth_keys[visible_offset] = local_depth_key
+            primitive_indices[visible_offset] = Int32(primitive_idx)
 
 
 # ================================================================================================ #
@@ -918,6 +862,8 @@ struct PreprocessForwardHelper:
                 primitive_indices_tensor,
                 num_touched_tiles_tensor,
                 screen_bounds_tensor,
+                visible_count_tensor,
+                instance_count_tensor,
                 near_plane_tensor,
                 far_plane_tensor,
                 width_tensor,
@@ -930,76 +876,6 @@ struct PreprocessForwardHelper:
                 grid_dim=div_round_up(n_primitives, 128),
                 block_dim=128,
             )
-            if n_primitives > 0:
-                # Recover scalar counts with a block reduction. This keeps the
-                # main projection kernel free of global atomics while avoiding a
-                # host readback for visibility or instance counts.
-                count_block_count = div_round_up(n_primitives, COUNT_BLOCK_SIZE)
-                var block_visible_counts_buffer = gpu_ctx.enqueue_create_buffer[DType.int32](count_block_count)
-                var block_instance_counts_buffer = gpu_ctx.enqueue_create_buffer[DType.int32](count_block_count)
-
-                var block_visible_counts_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
-                    block_visible_counts_buffer.unsafe_ptr(),
-                    RuntimeLayout[
-                        ROW_MAJOR_1D,
-                        element_type=DType.int32,
-                        linear_idx_type=DType.int32,
-                    ].row_major(Index(count_block_count)),
-                )
-                var block_instance_counts_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
-                    block_instance_counts_buffer.unsafe_ptr(),
-                    RuntimeLayout[
-                        ROW_MAJOR_1D,
-                        element_type=DType.int32,
-                        linear_idx_type=DType.int32,
-                    ].row_major(Index(count_block_count)),
-                )
-
-                comptime block_visible_counts_layout = type_of(block_visible_counts_tensor).layout
-                comptime block_instance_counts_layout = type_of(block_instance_counts_tensor).layout
-
-                gpu_ctx.enqueue_function[
-                    reduce_preprocess_counts_blocks_kernel[
-                        num_touched_tiles_layout,
-                        block_visible_counts_layout,
-                        block_instance_counts_layout,
-                    ],
-                    reduce_preprocess_counts_blocks_kernel[
-                        num_touched_tiles_layout,
-                        block_visible_counts_layout,
-                        block_instance_counts_layout,
-                    ],
-                ](
-                    num_touched_tiles_tensor,
-                    block_visible_counts_tensor,
-                    block_instance_counts_tensor,
-                    n_primitives,
-                    grid_dim=count_block_count,
-                    block_dim=COUNT_BLOCK_SIZE,
-                )
-
-                gpu_ctx.enqueue_function[
-                    finalize_preprocess_counts_kernel[
-                        block_visible_counts_layout,
-                        block_instance_counts_layout,
-                        visible_count_layout,
-                        instance_count_layout,
-                    ],
-                    finalize_preprocess_counts_kernel[
-                        block_visible_counts_layout,
-                        block_instance_counts_layout,
-                        visible_count_layout,
-                        instance_count_layout,
-                    ],
-                ](
-                    block_visible_counts_tensor,
-                    block_instance_counts_tensor,
-                    visible_count_tensor,
-                    instance_count_tensor,
-                    count_block_count,
-                    grid_dim=1,
-                    block_dim=1,
-                )
         else:
             raise Error("faster_gs_mojo preprocess_fwd currently requires a GPU target")
 

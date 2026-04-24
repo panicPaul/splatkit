@@ -8,11 +8,15 @@ from pathlib import Path
 
 import torch
 
-from splatkit.benchmarks import benchmark_backend_render
+from splatkit.benchmarks import (
+    benchmark_backend_render,
+    benchmark_backend_render_autograd,
+)
 from splatkit.core import CameraState
 from splatkit.io import load_gaussian_ply
 
 from .render import (
+    _build_autograd_comparison_payload,
     _build_comparison_payload,
     _pick_backend,
     _register_optional_backends,
@@ -70,6 +74,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--warmup-steps", type=int, default=10)
     parser.add_argument("--measured-steps", type=int, default=100)
+    parser.add_argument(
+        "--include-backward",
+        action="store_true",
+        help="Measure render forward and backward timings separately.",
+    )
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fov-degrees", type=float, default=60.0)
@@ -105,27 +114,52 @@ def main() -> None:
         camera_z=args.camera_z,
     )
 
-    primary = benchmark_backend_render(
-        scene,
-        camera,
-        backend=primary_backend,
-        warmup_steps=args.warmup_steps,
-        measured_steps=args.measured_steps,
-    )
-    comparison = (
-        None
-        if compare_to is None
-        else benchmark_backend_render(
+    if args.include_backward:
+        primary_autograd = benchmark_backend_render_autograd(
             scene,
             camera,
-            backend=compare_to,
+            backend=primary_backend,
             warmup_steps=args.warmup_steps,
             measured_steps=args.measured_steps,
         )
-    )
+        comparison_autograd = (
+            None
+            if compare_to is None
+            else benchmark_backend_render_autograd(
+                scene,
+                camera,
+                backend=compare_to,
+                warmup_steps=args.warmup_steps,
+                measured_steps=args.measured_steps,
+            )
+        )
+        payload = _build_autograd_comparison_payload(
+            primary_autograd,
+            comparison_autograd,
+        )
+    else:
+        primary = benchmark_backend_render(
+            scene,
+            camera,
+            backend=primary_backend,
+            warmup_steps=args.warmup_steps,
+            measured_steps=args.measured_steps,
+        )
+        comparison = (
+            None
+            if compare_to is None
+            else benchmark_backend_render(
+                scene,
+                camera,
+                backend=compare_to,
+                warmup_steps=args.warmup_steps,
+                measured_steps=args.measured_steps,
+            )
+        )
+        payload = _build_comparison_payload(primary, comparison)
     print(
         json.dumps(
-            _build_comparison_payload(primary, comparison),
+            payload,
             indent=2,
             sort_keys=True,
         )

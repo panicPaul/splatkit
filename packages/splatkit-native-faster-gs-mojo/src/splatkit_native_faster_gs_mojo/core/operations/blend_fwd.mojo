@@ -149,9 +149,8 @@ def blend_fwd_kernel(
     conic_opacity: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
     colors_rgb: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
     bg_color: LayoutTensor[DType.float32, ROW_MAJOR_1D, MutAnyOrigin],
-    width: Int,
-    height: Int,
-    grid_width: Int,
+    width_tensor: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
+    height_tensor: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     n_primitives: Int,
 ):
     """Blend a tile into the final image and replay-state buffers."""
@@ -160,6 +159,13 @@ def blend_fwd_kernel(
 
     # One 16x16 block owns one image tile and one thread shades one pixel.
     var thread_rank = Int(thread_idx.y) * TILE_WIDTH + Int(thread_idx.x)
+    var width = Int(rebind[Int32](width_tensor[0]))
+    var height = Int(rebind[Int32](height_tensor[0]))
+    var grid_width = div_round_up(width, TILE_WIDTH)
+    var grid_height = div_round_up(height, TILE_HEIGHT)
+    if Int(block_idx.x) >= grid_width or Int(block_idx.y) >= grid_height:
+        return
+
     var pixel_x = Int(block_idx.x) * TILE_WIDTH + Int(thread_idx.x)
     var pixel_y = Int(block_idx.y) * TILE_HEIGHT + Int(thread_idx.y)
     var inside = pixel_x < width and pixel_y < height
@@ -317,9 +323,8 @@ def blend_fwd_image_only_kernel(
     conic_opacity: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
     colors_rgb: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
     bg_color: LayoutTensor[DType.float32, ROW_MAJOR_1D, MutAnyOrigin],
-    width: Int,
-    height: Int,
-    grid_width: Int,
+    width_tensor: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
+    height_tensor: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
 ):
     """Blend a tile into the final image without replay-state writes."""
     comptime assert WARP_SIZE == 32, "FasterGS blend assumes 32-lane warps"
@@ -327,6 +332,13 @@ def blend_fwd_image_only_kernel(
     # This is the viewer/inference path: same per-tile ownership and math as
     # the training kernel, but it skips all replay-state writes entirely.
     var thread_rank = Int(thread_idx.y) * TILE_WIDTH + Int(thread_idx.x)
+    var width = Int(rebind[Int32](width_tensor[0]))
+    var height = Int(rebind[Int32](height_tensor[0]))
+    var grid_width = div_round_up(width, TILE_WIDTH)
+    var grid_height = div_round_up(height, TILE_HEIGHT)
+    if Int(block_idx.x) >= grid_width or Int(block_idx.y) >= grid_height:
+        return
+
     var pixel_x = Int(block_idx.x) * TILE_WIDTH + Int(thread_idx.x)
     var pixel_y = Int(block_idx.y) * TILE_HEIGHT + Int(thread_idx.y)
     var inside = pixel_x < width and pixel_y < height
@@ -447,15 +459,17 @@ struct BlendForward:
         conic_opacity: InputTensor[dtype=DType.float32, rank=2, ...],
         colors_rgb: InputTensor[dtype=DType.float32, rank=2, ...],
         bg_color: InputTensor[dtype=DType.float32, rank=1, ...],
+        width: InputTensor[dtype=DType.int32, rank=1, ...],
+        height: InputTensor[dtype=DType.int32, rank=1, ...],
         ctx: DeviceContextPtr,
     ) raises:
         """Run the replay-state-producing blend forward MAX custom op."""
         comptime if target == "gpu":
             var gpu_ctx = ctx.get_device_context()
-            var height = Int(image.dim_size[1]())
-            var width = Int(image.dim_size[2]())
-            var grid_width = div_round_up(width, TILE_WIDTH)
-            var grid_height = div_round_up(height, TILE_HEIGHT)
+            var image_height = Int(image.dim_size[1]())
+            var image_width = Int(image.dim_size[2]())
+            var grid_width = div_round_up(image_width, TILE_WIDTH)
+            var grid_height = div_round_up(image_height, TILE_HEIGHT)
             var n_primitives = Int(projected_means.dim_size[0]())
             _ = bucket_count
 
@@ -465,7 +479,7 @@ struct BlendForward:
                     ROW_MAJOR_3D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(3, height, width)),
+                ].row_major(Index(3, image_height, image_width)),
             )
             var tile_final_transmittances_tensor = LayoutTensor[
                 DType.float32,
@@ -558,18 +572,6 @@ struct BlendForward:
                     Index(Int(tile_instance_ranges.dim_size[0]()), Int(tile_instance_ranges.dim_size[1]()))
                 ),
             )
-            var tile_bucket_offsets_tensor = LayoutTensor[
-                DType.int32,
-                ROW_MAJOR_1D,
-                MutAnyOrigin,
-            ](
-                tile_bucket_offsets.unsafe_ptr(),
-                RuntimeLayout[
-                    ROW_MAJOR_1D,
-                    element_type=DType.int32,
-                    linear_idx_type=DType.int32,
-                ].row_major(Index(Int(tile_bucket_offsets.dim_size[0]()))),
-            )
             var projected_means_tensor = LayoutTensor[
                 DType.float32,
                 ROW_MAJOR_2D,
@@ -614,6 +616,34 @@ struct BlendForward:
                     linear_idx_type=DType.int32,
                 ].row_major(Index(Int(bg_color.dim_size[0]()))),
             )
+            var tile_bucket_offsets_tensor = LayoutTensor[
+                DType.int32,
+                ROW_MAJOR_1D,
+                MutAnyOrigin,
+            ](
+                tile_bucket_offsets.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(tile_bucket_offsets.dim_size[0]()))),
+            )
+            var width_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                width.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(1)),
+            )
+            var height_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                height.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(1)),
+            )
 
             gpu_ctx.enqueue_function[blend_fwd_kernel, blend_fwd_kernel](
                 # Blend owns the final image write plus the replay state needed
@@ -631,9 +661,8 @@ struct BlendForward:
                 conic_opacity_tensor,
                 colors_rgb_tensor,
                 bg_color_tensor,
-                width,
-                height,
-                grid_width,
+                width_tensor,
+                height_tensor,
                 n_primitives,
                 grid_dim=(grid_width, grid_height),
                 block_dim=(TILE_WIDTH, TILE_HEIGHT),
@@ -649,22 +678,21 @@ struct BlendForwardImageOnly:
         image: OutputTensor[dtype=DType.float32, rank=3, ...],
         instance_primitive_indices: InputTensor[dtype=DType.int32, rank=1, ...],
         tile_instance_ranges: InputTensor[dtype=DType.int32, rank=2, ...],
-        tile_bucket_offsets: InputTensor[dtype=DType.int32, rank=1, ...],
-        bucket_count: InputTensor[dtype=DType.int32, rank=1, ...],
         projected_means: InputTensor[dtype=DType.float32, rank=2, ...],
         conic_opacity: InputTensor[dtype=DType.float32, rank=2, ...],
         colors_rgb: InputTensor[dtype=DType.float32, rank=2, ...],
         bg_color: InputTensor[dtype=DType.float32, rank=1, ...],
+        width: InputTensor[dtype=DType.int32, rank=1, ...],
+        height: InputTensor[dtype=DType.int32, rank=1, ...],
         ctx: DeviceContextPtr,
     ) raises:
         """Run the image-only blend MAX custom op."""
         comptime if target == "gpu":
             var gpu_ctx = ctx.get_device_context()
-            var height = Int(image.dim_size[1]())
-            var width = Int(image.dim_size[2]())
-            var grid_width = div_round_up(width, TILE_WIDTH)
-            var grid_height = div_round_up(height, TILE_HEIGHT)
-            var tile_count = Int(tile_instance_ranges.dim_size[0]())
+            var image_height = Int(image.dim_size[1]())
+            var image_width = Int(image.dim_size[2]())
+            var grid_width = div_round_up(image_width, TILE_WIDTH)
+            var grid_height = div_round_up(image_height, TILE_HEIGHT)
 
             var image_tensor = LayoutTensor[DType.float32, ROW_MAJOR_3D, MutAnyOrigin](
                 image.unsafe_ptr(),
@@ -672,7 +700,7 @@ struct BlendForwardImageOnly:
                     ROW_MAJOR_3D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(3, height, width)),
+                ].row_major(Index(3, image_height, image_width)),
             )
             var instance_indices_tensor = LayoutTensor[
                 DType.int32,
@@ -699,18 +727,6 @@ struct BlendForwardImageOnly:
                 ].row_major(
                     Index(Int(tile_instance_ranges.dim_size[0]()), Int(tile_instance_ranges.dim_size[1]()))
                 ),
-            )
-            var tile_bucket_offsets_tensor = LayoutTensor[
-                DType.int32,
-                ROW_MAJOR_1D,
-                MutAnyOrigin,
-            ](
-                tile_bucket_offsets.unsafe_ptr(),
-                RuntimeLayout[
-                    ROW_MAJOR_1D,
-                    element_type=DType.int32,
-                    linear_idx_type=DType.int32,
-                ].row_major(Index(Int(tile_bucket_offsets.dim_size[0]()))),
             )
             var projected_means_tensor = LayoutTensor[
                 DType.float32,
@@ -761,6 +777,22 @@ struct BlendForwardImageOnly:
                     linear_idx_type=DType.int32,
                 ].row_major(Index(3)),
             )
+            var width_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                width.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(1)),
+            )
+            var height_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                height.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(1)),
+            )
 
             gpu_ctx.enqueue_function[
                 blend_fwd_image_only_kernel,
@@ -773,9 +805,8 @@ struct BlendForwardImageOnly:
                 conic_opacity_tensor,
                 colors_rgb_tensor,
                 bg_color_tensor,
-                width,
-                height,
-                grid_width,
+                width_tensor,
+                height_tensor,
                 grid_dim=(grid_width, grid_height),
                 block_dim=(TILE_WIDTH, TILE_HEIGHT),
             )

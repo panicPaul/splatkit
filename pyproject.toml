@@ -217,6 +217,12 @@ markers = [
 ]
 
 
+[tool.marimo.runtime]
+# Torch, MAX, and custom CUDA modules register process-global dispatch state
+# during import. marimo autoreload can corrupt that state by reloading those
+# modules, so keep notebook module autoreload off for this repository.
+auto_reload = "off"
+
 
 
 # --- pixi specific ---

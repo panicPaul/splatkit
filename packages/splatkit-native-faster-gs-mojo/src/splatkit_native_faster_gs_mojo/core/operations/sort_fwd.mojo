@@ -3,6 +3,7 @@ import compiler
 from layout import Layout, LayoutTensor
 from layout.runtime_layout import RuntimeLayout
 from std.gpu import block_dim, block_idx, thread_idx
+from std.gpu.primitives import block
 from std.math import log, max
 from std.runtime.asyncrt import DeviceContextPtr
 from std.utils import Index
@@ -44,19 +45,22 @@ def prepare_depth_sort_pairs_kernel(
     depth_sort_keys: LayoutTensor[DType.uint32, ROW_MAJOR_1D, MutAnyOrigin],
     sorted_primitive_indices: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     depth_keys: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
-    num_touched_tiles: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
+    primitive_indices: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
+    visible_count: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     n_primitives: Int,
 ):
-    """Prepare `(depth_key, primitive_idx)` pairs, placing culled primitives last."""
-    primitive_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
-    if primitive_idx >= n_primitives:
+    """Prepare visible `(depth_key, primitive_idx)` pairs for sorting."""
+    idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if idx >= n_primitives:
         return
 
-    if rebind[Int32](num_touched_tiles[primitive_idx]) > Int32(0):
-        depth_sort_keys[primitive_idx] = UInt32(rebind[Int32](depth_keys[primitive_idx]))
+    n_visible = Int(rebind[Int32](visible_count[0]))
+    if idx < n_visible:
+        depth_sort_keys[idx] = UInt32(rebind[Int32](depth_keys[idx]))
+        sorted_primitive_indices[idx] = rebind[Int32](primitive_indices[idx])
     else:
-        depth_sort_keys[primitive_idx] = UInt32(4294967295)
-    sorted_primitive_indices[primitive_idx] = Int32(primitive_idx)
+        depth_sort_keys[idx] = UInt32(4294967295)
+        sorted_primitive_indices[idx] = Int32(0)
 
 
 @always_inline
@@ -64,11 +68,16 @@ def gather_sorted_touched_counts_kernel(
     sorted_primitive_indices: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     num_touched_tiles: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     sorted_touched_counts: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
+    visible_count: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     n_primitives: Int,
 ):
     """Gather touched-tile counts into depth-sorted primitive order."""
     sorted_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
     if sorted_idx >= n_primitives:
+        return
+
+    if sorted_idx >= Int(rebind[Int32](visible_count[0])):
+        sorted_touched_counts[sorted_idx] = Int32(0)
         return
 
     primitive_idx = Int(rebind[Int32](sorted_primitive_indices[sorted_idx]))
@@ -93,8 +102,56 @@ def exclusive_prefix_sum_i32_kernel(
 
 
 @always_inline
-def expand_instances_kernel(
-    instance_keys: LayoutTensor[DType.uint64, ROW_MAJOR_1D, MutAnyOrigin],
+def exclusive_prefix_sum_i32_blocks_kernel[
+    src_layout: Layout,
+    dst_layout: Layout,
+    block_totals_layout: Layout,
+](
+    src: LayoutTensor[DType.int32, src_layout, MutAnyOrigin],
+    dst: LayoutTensor[DType.int32, dst_layout, MutAnyOrigin],
+    block_totals: LayoutTensor[DType.int32, block_totals_layout, MutAnyOrigin],
+    size: Int,
+):
+    """Write per-block exclusive sums and one total per block."""
+    comptime SCAN_BLOCK_SIZE = 256
+    idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    var value = Int32(0)
+    if idx < size:
+        value = rebind[Int32](src[idx])
+
+    exclusive = block.prefix_sum[
+        block_size=SCAN_BLOCK_SIZE,
+        exclusive=True,
+    ](value)
+    total = block.sum[
+        block_size=SCAN_BLOCK_SIZE,
+        broadcast=True,
+    ](value)
+
+    if idx < size:
+        dst[idx] = exclusive
+    if Int(thread_idx.x) == 0:
+        block_totals[Int(block_idx.x)] = total
+
+
+@always_inline
+def add_i32_block_offsets_kernel[
+    values_layout: Layout,
+    block_offsets_layout: Layout,
+](
+    values: LayoutTensor[DType.int32, values_layout, MutAnyOrigin],
+    block_offsets: LayoutTensor[DType.int32, block_offsets_layout, MutAnyOrigin],
+    size: Int,
+):
+    """Add the scanned block total to each value in that block."""
+    idx = Int(block_idx.x * block_dim.x + thread_idx.x)
+    if idx < size:
+        values[idx] += rebind[Int32](block_offsets[Int(block_idx.x)])
+
+
+@always_inline
+def expand_instances_kernel[instance_key_dtype: DType](
+    instance_keys: LayoutTensor[instance_key_dtype, ROW_MAJOR_1D, MutAnyOrigin],
     instance_primitive_indices: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     sorted_primitive_indices: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     primitive_offsets: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
@@ -106,7 +163,7 @@ def expand_instances_kernel(
     n_primitives: Int,
     n_instances: Int,
 ):
-    """Expand each visible primitive into tile/depth-order instance keys."""
+    """Expand each visible primitive into tile-major instance keys."""
     sorted_idx = Int(block_idx.x * block_dim.x + thread_idx.x)
     if sorted_idx >= n_primitives:
         return
@@ -145,29 +202,28 @@ def expand_instances_kernel(
                 tile_y,
                 power_threshold,
             ):
-                tile_id = UInt64(tile_y * grid_width + tile_x)
-                depth_order = UInt64(sorted_idx)
-                instance_keys[write_offset] = (tile_id << 32) | depth_order
+                tile_id = tile_y * grid_width + tile_x
+                instance_keys[write_offset] = Scalar[instance_key_dtype](tile_id)
                 instance_primitive_indices[write_offset] = Int32(primitive_idx)
                 write_offset += 1
 
 
 @always_inline
-def fill_instance_padding_kernel(
-    instance_keys: LayoutTensor[DType.uint64, ROW_MAJOR_1D, MutAnyOrigin],
+def fill_instance_padding_kernel[instance_key_dtype: DType](
+    instance_keys: LayoutTensor[instance_key_dtype, ROW_MAJOR_1D, MutAnyOrigin],
     instance_primitive_indices: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     instance_capacity: Int,
 ):
     """Initialize unused instance slots so radix sort keeps them at the end."""
     idx = Int(block_idx.x * block_dim.x + thread_idx.x)
     if idx < instance_capacity:
-        instance_keys[idx] = UInt64(18446744073709551615)
+        instance_keys[idx] = Scalar[instance_key_dtype].MAX
         instance_primitive_indices[idx] = Int32(0)
 
 
 @always_inline
-def extract_instance_ranges_u64_kernel(
-    instance_keys: LayoutTensor[DType.uint64, ROW_MAJOR_1D, MutAnyOrigin],
+def extract_instance_ranges_kernel[instance_key_dtype: DType](
+    instance_keys: LayoutTensor[instance_key_dtype, ROW_MAJOR_1D, MutAnyOrigin],
     tile_instance_ranges: LayoutTensor[DType.int32, ROW_MAJOR_2D, MutAnyOrigin],
     instance_count: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
     instance_capacity: Int,
@@ -178,11 +234,11 @@ def extract_instance_ranges_u64_kernel(
     if instance_idx >= actual_instance_count or instance_idx >= instance_capacity:
         return
 
-    current_tile = Int(rebind[UInt64](instance_keys[instance_idx]) >> 32)
+    current_tile = Int(rebind[Scalar[instance_key_dtype]](instance_keys[instance_idx]))
     if instance_idx == 0:
         tile_instance_ranges[current_tile, 0] = Int32(0)
     else:
-        previous_tile = Int(rebind[UInt64](instance_keys[instance_idx - 1]) >> 32)
+        previous_tile = Int(rebind[Scalar[instance_key_dtype]](instance_keys[instance_idx - 1]))
         if previous_tile != current_tile:
             tile_instance_ranges[previous_tile, 1] = Int32(instance_idx)
             tile_instance_ranges[current_tile, 0] = Int32(instance_idx)
@@ -225,6 +281,10 @@ struct SortForward:
         tile_instance_ranges: OutputTensor[dtype=DType.int32, rank=2, ...],
         tile_bucket_offsets: OutputTensor[dtype=DType.int32, rank=1, ...],
         bucket_count: OutputTensor[dtype=DType.int32, rank=1, ...],
+        depth_sort_keys_work: OutputTensor[dtype=DType.uint32, rank=1, ...],
+        sorted_primitive_indices_work: OutputTensor[dtype=DType.int32, rank=1, ...],
+        sorted_touched_counts_work: OutputTensor[dtype=DType.int32, rank=1, ...],
+        primitive_offsets_work: OutputTensor[dtype=DType.int32, rank=1, ...],
         depth_keys: InputTensor[dtype=DType.int32, rank=1, ...],
         primitive_indices: InputTensor[dtype=DType.int32, rank=1, ...],
         num_touched_tiles: InputTensor[dtype=DType.int32, rank=1, ...],
@@ -241,8 +301,17 @@ struct SortForward:
         comptime if target == "gpu":
             gpu_ctx = ctx.get_device_context()
             n_primitives = Int(depth_keys.dim_size[0]())
+            n_visible_capacity = Int(depth_sort_keys_work.dim_size[0]())
             tile_count = Int(tile_instance_ranges.dim_size[0]())
             n_instances = Int(instance_primitive_indices.dim_size[0]())
+            visible_count_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                visible_count.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(1)),
+            )
             instance_count_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
                 instance_count.unsafe_ptr(),
                 RuntimeLayout[
@@ -277,6 +346,14 @@ struct SortForward:
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
                 ].row_major(Index(Int(num_touched_tiles.dim_size[0]()))),
+            )
+            primitive_indices_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                primitive_indices.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(primitive_indices.dim_size[0]()))),
             )
             screen_bounds_tensor = LayoutTensor[DType.uint16, ROW_MAJOR_2D, MutAnyOrigin](
                 screen_bounds.unsafe_ptr(),
@@ -334,6 +411,38 @@ struct SortForward:
                     linear_idx_type=DType.int32,
                 ].row_major(Index(Int(bucket_count.dim_size[0]()))),
             )
+            depth_sort_keys_tensor = LayoutTensor[DType.uint32, ROW_MAJOR_1D, MutAnyOrigin](
+                depth_sort_keys_work.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(n_visible_capacity)),
+            )
+            sorted_primitive_indices_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                sorted_primitive_indices_work.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(n_visible_capacity)),
+            )
+            sorted_touched_counts_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                sorted_touched_counts_work.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(n_visible_capacity)),
+            )
+            primitive_offsets_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                primitive_offsets_work.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(n_visible_capacity)),
+            )
 
             # Clear long-lived forward-state outputs before rebuilding the
             # tile-major instance stream.
@@ -366,66 +475,30 @@ struct SortForward:
                 block_dim=1,
             )
 
-            if n_primitives == 0 or n_instances == 0:
+            if n_primitives == 0 or n_instances == 0 or n_visible_capacity == 0:
                 return
 
-            var depth_sort_keys_buffer = gpu_ctx.enqueue_create_buffer[DType.uint32](n_primitives)
-            var sorted_primitive_indices_buffer = gpu_ctx.enqueue_create_buffer[DType.int32](n_primitives)
-            var sorted_touched_counts_buffer = gpu_ctx.enqueue_create_buffer[DType.int32](n_primitives)
-            var primitive_offsets_buffer = gpu_ctx.enqueue_create_buffer[DType.int32](n_primitives)
-            var instance_keys_buffer = gpu_ctx.enqueue_create_buffer[DType.uint64](n_instances)
+            var offset_scan_block_count = div_round_up(n_visible_capacity, 256)
+            var offset_block_totals_buffer = gpu_ctx.enqueue_create_buffer[DType.int32](offset_scan_block_count)
+            var offset_block_offsets_buffer = gpu_ctx.enqueue_create_buffer[DType.int32](offset_scan_block_count)
 
-            var depth_sort_keys_tensor = LayoutTensor[DType.uint32, ROW_MAJOR_1D, MutAnyOrigin](
-                depth_sort_keys_buffer.unsafe_ptr(),
+            var offset_block_totals_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                offset_block_totals_buffer.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(n_primitives)),
+                ].row_major(Index(offset_scan_block_count)),
             )
-            var sorted_primitive_indices_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
-                sorted_primitive_indices_buffer.unsafe_ptr(),
+            var offset_block_offsets_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
+                offset_block_offsets_buffer.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(n_primitives)),
-            )
-            var sorted_touched_counts_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
-                sorted_touched_counts_buffer.unsafe_ptr(),
-                RuntimeLayout[
-                    ROW_MAJOR_1D,
-                    element_type=DType.int32,
-                    linear_idx_type=DType.int32,
-                ].row_major(Index(n_primitives)),
-            )
-            var primitive_offsets_tensor = LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin](
-                primitive_offsets_buffer.unsafe_ptr(),
-                RuntimeLayout[
-                    ROW_MAJOR_1D,
-                    element_type=DType.int32,
-                    linear_idx_type=DType.int32,
-                ].row_major(Index(n_primitives)),
-            )
-            var instance_keys_tensor = LayoutTensor[DType.uint64, ROW_MAJOR_1D, MutAnyOrigin](
-                instance_keys_buffer.unsafe_ptr(),
-                RuntimeLayout[
-                    ROW_MAJOR_1D,
-                    element_type=DType.int32,
-                    linear_idx_type=DType.int32,
-                ].row_major(Index(n_instances)),
+                ].row_major(Index(offset_scan_block_count)),
             )
 
-            gpu_ctx.enqueue_function[
-                fill_instance_padding_kernel,
-                fill_instance_padding_kernel,
-            ](
-                instance_keys_tensor,
-                instance_primitive_indices_tensor,
-                n_instances,
-                grid_dim=div_round_up(n_instances, 256),
-                block_dim=256,
-            )
             gpu_ctx.enqueue_function[
                 prepare_depth_sort_pairs_kernel,
                 prepare_depth_sort_pairs_kernel,
@@ -433,22 +506,23 @@ struct SortForward:
                 depth_sort_keys_tensor,
                 sorted_primitive_indices_tensor,
                 depth_keys_tensor,
-                num_touched_tiles_tensor,
-                n_primitives,
-                grid_dim=div_round_up(n_primitives, 256),
+                primitive_indices_tensor,
+                visible_count_tensor,
+                n_visible_capacity,
+                grid_dim=div_round_up(n_visible_capacity, 256),
                 block_dim=256,
             )
 
             var depth_sort_workspace = RadixSortWorkspace[DType.uint32, DType.int32](
                 gpu_ctx,
-                n_primitives,
+                n_visible_capacity,
             )
-            device_radix_sort_pairs[DType.uint32, DType.int32](
+            device_radix_sort_pairs_ptrs[DType.uint32, DType.int32](
                 gpu_ctx,
                 depth_sort_workspace,
-                depth_sort_keys_buffer,
-                sorted_primitive_indices_buffer,
-                n_primitives,
+                depth_sort_keys_work.unsafe_ptr(),
+                sorted_primitive_indices_work.unsafe_ptr(),
+                n_visible_capacity,
             )
 
             gpu_ctx.enqueue_function[
@@ -458,62 +532,187 @@ struct SortForward:
                 sorted_primitive_indices_tensor,
                 num_touched_tiles_tensor,
                 sorted_touched_counts_tensor,
-                n_primitives,
-                grid_dim=div_round_up(n_primitives, 256),
+                visible_count_tensor,
+                n_visible_capacity,
+                grid_dim=div_round_up(n_visible_capacity, 256),
+                block_dim=256,
+            )
+            gpu_ctx.enqueue_function[
+                exclusive_prefix_sum_i32_blocks_kernel[
+                    type_of(sorted_touched_counts_tensor).layout,
+                    type_of(primitive_offsets_tensor).layout,
+                    type_of(offset_block_totals_tensor).layout,
+                ],
+                exclusive_prefix_sum_i32_blocks_kernel[
+                    type_of(sorted_touched_counts_tensor).layout,
+                    type_of(primitive_offsets_tensor).layout,
+                    type_of(offset_block_totals_tensor).layout,
+                ],
+            ](
+                sorted_touched_counts_tensor,
+                primitive_offsets_tensor,
+                offset_block_totals_tensor,
+                n_visible_capacity,
+                grid_dim=offset_scan_block_count,
                 block_dim=256,
             )
             gpu_ctx.enqueue_function[
                 exclusive_prefix_sum_i32_kernel,
                 exclusive_prefix_sum_i32_kernel,
             ](
-                sorted_touched_counts_tensor,
-                primitive_offsets_tensor,
-                n_primitives,
+                offset_block_totals_tensor,
+                offset_block_offsets_tensor,
+                offset_scan_block_count,
                 grid_dim=1,
                 block_dim=1,
             )
             gpu_ctx.enqueue_function[
-                expand_instances_kernel,
-                expand_instances_kernel,
+                add_i32_block_offsets_kernel[
+                    type_of(primitive_offsets_tensor).layout,
+                    type_of(offset_block_offsets_tensor).layout,
+                ],
+                add_i32_block_offsets_kernel[
+                    type_of(primitive_offsets_tensor).layout,
+                    type_of(offset_block_offsets_tensor).layout,
+                ],
             ](
-                instance_keys_tensor,
-                instance_primitive_indices_tensor,
-                sorted_primitive_indices_tensor,
                 primitive_offsets_tensor,
-                sorted_touched_counts_tensor,
-                screen_bounds_tensor,
-                projected_means_tensor,
-                conic_opacity_tensor,
-                width_tensor,
-                n_primitives,
-                n_instances,
-                grid_dim=div_round_up(n_primitives, 256),
+                offset_block_offsets_tensor,
+                n_visible_capacity,
+                grid_dim=offset_scan_block_count,
                 block_dim=256,
             )
 
-            var instance_sort_workspace = RadixSortWorkspace[DType.uint64, DType.int32](
-                gpu_ctx,
-                n_instances,
-            )
-            device_radix_sort_pairs_ptrs[DType.uint64, DType.int32](
-                gpu_ctx,
-                instance_sort_workspace,
-                instance_keys_buffer.unsafe_ptr(),
-                instance_primitive_indices.unsafe_ptr(),
-                n_instances,
-            )
+            if tile_count < 65536:
+                var instance_keys_buffer = gpu_ctx.enqueue_create_buffer[DType.uint16](n_instances)
+                var instance_keys_tensor = LayoutTensor[DType.uint16, ROW_MAJOR_1D, MutAnyOrigin](
+                    instance_keys_buffer.unsafe_ptr(),
+                    RuntimeLayout[
+                        ROW_MAJOR_1D,
+                        element_type=DType.int32,
+                        linear_idx_type=DType.int32,
+                    ].row_major(Index(n_instances)),
+                )
+                comptime fill_kernel = fill_instance_padding_kernel[DType.uint16]
+                gpu_ctx.enqueue_function[
+                    fill_kernel,
+                    fill_kernel,
+                ](
+                    instance_keys_tensor,
+                    instance_primitive_indices_tensor,
+                    n_instances,
+                    grid_dim=div_round_up(n_instances, 256),
+                    block_dim=256,
+                )
+                comptime expand_kernel = expand_instances_kernel[DType.uint16]
+                gpu_ctx.enqueue_function[
+                    expand_kernel,
+                    expand_kernel,
+                ](
+                    instance_keys_tensor,
+                    instance_primitive_indices_tensor,
+                    sorted_primitive_indices_tensor,
+                    primitive_offsets_tensor,
+                    sorted_touched_counts_tensor,
+                    screen_bounds_tensor,
+                    projected_means_tensor,
+                    conic_opacity_tensor,
+                    width_tensor,
+                    n_visible_capacity,
+                    n_instances,
+                    grid_dim=div_round_up(n_visible_capacity, 256),
+                    block_dim=256,
+                )
 
-            gpu_ctx.enqueue_function[
-                extract_instance_ranges_u64_kernel,
-                extract_instance_ranges_u64_kernel,
-            ](
-                instance_keys_tensor,
-                tile_instance_ranges_tensor,
-                instance_count_tensor,
-                n_instances,
-                grid_dim=div_round_up(n_instances, 256),
-                block_dim=256,
-            )
+                var instance_sort_workspace = RadixSortWorkspace[DType.uint16, DType.int32](
+                    gpu_ctx,
+                    n_instances,
+                )
+                device_radix_sort_pairs_ptrs[DType.uint16, DType.int32](
+                    gpu_ctx,
+                    instance_sort_workspace,
+                    instance_keys_buffer.unsafe_ptr(),
+                    instance_primitive_indices.unsafe_ptr(),
+                    n_instances,
+                )
+
+                comptime extract_kernel = extract_instance_ranges_kernel[DType.uint16]
+                gpu_ctx.enqueue_function[
+                    extract_kernel,
+                    extract_kernel,
+                ](
+                    instance_keys_tensor,
+                    tile_instance_ranges_tensor,
+                    instance_count_tensor,
+                    n_instances,
+                    grid_dim=div_round_up(n_instances, 256),
+                    block_dim=256,
+                )
+            else:
+                var instance_keys_buffer = gpu_ctx.enqueue_create_buffer[DType.uint32](n_instances)
+                var instance_keys_tensor = LayoutTensor[DType.uint32, ROW_MAJOR_1D, MutAnyOrigin](
+                    instance_keys_buffer.unsafe_ptr(),
+                    RuntimeLayout[
+                        ROW_MAJOR_1D,
+                        element_type=DType.int32,
+                        linear_idx_type=DType.int32,
+                    ].row_major(Index(n_instances)),
+                )
+                comptime fill_kernel = fill_instance_padding_kernel[DType.uint32]
+                gpu_ctx.enqueue_function[
+                    fill_kernel,
+                    fill_kernel,
+                ](
+                    instance_keys_tensor,
+                    instance_primitive_indices_tensor,
+                    n_instances,
+                    grid_dim=div_round_up(n_instances, 256),
+                    block_dim=256,
+                )
+                comptime expand_kernel = expand_instances_kernel[DType.uint32]
+                gpu_ctx.enqueue_function[
+                    expand_kernel,
+                    expand_kernel,
+                ](
+                    instance_keys_tensor,
+                    instance_primitive_indices_tensor,
+                    sorted_primitive_indices_tensor,
+                    primitive_offsets_tensor,
+                    sorted_touched_counts_tensor,
+                    screen_bounds_tensor,
+                    projected_means_tensor,
+                    conic_opacity_tensor,
+                    width_tensor,
+                    n_visible_capacity,
+                    n_instances,
+                    grid_dim=div_round_up(n_visible_capacity, 256),
+                    block_dim=256,
+                )
+
+                var instance_sort_workspace = RadixSortWorkspace[DType.uint32, DType.int32](
+                    gpu_ctx,
+                    n_instances,
+                )
+                device_radix_sort_pairs_ptrs[DType.uint32, DType.int32](
+                    gpu_ctx,
+                    instance_sort_workspace,
+                    instance_keys_buffer.unsafe_ptr(),
+                    instance_primitive_indices.unsafe_ptr(),
+                    n_instances,
+                )
+
+                comptime extract_kernel = extract_instance_ranges_kernel[DType.uint32]
+                gpu_ctx.enqueue_function[
+                    extract_kernel,
+                    extract_kernel,
+                ](
+                    instance_keys_tensor,
+                    tile_instance_ranges_tensor,
+                    instance_count_tensor,
+                    n_instances,
+                    grid_dim=div_round_up(n_instances, 256),
+                    block_dim=256,
+                )
             gpu_ctx.enqueue_function[
                 write_bucket_offsets_kernel,
                 write_bucket_offsets_kernel,

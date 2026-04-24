@@ -6,13 +6,14 @@ __generated_with = "0.23.1"
 app = marimo.App(width="columns")
 
 with app.setup:
-    import altair as alt
+    import threading
     from functools import partial
+
+    import altair as alt
     import marimo as mo
     import numpy as np
     import splatkit as sk
     import splatkit_native_faster_gs.gaussian_pop as skn_gaussian_pop
-    import threading
     import torch
     from marimo_3dv import (
         CameraState,

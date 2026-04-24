@@ -17,7 +17,9 @@ with app.setup:
     import torch
     from splatkit.benchmarks import benchmark_backend_render
     from splatkit.core import BACKEND_REGISTRY, GaussianScene3D
-    from splatkit.initialization import initialize_gaussian_scene_from_scene_record
+    from splatkit.initialization import (
+        initialize_gaussian_scene_from_scene_record,
+    )
 
     OPTIONAL_BACKEND_MODULES = (
         "splatkit_adapter_backends.fastgs",
