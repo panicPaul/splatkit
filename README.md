@@ -25,7 +25,7 @@ This repo is currently useful for:
 
 ## Install
 
-From a fresh checkout:
+For local development from a fresh checkout:
 
 ```bash
 git submodule update --init --recursive
@@ -71,6 +71,93 @@ If Python-only environment management is not enough for a machine, use Pixi:
 pixi install -e cu130
 pixi shell -e cu130
 ```
+
+## Using From Another Project
+
+Use GitHub source archives for monorepo package subdirectories. They install the
+selected package without initializing this repository's `third_party/`
+submodules:
+
+```toml
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+```
+
+```bash
+uv add "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit"
+uv add "splatkit-native-faster-gs[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs"
+uv add "splatkit-native-3dgrt[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-3dgrt"
+uv add "splatkit-native-svraster[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-svraster"
+```
+
+The Mojo backend also needs Modular nightly packages:
+
+```toml
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+# merge these entries with the existing torch source table above
+max = { index = "modular-nightly" }
+mojo = { index = "modular-nightly" }
+
+[[tool.uv.index]]
+name = "modular-nightly"
+url = "https://whl.modular.com/nightly/simple/"
+```
+
+```bash
+uv add "splatkit-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs-mojo"
+```
+
+Prefer release tags over `main` once a release is cut:
+
+```bash
+uv add "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit"
+```
+
+For PEP 723 / `marimo edit --sandbox` notebooks, put the archive dependencies
+directly in the notebook. Avoid forwarding the PyTorch CUDA index as a global
+sandbox index: marimo exports script metadata to a plain requirements file
+before the isolated install, so `tool.uv.sources` index affinity is not
+preserved for that second resolver pass. Pin the PyTorch CUDA wheel as a direct
+URL and only forward the Modular index when using the Mojo backend:
+
+```toml
+# dependencies = [
+#     "marimo",
+#     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
+#     "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit",
+#     "splatkit-native-faster-gs[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs",
+#     "splatkit-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs-mojo",
+# ]
+# requires-python = ">=3.14"
+#
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+max = { index = "modular-nightly" }
+mojo = { index = "modular-nightly" }
+
+[[tool.uv.index]]
+name = "modular-nightly"
+url = "https://whl.modular.com/nightly/simple/"
+```
+
+This prevents the PyTorch CUDA index from shadowing PyPI packages such as
+`cuda-bindings==13.2.0` during the final sandbox install.
+Omit the Modular block and Mojo package if the notebook does not use the Mojo
+backend.
+
+See `sandboxed_notebooks/packaging_local.py`,
+`sandboxed_notebooks/packaging_git_main.py`, and
+`sandboxed_notebooks/splat_viewer_git_main.py` for working packaging probes.
 
 ## Backend Packages
 
@@ -225,13 +312,16 @@ git tag v0.0.1
 git push origin main v0.0.1
 ```
 
-Git pinning examples:
+GitHub source-archive pinning examples:
 
 ```bash
-pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit"
-pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-adapter-backends"
-pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-native-faster-gs"
+pip install "https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit"
+pip install "https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit-adapter-backends"
+pip install "https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit-native-faster-gs"
 ```
+
+Use source archives instead of `git+https` URLs for package subdirectories.
+Archive installs do not initialize monorepo submodules.
 
 ## Development Notes
 

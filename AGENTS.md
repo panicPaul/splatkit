@@ -9,6 +9,14 @@
   their versions from Git tags via `hatch-vcs`, so this usually means creating
   and pushing the intended shared `vX.Y.Z` tag after the merge; also update any
   packages that still carry static versions when they are part of the release.
+- Before pushing packaging or dependency changes to `main`, run the local
+  sandboxed packaging check, especially
+  `sandboxed_notebooks/packaging_local.py`, so the current checkout and
+  submodule pointers are validated before publishing.
+- After pushing packaging or dependency changes to `main`, run the GitHub-source
+  sandboxed checks, especially `sandboxed_notebooks/packaging_git_main.py` and
+  `sandboxed_notebooks/splat_viewer_git_main.py`, so the published archive and
+  Git dependencies are validated from a clean sandbox.
 - When annotating a single dimension with `jaxtyping`, leave a single space in
   the dimension spec to avoid confusion with forward annotations.
 - For mojo code: read https://docs.modular.com/llms-python.txt for MAX Python API documentation

@@ -11,7 +11,7 @@ dependencies = [
     "torch>=2.11.0",
     # Editable dependencies
     "splatkit[all]",
-    "marimo-config-gui>=0.0.1",
+    "marimo-config-gui>=0.1.0",
     "marimo-3dv>=0.1.1",
     # Non editable dependencies
     "marimo>=0.22.4",
