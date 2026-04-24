@@ -156,14 +156,27 @@ package. The library package is `packages/splatkit`.
 
 ## 3DGRT / OptiX
 
-`adapter.stoch3dgs` and `3dgrt.stoch3dgs` need NVIDIA OptiX headers. They are
-tracked through nested submodules, so start with:
+`3dgrt.stoch3dgs` uses OptiX. The header-only `optix-dev` subset needed to
+compile the native package is vendored in this repository at:
+
+```text
+packages/splatkit-native-3dgrt/src/splatkit_native_3dgrt/core/native/stoch3dgs/dependencies/optix-dev/include/optix.h
+```
+
+You still need a system NVIDIA driver and OptiX-capable GPU. For local
+development, install the normal NVIDIA CUDA/driver stack for your machine; the
+vendored headers are not a replacement for the driver/runtime components. If
+you need the full OptiX SDK, download it from NVIDIA:
+<https://developer.nvidia.com/designworks/optix/download>.
+
+The adapter path `adapter.stoch3dgs` wraps the upstream `third_party/Stoch3DGS`
+checkout. If you use that path, initialize nested submodules too:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-The expected header path is:
+The upstream adapter header path is:
 
 ```text
 third_party/Stoch3DGS/threedgrt_tracer/dependencies/optix-dev/include/optix.h
