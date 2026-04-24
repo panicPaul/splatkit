@@ -4,6 +4,11 @@
 - Use `jaxtyping` for tensor and NumPy array annotations.
 - Before running `git commit`, inspect `git status --short`.
 - If the worktree contains unrelated unstaged user changes, do not run a hook-enabled `git commit`; either use a scoped `git commit --no-verify` for the task's staged files or stop and ask the user. Do not rely on pre-commit's stash/restore cycle to preserve unrelated work.
+- Before merging or pushing changes to `main`, make an explicit release version
+  decision and bump/tag all package versions consistently. Most packages derive
+  their versions from Git tags via `hatch-vcs`, so this usually means creating
+  and pushing the intended shared `vX.Y.Z` tag after the merge; also update any
+  packages that still carry static versions when they are part of the release.
 - When annotating a single dimension with `jaxtyping`, leave a single space in
   the dimension spec to avoid confusion with forward annotations.
 - For mojo code: read https://docs.modular.com/llms-python.txt for MAX Python API documentation
