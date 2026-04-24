@@ -89,6 +89,12 @@ def _():
     return
 
 
+@app.cell
+def _(load_form):
+    load_form
+    return
+
+
 @app.cell(hide_code=True)
 def _(
     antialiasing,
@@ -121,12 +127,6 @@ def _(
         [selectors, normalization_controls, viewer_controls_gui],
         gap=0.75,
     )
-    return
-
-
-@app.cell
-def _(load_form):
-    load_form
     return
 
 

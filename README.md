@@ -128,7 +128,8 @@ before the isolated install, so `tool.uv.sources` index affinity is not
 preserved for that second resolver pass. Pin the PyTorch CUDA wheel as a direct
 URL and only forward the Modular index when using the Mojo backend:
 
-```toml
+```python
+# /// script
 # dependencies = [
 #     "marimo",
 #     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
@@ -138,16 +139,17 @@ URL and only forward the Modular index when using the Mojo backend:
 # ]
 # requires-python = ">=3.14"
 #
-[tool.uv]
-prerelease = "allow"
-
-[tool.uv.sources]
-max = { index = "modular-nightly" }
-mojo = { index = "modular-nightly" }
-
-[[tool.uv.index]]
-name = "modular-nightly"
-url = "https://whl.modular.com/nightly/simple/"
+# [tool.uv]
+# prerelease = "allow"
+#
+# [tool.uv.sources]
+# max = { index = "modular-nightly" }
+# mojo = { index = "modular-nightly" }
+#
+# [[tool.uv.index]]
+# name = "modular-nightly"
+# url = "https://whl.modular.com/nightly/simple/"
+# ///
 ```
 
 This prevents the PyTorch CUDA index from shadowing PyPI packages such as
