@@ -2,32 +2,33 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 import torch
 from torch import Tensor
 
-from splatkit_native_faster_gs.faster_gs.reuse.factories import (
-    register_render_family,
-)
+from splatkit_native_faster_gs.faster_gs.reuse.factories import register_render_family
 from splatkit_native_faster_gs.faster_gs.runtime.packing import (
     pack_render_outputs,
     parse_render_outputs,
 )
+from splatkit_native_faster_gs_mojo.core.runtime._mojo import custom_op_library_path
 from splatkit_native_faster_gs_mojo.core.runtime.ops._common import (
+    normalize_active_sh_bases,
     requires_grad,
 )
 from splatkit_native_faster_gs_mojo.core.runtime.ops.blend import (
     _blend_bwd_fake,
     _blend_fwd_fake,
-    blend_bwd_op,
     blend_fwd_op,
+    blend_bwd_op,
 )
 from splatkit_native_faster_gs_mojo.core.runtime.ops.preprocess import (
     _preprocess_bwd_fake,
     _preprocess_fwd_fake,
-    preprocess_bwd_op,
     preprocess_fwd_op,
+    preprocess_bwd_op,
 )
 from splatkit_native_faster_gs_mojo.core.runtime.ops.sort import (
     _sort_fwd_fake,
@@ -58,6 +59,172 @@ RenderOpOutput = tuple[
 ]
 
 
+@lru_cache(maxsize=None)
+def _graph_render_fwd(
+    device_index: int,
+    proper_antialiasing: bool,
+    active_sh_bases: int,
+    near_plane: float,
+    far_plane: float,
+    width: int,
+    height: int,
+    focal_x: float,
+    focal_y: float,
+    center_x: float,
+    center_y: float,
+):
+    from max.dtype import DType as MaxDType
+    from max.experimental.torch import graph_op
+    from max.graph import DeviceRef, TensorType, ops
+
+    device = DeviceRef.GPU(device_index)
+    ops_root = custom_op_library_path()
+    input_types = (
+        TensorType(MaxDType.float32, ("primitive_count", 3), device=device),
+        TensorType(MaxDType.float32, ("primitive_count", 3), device=device),
+        TensorType(MaxDType.float32, ("primitive_count", 4), device=device),
+        TensorType(MaxDType.float32, ("primitive_count", 1), device=device),
+        TensorType(MaxDType.float32, ("primitive_count", 1, 3), device=device),
+        TensorType(MaxDType.float32, ("primitive_count", "rest_bases", 3), device=device),
+        TensorType(MaxDType.float32, (4, 4), device=device),
+        TensorType(MaxDType.float32, (3,), device=device),
+        TensorType(MaxDType.float32, (3,), device=device),
+    )
+    preprocess_output_types = (
+        TensorType(MaxDType.float32, ("primitive_count", 2), device=device),
+        TensorType(MaxDType.float32, ("primitive_count", 4), device=device),
+        TensorType(MaxDType.float32, ("primitive_count", 3), device=device),
+        TensorType(MaxDType.float32, ("primitive_count",), device=device),
+        TensorType(MaxDType.int32, ("primitive_count",), device=device),
+        TensorType(MaxDType.int32, ("primitive_count",), device=device),
+        TensorType(MaxDType.int32, ("primitive_count",), device=device),
+        TensorType(MaxDType.uint16, ("primitive_count", 4), device=device),
+        TensorType(MaxDType.int32, (1,), device=device),
+        TensorType(MaxDType.int32, (1,), device=device),
+    )
+    sort_output_types = (
+        TensorType(MaxDType.int32, ("instance_count",), device=device),
+        TensorType(MaxDType.int32, ("tile_count", 2), device=device),
+        TensorType(MaxDType.int32, ("tile_count",), device=device),
+        TensorType(MaxDType.int32, (1,), device=device),
+    )
+    blend_output_types = (
+        TensorType(MaxDType.float32, (3, "height", "width"), device=device),
+        TensorType(MaxDType.float32, ("tile_pixels",), device=device),
+        TensorType(MaxDType.int32, ("tile_count",), device=device),
+        TensorType(MaxDType.int32, ("tile_pixels",), device=device),
+        TensorType(MaxDType.int32, ("bucket_total",), device=device),
+        TensorType(MaxDType.float32, ("bucket_color_rows", 4), device=device),
+    )
+    output_types = (
+        blend_output_types[0],
+        *preprocess_output_types,
+        *sort_output_types,
+        *blend_output_types[1:],
+    )
+    specialization_key = abs(
+        hash(
+            (
+                proper_antialiasing,
+                active_sh_bases,
+                near_plane,
+                far_plane,
+                width,
+                height,
+                focal_x,
+                focal_y,
+                center_x,
+                center_y,
+            )
+        )
+    )
+
+    @graph_op(
+        name=(
+            "faster_gs_mojo_render_fwd_graph_"
+            f"cuda_{device_index}_{specialization_key}"
+        ),
+        kernel_library=ops_root,
+        input_types=input_types,
+        output_types=output_types,
+    )
+    def render_fwd_graph(
+        center_positions: Any,
+        log_scales: Any,
+        unnormalized_rotations: Any,
+        opacities: Any,
+        sh_coefficients_0: Any,
+        sh_coefficients_rest: Any,
+        world_2_camera: Any,
+        camera_position: Any,
+        bg_color: Any,
+    ) -> list[Any]:
+        preprocess_outputs = ops.custom(
+            f"preprocess_fwd_pa{int(proper_antialiasing)}_sh{active_sh_bases}",
+            device,
+            [
+                center_positions,
+                log_scales,
+                unnormalized_rotations,
+                opacities,
+                sh_coefficients_0,
+                sh_coefficients_rest,
+                world_2_camera,
+                camera_position,
+                near_plane,
+                far_plane,
+                width,
+                height,
+                focal_x,
+                focal_y,
+                center_x,
+                center_y,
+            ],
+            out_types=preprocess_output_types,
+        )
+        sort_outputs = ops.custom(
+            "sort_fwd",
+            device,
+            [
+                preprocess_outputs[4],
+                preprocess_outputs[5],
+                preprocess_outputs[6],
+                preprocess_outputs[7],
+                preprocess_outputs[0],
+                preprocess_outputs[1],
+                preprocess_outputs[8],
+                preprocess_outputs[9],
+                width,
+                height,
+            ],
+            out_types=sort_output_types,
+        )
+        blend_outputs = ops.custom(
+            "blend_fwd",
+            device,
+            [
+                sort_outputs[0],
+                sort_outputs[1],
+                sort_outputs[2],
+                sort_outputs[3],
+                preprocess_outputs[0],
+                preprocess_outputs[1],
+                preprocess_outputs[2],
+                bg_color,
+            ],
+            out_types=blend_output_types,
+        )
+        return [blend_outputs[0], *preprocess_outputs, *sort_outputs, *blend_outputs[1:]]
+
+    return render_fwd_graph
+
+
+def _graph_device_index(device: torch.device) -> int:
+    if device.type != "cuda":
+        raise ValueError("The FasterGS Mojo render graph currently requires CUDA tensors.")
+    return torch.cuda.current_device() if device.index is None else device.index
+
+
 @torch.library.custom_op("faster_gs_mojo::render_fwd", mutates_args=())
 def render_fwd_op(
     center_positions: Tensor,
@@ -80,7 +247,8 @@ def render_fwd_op(
     proper_antialiasing: bool,
     active_sh_bases: int,
 ) -> RenderOpOutput:
-    """Low-level composed render forward op."""
+    """Run the fused MAX/Mojo forward graph."""
+    normalized_active_sh_bases = normalize_active_sh_bases(active_sh_bases)
     preprocess_outputs = preprocess_fwd_op(
         center_positions,
         log_scales,
@@ -99,7 +267,7 @@ def render_fwd_op(
         center_x,
         center_y,
         proper_antialiasing,
-        active_sh_bases,
+        normalized_active_sh_bases,
     )
     sort_outputs = sort_fwd_op(
         preprocess_outputs[4],
@@ -126,10 +294,11 @@ def render_fwd_op(
         width,
         height,
     )
-    return pack_render_outputs(
-        preprocess_outputs=preprocess_outputs,
-        sort_outputs=sort_outputs,
-        blend_outputs=blend_outputs,
+    return (
+        blend_outputs[0],
+        *preprocess_outputs,
+        *sort_outputs,
+        *blend_outputs[1:],
     )
 
 
@@ -241,7 +410,7 @@ def render_bwd_op(
     center_y: float,
     active_sh_bases: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
-    """Low-level composed render backward op."""
+    """Delegate the fused forward backward pass to the FasterGS core kernels."""
     grad_projected_means, grad_conic_opacity, grad_colors_rgb = blend_bwd_op(
         grad_image,
         image,
@@ -397,15 +566,18 @@ def _render_impl(
     proper_antialiasing: bool,
     active_sh_bases: int,
 ) -> RenderOpOutput:
+    # MAX imports tensors through DLPack, and PyTorch refuses to export tensors
+    # carrying autograd metadata. The outer Torch custom op still receives and
+    # saves the original tensors for backward.
     return render_fwd_op(
-        center_positions,
-        log_scales,
-        unnormalized_rotations,
-        opacities,
-        sh_coefficients_0,
-        sh_coefficients_rest,
-        world_2_camera,
-        camera_position,
+        center_positions.detach(),
+        log_scales.detach(),
+        unnormalized_rotations.detach(),
+        opacities.detach(),
+        sh_coefficients_0.detach(),
+        sh_coefficients_rest.detach(),
+        world_2_camera.detach(),
+        camera_position.detach(),
         near_plane,
         far_plane,
         width,
@@ -414,7 +586,7 @@ def _render_impl(
         focal_y,
         center_x,
         center_y,
-        bg_color,
+        bg_color.detach(),
         proper_antialiasing,
         active_sh_bases,
     )
@@ -429,14 +601,7 @@ def _render_setup_context(
     inputs: tuple[Any, ...],
     output: tuple[Tensor, ...],
 ) -> None:
-    if not requires_grad(
-        inputs[0],
-        inputs[1],
-        inputs[2],
-        inputs[3],
-        inputs[4],
-        inputs[5],
-    ):
+    if not requires_grad(inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5]):
         ctx.has_context = False
         return
     render_result = parse_render_outputs(output)

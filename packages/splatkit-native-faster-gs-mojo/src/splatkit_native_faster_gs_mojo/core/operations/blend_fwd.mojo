@@ -1,6 +1,6 @@
 import compiler
 
-from layout import Layout, LayoutTensor
+from layout import Layout, LayoutTensor, TensorLayout
 from layout.runtime_layout import RuntimeLayout
 from tensor import InputTensor, OutputTensor
 from std.gpu import WARP_SIZE, block_idx, thread_idx
@@ -22,26 +22,104 @@ comptime BUCKET_SIZE = 32
 comptime MIN_ALPHA_THRESHOLD = Float32(1.0) / Float32(255.0)
 comptime TRANSMITTANCE_THRESHOLD = Float32(1.0e-4)
 
-comptime TILE_METADATA_COLS = 3
 comptime PRIMITIVE_BLEND_COLS = 9
 comptime TILE_RANGE_START_COL = 0
 comptime TILE_RANGE_END_COL = 1
-comptime TILE_BUCKET_BASE_COL = 2
-comptime PRIMITIVE_MEAN_X_COL = 0
-comptime PRIMITIVE_MEAN_Y_COL = 1
-comptime PRIMITIVE_CONIC_A_COL = 2
-comptime PRIMITIVE_CONIC_B_COL = 3
-comptime PRIMITIVE_CONIC_C_COL = 4
-comptime PRIMITIVE_OPACITY_COL = 5
-comptime PRIMITIVE_COLOR_R_COL = 6
-comptime PRIMITIVE_COLOR_G_COL = 7
-comptime PRIMITIVE_COLOR_B_COL = 8
 
 comptime ROW_MAJOR_1D = Layout.row_major(Int())
 comptime ROW_MAJOR_2D = Layout.row_major(Int(), Int())
 comptime ROW_MAJOR_3D = Layout.row_major(Int(), Int(), Int())
 
 comptime SHARED_BLEND_DATA = Layout.row_major(BLOCK_SIZE_BLEND, PRIMITIVE_BLEND_COLS)
+
+
+@always_inline
+def store_blend_row(
+    blend_data: LayoutTensor[
+        DType.float32,
+        SHARED_BLEND_DATA,
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ],
+    row_idx: Int,
+    projected_means: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    conic_opacity: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    colors_rgb: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    primitive_idx: Int,
+):
+    """Stage one primitive's blend inputs into shared memory."""
+    blend_data[row_idx, 0] = rebind[Float32](projected_means[primitive_idx, 0])
+    blend_data[row_idx, 1] = rebind[Float32](projected_means[primitive_idx, 1])
+    blend_data[row_idx, 2] = rebind[Float32](conic_opacity[primitive_idx, 0])
+    blend_data[row_idx, 3] = rebind[Float32](conic_opacity[primitive_idx, 1])
+    blend_data[row_idx, 4] = rebind[Float32](conic_opacity[primitive_idx, 2])
+    blend_data[row_idx, 5] = rebind[Float32](conic_opacity[primitive_idx, 3])
+    blend_data[row_idx, 6] = max(
+        rebind[Float32](colors_rgb[primitive_idx, 0]),
+        Float32(0.0),
+    )
+    blend_data[row_idx, 7] = max(
+        rebind[Float32](colors_rgb[primitive_idx, 1]),
+        Float32(0.0),
+    )
+    blend_data[row_idx, 8] = max(
+        rebind[Float32](colors_rgb[primitive_idx, 2]),
+        Float32(0.0),
+    )
+
+
+@always_inline
+def load_blend_mean(
+    blend_data: LayoutTensor[
+        DType.float32,
+        SHARED_BLEND_DATA,
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ],
+    row_idx: Int,
+) -> Float2:
+    """Load the staged mean for one primitive."""
+    return Float2(
+        rebind[Float32](blend_data[row_idx, 0]),
+        rebind[Float32](blend_data[row_idx, 1]),
+    )
+
+
+@always_inline
+def load_blend_conic_opacity(
+    blend_data: LayoutTensor[
+        DType.float32,
+        SHARED_BLEND_DATA,
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ],
+    row_idx: Int,
+) -> Float4:
+    """Load the staged conic and opacity for one primitive."""
+    return Float4(
+        rebind[Float32](blend_data[row_idx, 2]),
+        rebind[Float32](blend_data[row_idx, 3]),
+        rebind[Float32](blend_data[row_idx, 4]),
+        rebind[Float32](blend_data[row_idx, 5]),
+    )
+
+
+@always_inline
+def load_blend_color(
+    blend_data: LayoutTensor[
+        DType.float32,
+        SHARED_BLEND_DATA,
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ],
+    row_idx: Int,
+) -> Float3:
+    """Load the staged RGB color for one primitive."""
+    return Float3(
+        rebind[Float32](blend_data[row_idx, 6]),
+        rebind[Float32](blend_data[row_idx, 7]),
+        rebind[Float32](blend_data[row_idx, 8]),
+    )
 
 
 @always_inline
@@ -65,14 +143,18 @@ def blend_fwd_kernel(
         ROW_MAJOR_1D,
         MutAnyOrigin,
     ],
-    tile_metadata: LayoutTensor[DType.int32, ROW_MAJOR_2D, MutAnyOrigin],
-    primitive_blend_data: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    tile_instance_ranges: LayoutTensor[DType.int32, ROW_MAJOR_2D, MutAnyOrigin],
+    tile_bucket_offsets: LayoutTensor[DType.int32, ROW_MAJOR_1D, MutAnyOrigin],
+    projected_means: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    conic_opacity: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    colors_rgb: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
     bg_color: LayoutTensor[DType.float32, ROW_MAJOR_1D, MutAnyOrigin],
     width: Int,
     height: Int,
     grid_width: Int,
     n_primitives: Int,
 ):
+    """Blend a tile into the final image and replay-state buffers."""
     comptime assert WARP_SIZE == 32, "FasterGS blend assumes 32-lane warps"
     _ = n_primitives
 
@@ -86,19 +168,19 @@ def blend_fwd_kernel(
         Float32(pixel_y) + Float32(0.5),
     )
 
-    # Tile metadata stays packed at the op boundary but is unpacked into local
-    # scalars once per tile.
     var current_tile_idx = Int(block_idx.y) * grid_width + Int(block_idx.x)
     var tile_start = Int(
-        rebind[Int32](tile_metadata[current_tile_idx, TILE_RANGE_START_COL])
+        rebind[Int32](tile_instance_ranges[current_tile_idx, TILE_RANGE_START_COL])
     )
     var tile_end = Int(
-        rebind[Int32](tile_metadata[current_tile_idx, TILE_RANGE_END_COL])
+        rebind[Int32](tile_instance_ranges[current_tile_idx, TILE_RANGE_END_COL])
     )
     var n_points_total = tile_end - tile_start
     var n_buckets = div_round_up(n_points_total, BUCKET_SIZE)
     var bucket_offset = Int(
-        rebind[Int32](tile_metadata[current_tile_idx, TILE_BUCKET_BASE_COL])
+        Int32(0)
+        if current_tile_idx == 0
+        else rebind[Int32](tile_bucket_offsets[current_tile_idx - 1])
     )
 
     var current_bucket_idx = thread_rank
@@ -106,9 +188,9 @@ def blend_fwd_kernel(
         bucket_tile_index[bucket_offset + current_bucket_idx] = Int32(current_tile_idx)
         current_bucket_idx += BLOCK_SIZE_BLEND
 
-    # Shared staging keeps one packed row per Gaussian. The inner loop unpacks
-    # that row into locals once, which is cheaper than repeatedly re-reading
-    # each field from shared memory during the same pixel/Gaussian interaction.
+    # Shared staging keeps one packed row per Gaussian even though the external
+    # op surface is fully un-packed. That preserves the efficient inner loop
+    # structure without leaking any packing across the op boundary.
     var collected_blend_data = LayoutTensor[
         DType.float32,
         SHARED_BLEND_DATA,
@@ -126,6 +208,8 @@ def blend_fwd_kernel(
     var current_fetch_idx = tile_start + thread_rank
     var local_bucket_offset = bucket_offset
     while n_points_remaining > 0:
+        # Threads that have already converged still participate in the block
+        # collectives so the tile exits coherently once every pixel is done.
         var done_count = Int(
             block_sum[block_dim_x=TILE_WIDTH, block_dim_y=TILE_HEIGHT](
                 SIMD[DType.int32, 1](Int32(1 if done else 0))
@@ -138,41 +222,13 @@ def blend_fwd_kernel(
             var primitive_idx = Int(
                 rebind[Int32](instance_primitive_indices[current_fetch_idx])
             )
-            collected_blend_data[thread_rank, PRIMITIVE_MEAN_X_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_MEAN_X_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_MEAN_Y_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_MEAN_Y_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_CONIC_A_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_CONIC_A_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_CONIC_B_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_CONIC_B_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_CONIC_C_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_CONIC_C_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_OPACITY_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_OPACITY_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_COLOR_R_COL] = max(
-                rebind[Float32](
-                    primitive_blend_data[primitive_idx, PRIMITIVE_COLOR_R_COL]
-                ),
-                Float32(0.0),
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_COLOR_G_COL] = max(
-                rebind[Float32](
-                    primitive_blend_data[primitive_idx, PRIMITIVE_COLOR_G_COL]
-                ),
-                Float32(0.0),
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_COLOR_B_COL] = max(
-                rebind[Float32](
-                    primitive_blend_data[primitive_idx, PRIMITIVE_COLOR_B_COL]
-                ),
-                Float32(0.0),
+            store_blend_row(
+                collected_blend_data,
+                thread_rank,
+                projected_means,
+                conic_opacity,
+                colors_rgb,
+                primitive_idx,
             )
         barrier()
 
@@ -181,6 +237,9 @@ def blend_fwd_kernel(
             if done:
                 break
 
+            # Save one replay snapshot per bucket boundary. The backward pass can
+            # restart blending from these checkpoints instead of replaying the
+            # whole tile from the front.
             if j % BUCKET_SIZE == 0:
                 var snapshot_row = local_bucket_offset * BLOCK_SIZE_BLEND + thread_rank
                 bucket_color_transmittance[snapshot_row, 0] = color_pixel.x
@@ -191,21 +250,9 @@ def blend_fwd_kernel(
 
             n_processed += 1
 
-            var mean2d = Float2(
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_MEAN_X_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_MEAN_Y_COL]),
-            )
-            var conic_opacity = Float4(
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_CONIC_A_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_CONIC_B_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_CONIC_C_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_OPACITY_COL]),
-            )
-            var color = Float3(
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_COLOR_R_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_COLOR_G_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_COLOR_B_COL]),
-            )
+            var mean2d = load_blend_mean(collected_blend_data, j)
+            var conic_opacity = load_blend_conic_opacity(collected_blend_data, j)
+            var color = load_blend_color(collected_blend_data, j)
             var delta_x = mean2d.x - pixel.x
             var delta_y = mean2d.y - pixel.y
             var exponent = (
@@ -216,6 +263,8 @@ def blend_fwd_kernel(
                 )
                 - conic_opacity.y * delta_x * delta_y
             )
+            # Clamp the exponent above by zero so we match the CUDA reference's
+            # numerically stable Gaussian evaluation path.
             var gaussian = exp(min(exponent, Float32(0.0)))
             var alpha = conic_opacity.w * gaussian
             if alpha < MIN_ALPHA_THRESHOLD:
@@ -263,13 +312,16 @@ def blend_fwd_image_only_kernel(
         ROW_MAJOR_1D,
         MutAnyOrigin,
     ],
-    tile_metadata: LayoutTensor[DType.int32, ROW_MAJOR_2D, MutAnyOrigin],
-    primitive_blend_data: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    tile_instance_ranges: LayoutTensor[DType.int32, ROW_MAJOR_2D, MutAnyOrigin],
+    projected_means: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    conic_opacity: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
+    colors_rgb: LayoutTensor[DType.float32, ROW_MAJOR_2D, MutAnyOrigin],
     bg_color: LayoutTensor[DType.float32, ROW_MAJOR_1D, MutAnyOrigin],
     width: Int,
     height: Int,
     grid_width: Int,
 ):
+    """Blend a tile into the final image without replay-state writes."""
     comptime assert WARP_SIZE == 32, "FasterGS blend assumes 32-lane warps"
 
     # This is the viewer/inference path: same per-tile ownership and math as
@@ -285,10 +337,10 @@ def blend_fwd_image_only_kernel(
 
     var current_tile_idx = Int(block_idx.y) * grid_width + Int(block_idx.x)
     var tile_start = Int(
-        rebind[Int32](tile_metadata[current_tile_idx, TILE_RANGE_START_COL])
+        rebind[Int32](tile_instance_ranges[current_tile_idx, TILE_RANGE_START_COL])
     )
     var tile_end = Int(
-        rebind[Int32](tile_metadata[current_tile_idx, TILE_RANGE_END_COL])
+        rebind[Int32](tile_instance_ranges[current_tile_idx, TILE_RANGE_END_COL])
     )
 
     var collected_blend_data = LayoutTensor[
@@ -317,41 +369,13 @@ def blend_fwd_image_only_kernel(
             var primitive_idx = Int(
                 rebind[Int32](instance_primitive_indices[current_fetch_idx])
             )
-            collected_blend_data[thread_rank, PRIMITIVE_MEAN_X_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_MEAN_X_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_MEAN_Y_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_MEAN_Y_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_CONIC_A_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_CONIC_A_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_CONIC_B_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_CONIC_B_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_CONIC_C_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_CONIC_C_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_OPACITY_COL] = rebind[Float32](
-                primitive_blend_data[primitive_idx, PRIMITIVE_OPACITY_COL]
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_COLOR_R_COL] = max(
-                rebind[Float32](
-                    primitive_blend_data[primitive_idx, PRIMITIVE_COLOR_R_COL]
-                ),
-                Float32(0.0),
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_COLOR_G_COL] = max(
-                rebind[Float32](
-                    primitive_blend_data[primitive_idx, PRIMITIVE_COLOR_G_COL]
-                ),
-                Float32(0.0),
-            )
-            collected_blend_data[thread_rank, PRIMITIVE_COLOR_B_COL] = max(
-                rebind[Float32](
-                    primitive_blend_data[primitive_idx, PRIMITIVE_COLOR_B_COL]
-                ),
-                Float32(0.0),
+            store_blend_row(
+                collected_blend_data,
+                thread_rank,
+                projected_means,
+                conic_opacity,
+                colors_rgb,
+                primitive_idx,
             )
         barrier()
 
@@ -360,21 +384,9 @@ def blend_fwd_image_only_kernel(
             if done:
                 break
 
-            var mean2d = Float2(
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_MEAN_X_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_MEAN_Y_COL]),
-            )
-            var conic_opacity = Float4(
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_CONIC_A_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_CONIC_B_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_CONIC_C_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_OPACITY_COL]),
-            )
-            var color = Float3(
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_COLOR_R_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_COLOR_G_COL]),
-                rebind[Float32](collected_blend_data[j, PRIMITIVE_COLOR_B_COL]),
-            )
+            var mean2d = load_blend_mean(collected_blend_data, j)
+            var conic_opacity = load_blend_conic_opacity(collected_blend_data, j)
+            var color = load_blend_color(collected_blend_data, j)
             var delta_x = mean2d.x - pixel.x
             var delta_y = mean2d.y - pixel.y
             var exponent = (
@@ -410,6 +422,11 @@ def blend_fwd_image_only_kernel(
         image[2, pixel_y, pixel_x] = color_pixel.z
 
 
+# ================================================================================================ #
+#                                   Launch interface                                               #
+# ================================================================================================ #
+
+
 @compiler.register("blend_fwd")
 struct BlendForward:
     @staticmethod
@@ -417,24 +434,30 @@ struct BlendForward:
         target: StaticString,
     ](
         image: OutputTensor[dtype=DType.float32, rank=3, ...],
-        forward_state_f32: OutputTensor[dtype=DType.float32, rank=1, ...],
-        forward_state_i32: OutputTensor[dtype=DType.int32, rank=1, ...],
+        tile_final_transmittances: OutputTensor[dtype=DType.float32, rank=1, ...],
+        tile_max_n_processed: OutputTensor[dtype=DType.int32, rank=1, ...],
+        tile_n_processed: OutputTensor[dtype=DType.int32, rank=1, ...],
+        bucket_tile_index: OutputTensor[dtype=DType.int32, rank=1, ...],
+        bucket_color_transmittance: OutputTensor[dtype=DType.float32, rank=2, ...],
         instance_primitive_indices: InputTensor[dtype=DType.int32, rank=1, ...],
-        tile_metadata: InputTensor[dtype=DType.int32, rank=2, ...],
-        primitive_blend_data: InputTensor[dtype=DType.float32, rank=2, ...],
+        tile_instance_ranges: InputTensor[dtype=DType.int32, rank=2, ...],
+        tile_bucket_offsets: InputTensor[dtype=DType.int32, rank=1, ...],
+        bucket_count: InputTensor[dtype=DType.int32, rank=1, ...],
+        projected_means: InputTensor[dtype=DType.float32, rank=2, ...],
+        conic_opacity: InputTensor[dtype=DType.float32, rank=2, ...],
+        colors_rgb: InputTensor[dtype=DType.float32, rank=2, ...],
         bg_color: InputTensor[dtype=DType.float32, rank=1, ...],
         ctx: DeviceContextPtr,
     ) raises:
+        """Run the replay-state-producing blend forward MAX custom op."""
         comptime if target == "gpu":
             var gpu_ctx = ctx.get_device_context()
-            var height = image.dim_size[1]()
-            var width = image.dim_size[2]()
+            var height = Int(image.dim_size[1]())
+            var width = Int(image.dim_size[2]())
             var grid_width = div_round_up(width, TILE_WIDTH)
             var grid_height = div_round_up(height, TILE_HEIGHT)
-            var tile_count = tile_metadata.dim_size[0]()
-            var tile_pixels = tile_count * BLOCK_SIZE_BLEND
-            var bucket_total = forward_state_i32.dim_size[0]() - tile_count - tile_pixels
-            var n_primitives = primitive_blend_data.dim_size[0]()
+            var n_primitives = Int(projected_means.dim_size[0]())
+            _ = bucket_count
 
             var image_tensor = LayoutTensor[DType.float32, ROW_MAJOR_3D, MutAnyOrigin](
                 image.unsafe_ptr(),
@@ -449,60 +472,65 @@ struct BlendForward:
                 ROW_MAJOR_1D,
                 MutAnyOrigin,
             ](
-                forward_state_f32.unsafe_ptr(),
+                tile_final_transmittances.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(tile_pixels)),
+                ].row_major(Index(Int(tile_final_transmittances.dim_size[0]()))),
             )
             var tile_max_n_processed_tensor = LayoutTensor[
                 DType.int32,
                 ROW_MAJOR_1D,
                 MutAnyOrigin,
             ](
-                forward_state_i32.unsafe_ptr(),
+                tile_max_n_processed.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(tile_count)),
+                ].row_major(Index(Int(tile_max_n_processed.dim_size[0]()))),
             )
             var tile_n_processed_tensor = LayoutTensor[
                 DType.int32,
                 ROW_MAJOR_1D,
                 MutAnyOrigin,
             ](
-                forward_state_i32.unsafe_ptr() + tile_count,
+                tile_n_processed.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(tile_pixels)),
+                ].row_major(Index(Int(tile_n_processed.dim_size[0]()))),
             )
             var bucket_tile_index_tensor = LayoutTensor[
                 DType.int32,
                 ROW_MAJOR_1D,
                 MutAnyOrigin,
             ](
-                forward_state_i32.unsafe_ptr() + tile_count + tile_pixels,
+                bucket_tile_index.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(bucket_total)),
+                ].row_major(Index(Int(bucket_tile_index.dim_size[0]()))),
             )
             var bucket_color_transmittance_tensor = LayoutTensor[
                 DType.float32,
                 ROW_MAJOR_2D,
                 MutAnyOrigin,
             ](
-                forward_state_f32.unsafe_ptr() + tile_pixels,
+                bucket_color_transmittance.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_2D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(bucket_total * BLOCK_SIZE_BLEND, 4)),
+                ].row_major(
+                    Index(
+                        Int(bucket_color_transmittance.dim_size[0]()),
+                        Int(bucket_color_transmittance.dim_size[1]()),
+                    )
+                ),
             )
             var instance_primitive_indices_tensor = LayoutTensor[
                 DType.int32,
@@ -514,36 +542,69 @@ struct BlendForward:
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(instance_primitive_indices.dim_size[0]())),
+                ].row_major(Index(Int(instance_primitive_indices.dim_size[0]()))),
             )
-            var tile_metadata_tensor = LayoutTensor[
+            var tile_instance_ranges_tensor = LayoutTensor[
                 DType.int32,
                 ROW_MAJOR_2D,
                 MutAnyOrigin,
             ](
-                tile_metadata.unsafe_ptr(),
-                RuntimeLayout[
-                    ROW_MAJOR_2D,
-                    element_type=DType.int32,
-                    linear_idx_type=DType.int32,
-                ].row_major(Index(tile_metadata.dim_size[0](), tile_metadata.dim_size[1]())),
-            )
-            var primitive_blend_data_tensor = LayoutTensor[
-                DType.float32,
-                ROW_MAJOR_2D,
-                MutAnyOrigin,
-            ](
-                primitive_blend_data.unsafe_ptr(),
+                tile_instance_ranges.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_2D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
                 ].row_major(
-                    Index(
-                        primitive_blend_data.dim_size[0](),
-                        primitive_blend_data.dim_size[1](),
-                    )
+                    Index(Int(tile_instance_ranges.dim_size[0]()), Int(tile_instance_ranges.dim_size[1]()))
                 ),
+            )
+            var tile_bucket_offsets_tensor = LayoutTensor[
+                DType.int32,
+                ROW_MAJOR_1D,
+                MutAnyOrigin,
+            ](
+                tile_bucket_offsets.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(tile_bucket_offsets.dim_size[0]()))),
+            )
+            var projected_means_tensor = LayoutTensor[
+                DType.float32,
+                ROW_MAJOR_2D,
+                MutAnyOrigin,
+            ](
+                projected_means.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_2D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(projected_means.dim_size[0]()), Int(projected_means.dim_size[1]()))),
+            )
+            var conic_opacity_tensor = LayoutTensor[
+                DType.float32,
+                ROW_MAJOR_2D,
+                MutAnyOrigin,
+            ](
+                conic_opacity.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_2D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(conic_opacity.dim_size[0]()), Int(conic_opacity.dim_size[1]()))),
+            )
+            var colors_rgb_tensor = LayoutTensor[
+                DType.float32,
+                ROW_MAJOR_2D,
+                MutAnyOrigin,
+            ](
+                colors_rgb.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_2D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(colors_rgb.dim_size[0]()), Int(colors_rgb.dim_size[1]()))),
             )
             var bg_color_tensor = LayoutTensor[DType.float32, ROW_MAJOR_1D, MutAnyOrigin](
                 bg_color.unsafe_ptr(),
@@ -551,10 +612,12 @@ struct BlendForward:
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(bg_color.dim_size[0]())),
+                ].row_major(Index(Int(bg_color.dim_size[0]()))),
             )
 
             gpu_ctx.enqueue_function[blend_fwd_kernel, blend_fwd_kernel](
+                # Blend owns the final image write plus the replay state needed
+                # by the existing backward path. All packing stays internal.
                 image_tensor,
                 tile_final_transmittances_tensor,
                 tile_max_n_processed_tensor,
@@ -562,8 +625,11 @@ struct BlendForward:
                 bucket_tile_index_tensor,
                 bucket_color_transmittance_tensor,
                 instance_primitive_indices_tensor,
-                tile_metadata_tensor,
-                primitive_blend_data_tensor,
+                tile_instance_ranges_tensor,
+                tile_bucket_offsets_tensor,
+                projected_means_tensor,
+                conic_opacity_tensor,
+                colors_rgb_tensor,
                 bg_color_tensor,
                 width,
                 height,
@@ -582,17 +648,23 @@ struct BlendForwardImageOnly:
     ](
         image: OutputTensor[dtype=DType.float32, rank=3, ...],
         instance_primitive_indices: InputTensor[dtype=DType.int32, rank=1, ...],
-        tile_metadata: InputTensor[dtype=DType.int32, rank=2, ...],
-        primitive_blend_data: InputTensor[dtype=DType.float32, rank=2, ...],
+        tile_instance_ranges: InputTensor[dtype=DType.int32, rank=2, ...],
+        tile_bucket_offsets: InputTensor[dtype=DType.int32, rank=1, ...],
+        bucket_count: InputTensor[dtype=DType.int32, rank=1, ...],
+        projected_means: InputTensor[dtype=DType.float32, rank=2, ...],
+        conic_opacity: InputTensor[dtype=DType.float32, rank=2, ...],
+        colors_rgb: InputTensor[dtype=DType.float32, rank=2, ...],
         bg_color: InputTensor[dtype=DType.float32, rank=1, ...],
         ctx: DeviceContextPtr,
     ) raises:
+        """Run the image-only blend MAX custom op."""
         comptime if target == "gpu":
             var gpu_ctx = ctx.get_device_context()
-            var height = image.dim_size[1]()
-            var width = image.dim_size[2]()
+            var height = Int(image.dim_size[1]())
+            var width = Int(image.dim_size[2]())
             var grid_width = div_round_up(width, TILE_WIDTH)
             var grid_height = div_round_up(height, TILE_HEIGHT)
+            var tile_count = Int(tile_instance_ranges.dim_size[0]())
 
             var image_tensor = LayoutTensor[DType.float32, ROW_MAJOR_3D, MutAnyOrigin](
                 image.unsafe_ptr(),
@@ -612,39 +684,71 @@ struct BlendForwardImageOnly:
                     ROW_MAJOR_1D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(Index(instance_primitive_indices.dim_size[0]())),
+                ].row_major(Index(Int(instance_primitive_indices.dim_size[0]()))),
             )
-            var tile_metadata_tensor = LayoutTensor[
+            var tile_instance_ranges_tensor = LayoutTensor[
                 DType.int32,
                 ROW_MAJOR_2D,
                 MutAnyOrigin,
             ](
-                tile_metadata.unsafe_ptr(),
+                tile_instance_ranges.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_2D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
                 ].row_major(
-                    Index(tile_metadata.dim_size[0](), TILE_METADATA_COLS)
+                    Index(Int(tile_instance_ranges.dim_size[0]()), Int(tile_instance_ranges.dim_size[1]()))
                 ),
             )
-            var primitive_blend_data_tensor = LayoutTensor[
+            var tile_bucket_offsets_tensor = LayoutTensor[
+                DType.int32,
+                ROW_MAJOR_1D,
+                MutAnyOrigin,
+            ](
+                tile_bucket_offsets.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_1D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(tile_bucket_offsets.dim_size[0]()))),
+            )
+            var projected_means_tensor = LayoutTensor[
                 DType.float32,
                 ROW_MAJOR_2D,
                 MutAnyOrigin,
             ](
-                primitive_blend_data.unsafe_ptr(),
+                projected_means.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_2D,
                     element_type=DType.int32,
                     linear_idx_type=DType.int32,
-                ].row_major(
-                    Index(
-                        primitive_blend_data.dim_size[0](),
-                        PRIMITIVE_BLEND_COLS,
-                    )
-                ),
+                ].row_major(Index(Int(projected_means.dim_size[0]()), Int(projected_means.dim_size[1]()))),
             )
+            var conic_opacity_tensor = LayoutTensor[
+                DType.float32,
+                ROW_MAJOR_2D,
+                MutAnyOrigin,
+            ](
+                conic_opacity.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_2D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(conic_opacity.dim_size[0]()), Int(conic_opacity.dim_size[1]()))),
+            )
+            var colors_rgb_tensor = LayoutTensor[
+                DType.float32,
+                ROW_MAJOR_2D,
+                MutAnyOrigin,
+            ](
+                colors_rgb.unsafe_ptr(),
+                RuntimeLayout[
+                    ROW_MAJOR_2D,
+                    element_type=DType.int32,
+                    linear_idx_type=DType.int32,
+                ].row_major(Index(Int(colors_rgb.dim_size[0]()), Int(colors_rgb.dim_size[1]()))),
+            )
+
             var bg_color_tensor = LayoutTensor[
                 DType.float32,
                 ROW_MAJOR_1D,
@@ -664,8 +768,10 @@ struct BlendForwardImageOnly:
             ](
                 image_tensor,
                 instance_indices_tensor,
-                tile_metadata_tensor,
-                primitive_blend_data_tensor,
+                tile_instance_ranges_tensor,
+                projected_means_tensor,
+                conic_opacity_tensor,
+                colors_rgb_tensor,
                 bg_color_tensor,
                 width,
                 height,
