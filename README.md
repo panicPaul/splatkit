@@ -348,25 +348,25 @@ threedgrt_tracer/dependencies/optix-dev
 `packages/splatkit`, `packages/splatkit-adapter-backends`, and the native family
 packages now derive their published versions from Git tags via `hatch-vcs`.
 
-- tagged commits build stable versions like `0.1.0`
+- tagged commits build stable versions like `0.0.1`
 - commits after a tag build unique dev versions tied to that tagged line
-- before the first tag, builds fall back to `0.1.0a0`
+- before the first tag, builds fall back to `0.0.1a0`
 
 Recommended release flow:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.0.1
+git push origin v0.0.1
 ```
 
 Recommended pinning flow for colleagues:
 
 ```bash
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit"
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-adapter-backends"
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-native-faster-gs"
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-native-3dgrt"
-pip install "git+<repo-url>@v0.1.0#subdirectory=packages/splatkit-native-svraster"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-adapter-backends"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-native-faster-gs"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-native-3dgrt"
+pip install "git+<repo-url>@v0.0.1#subdirectory=packages/splatkit-native-svraster"
 ```
 
 Both packages also expose their installed version at runtime via
