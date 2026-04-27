@@ -11,21 +11,16 @@ Minimal, backend-agnostic scene contracts, scene I/O, initialization, and declar
 - optional extras over time for reusable tooling that should remain separate from the minimal core dependency set
 
 Current extras:
-- `viewer`: installs the viewer dependency stack via `marimo-3dv`
 - `eval`: reserved for future evaluation utilities
-- `all`: installs the non-viewer optional utility stacks; `viewer` remains separate for now
+- `all`: installs the current optional utility stacks
+
+Install `splatkit[viewer]` to include the marimo 3D viewer integration.
 
 ## Install
 Base package:
 
 ```bash
 pip install splatkit
-```
-
-With viewer dependencies:
-
-```bash
-pip install "splatkit[viewer]"
 ```
 
 With all current optional utilities:
@@ -167,3 +162,7 @@ src/splatkit/
 The public API is currently re-exported from `splatkit` for convenience, with the implementation living in `splatkit.core`.
 
 In the monorepo, this package lives under `packages/splatkit`.
+
+## License
+
+This package is distributed under the Apache License 2.0.

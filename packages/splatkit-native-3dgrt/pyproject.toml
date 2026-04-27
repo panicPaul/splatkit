@@ -2,13 +2,38 @@
 name = "splatkit-native-3dgrt"
 dynamic = ["version"]
 description = "Official 3DGRT-family native backends for splatkit."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0 AND LicenseRef-NVIDIA-OptiX"
+license-files = [
+    "LICENSE",
+    "src/splatkit_native_3dgrt/core/native/stoch3dgs/dependencies/optix-dev/LICENSE.txt",
+    "src/splatkit_native_3dgrt/core/native/stoch3dgs/dependencies/optix-dev/license_info.txt",
+]
+authors = [
+    { name = "Florian Barthel" },
+    { name = "Paul Schlack" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "beartype>=0.22.9",
     "jaxtyping>=0.3.9",
     "splatkit",
     "torch>=2.11.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/panicPaul/splatkit"
+Issues = "https://github.com/panicPaul/splatkit/issues"
 
 [project.optional-dependencies]
 all = []

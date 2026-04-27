@@ -1,15 +1,17 @@
 """Splatkit-native FasterGS backend."""
 
-from splatkit_native_faster_gs.faster_gs.renderer import (
-    FasterGSNativeRenderOptions,
-    FasterGSNativeRenderOutput,
-    register,
-    render_faster_gs_native,
-)
-
 __all__ = [
     "FasterGSNativeRenderOptions",
     "FasterGSNativeRenderOutput",
     "register",
     "render_faster_gs_native",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Load renderer exports only when requested."""
+    if name in __all__:
+        from splatkit_native_faster_gs.faster_gs import renderer
+
+        return getattr(renderer, name)
+    raise AttributeError(name)

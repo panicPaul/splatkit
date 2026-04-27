@@ -2,7 +2,25 @@
 name = "splatkit"
 dynamic = ["version"]
 description = "Core contracts and optional utilities for modular Gaussian splatting."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Florian Barthel" },
+    { name = "Paul Schlack" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "beartype>=0.22.9",
     "jaxtyping>=0.3.9",
@@ -14,10 +32,11 @@ dependencies = [
     "tqdm>=4.67.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/panicPaul/splatkit"
+Issues = "https://github.com/panicPaul/splatkit/issues"
+
 [project.optional-dependencies]
-viewer = [
-    "marimo-3dv>=0.1.1",
-]
 data = [
     "huggingface_hub>=0.34.0",
     "opencv-python-headless>=4.10.0",
@@ -25,8 +44,12 @@ data = [
 ]
 training = []
 eval = []
+viewer = [
+    "marimo-3dv>=0.1.3",
+]
 all = [
     "huggingface_hub>=0.34.0",
+    "marimo-3dv>=0.1.3",
     "opencv-python-headless>=4.10.0",
     "Pillow>=11.0.0",
 ]

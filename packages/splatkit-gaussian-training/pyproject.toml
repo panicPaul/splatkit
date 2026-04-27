@@ -2,14 +2,36 @@
 name = "splatkit-gaussian-training"
 dynamic = ["version"]
 description = "Optional Gaussian-specific training utilities for splatkit."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Florian Barthel" },
+    { name = "Paul Schlack" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "beartype>=0.22.9",
     "jaxtyping>=0.3.9",
-    "FasterGSCudaBackend",
     "splatkit",
+    "splatkit-native-faster-gs",
     "torch>=2.11.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/panicPaul/splatkit"
+Issues = "https://github.com/panicPaul/splatkit/issues"
 
 [project.optional-dependencies]
 all = []
@@ -32,12 +54,9 @@ conflicts = [
     ],
 ]
 
-[tool.uv.extra-build-dependencies]
-FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
-
 [tool.uv.sources]
-FasterGSCudaBackend = { path = "../../third_party/faster-gaussian-splatting/FasterGSCudaBackend", editable = true }
 splatkit = { path = "../splatkit", editable = true }
+splatkit-native-faster-gs = { path = "../splatkit-native-faster-gs", editable = true }
 torch = [
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },

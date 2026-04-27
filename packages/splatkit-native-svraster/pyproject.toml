@@ -2,13 +2,34 @@
 name = "splatkit-native-svraster"
 dynamic = ["version"]
 description = "Official SVRaster-family native backends for splatkit."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "LicenseRef-NVIDIA-SVRaster AND LicenseRef-INRIA-Gaussian-Splatting"
+license-files = ["LICENSE", "LICENSE_inria.md"]
+authors = [
+    { name = "Florian Barthel" },
+    { name = "Paul Schlack" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "beartype>=0.22.9",
     "jaxtyping>=0.3.9",
     "splatkit",
     "torch>=2.11.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/panicPaul/splatkit"
+Issues = "https://github.com/panicPaul/splatkit/issues"
 
 [project.optional-dependencies]
 all = []

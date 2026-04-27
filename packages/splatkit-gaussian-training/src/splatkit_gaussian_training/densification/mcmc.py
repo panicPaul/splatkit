@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-from FasterGSCudaBackend import add_noise as _add_noise
-from FasterGSCudaBackend import relocation_adjustment as _relocation_adjustment
 from jaxtyping import Float, Int
 from splatkit.core.contracts import GaussianScene
 from splatkit.densification.contracts import (
@@ -18,6 +16,12 @@ from splatkit.densification.contracts import (
     Schedule,
 )
 from splatkit.densification.families import GaussianFamilyOps
+from splatkit_native_faster_gs.faster_gs.training import (
+    add_noise as _add_noise,
+)
+from splatkit_native_faster_gs.faster_gs.training import (
+    relocation_adjustment as _relocation_adjustment,
+)
 from torch import Tensor
 
 
@@ -135,9 +139,7 @@ class GaussianMCMC(BaseDensificationMethod):
 
     def _dead_mask(self, scene: GaussianScene) -> Tensor:
         dead_mask = torch.sigmoid(scene.logit_opacity) <= self.min_opacity
-        dead_mask |= (
-            scene.quaternion_orientation.square().sum(dim=1) < 1e-8
-        )
+        dead_mask |= scene.quaternion_orientation.square().sum(dim=1) < 1e-8
         return dead_mask
 
     def _adjusted_samples(
@@ -174,7 +176,9 @@ class GaussianMCMC(BaseDensificationMethod):
         dead_indices = torch.where(dead_mask)[0]
         opacities = torch.sigmoid(scene.logit_opacity)
         sampled_indices = alive_indices[
-            torch.multinomial(opacities[alive_indices], n_dead, replacement=True)
+            torch.multinomial(
+                opacities[alive_indices], n_dead, replacement=True
+            )
         ]
         adjusted_opacities, adjusted_scales = self._adjusted_samples(
             opacities,
@@ -207,7 +211,9 @@ class GaussianMCMC(BaseDensificationMethod):
         if n_added == 0:
             return
         opacities = torch.sigmoid(scene.logit_opacity)
-        sampled_indices = torch.multinomial(opacities, n_added, replacement=True)
+        sampled_indices = torch.multinomial(
+            opacities, n_added, replacement=True
+        )
         adjusted_opacities, adjusted_scales = self._adjusted_samples(
             opacities,
             scene.log_scales,

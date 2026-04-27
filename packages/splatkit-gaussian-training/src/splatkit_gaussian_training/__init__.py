@@ -2,13 +2,6 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from splatkit_gaussian_training.densification import (
-    GaussianMCMC,
-    add_noise,
-    relocation_adjustment,
-)
-from splatkit_gaussian_training.optim import FusedAdam
-
 try:
     from splatkit_gaussian_training._version import __version__
 except ImportError:
@@ -23,3 +16,16 @@ __all__ = [
     "add_noise",
     "relocation_adjustment",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Load optional FasterGS-backed exports only when requested."""
+    if name == "FusedAdam":
+        from splatkit_gaussian_training.optim import FusedAdam
+
+        return FusedAdam
+    if name in {"GaussianMCMC", "add_noise", "relocation_adjustment"}:
+        from splatkit_gaussian_training import densification
+
+        return getattr(densification, name)
+    raise AttributeError(name)

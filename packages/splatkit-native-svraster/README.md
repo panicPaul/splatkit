@@ -21,3 +21,9 @@ local READMEs pointing back to the SVRaster project.
 
 This package also carries the upstream SVRaster `LICENSE` and the related
 `LICENSE_inria.md` text for the vendored render-kernel subset.
+
+## License
+
+This package is not Apache-2.0. It carries the upstream NVIDIA SVRaster license
+and related Inria Gaussian-Splatting license terms. Those terms restrict use to
+non-commercial research or evaluation purposes.

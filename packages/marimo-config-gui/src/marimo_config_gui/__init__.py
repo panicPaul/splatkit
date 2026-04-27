@@ -1,5 +1,7 @@
 """Public package exports for marimo-config-gui."""
 
+from importlib.metadata import PackageNotFoundError, version
+
 from marimo_config_gui._pydantic import (
     ConfigBindings,
     PydanticGui,
@@ -21,11 +23,20 @@ from marimo_config_gui._pydantic import (
     load_script_config,
 )
 
+try:
+    from marimo_config_gui._version import __version__
+except ImportError:
+    try:
+        __version__ = version("marimo-config-gui")
+    except PackageNotFoundError:
+        __version__ = "0.0.0"
+
 __all__ = [
     "ConfigBindings",
     "PydanticGui",
     "PydanticJsonGui",
     "ScriptConfigLoader",
+    "__version__",
     "config_commit_button",
     "config_committed_value",
     "config_error",
