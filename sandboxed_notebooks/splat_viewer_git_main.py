@@ -1,8 +1,8 @@
 # /// script
 # dependencies = [
 #     "marimo",
-#     "marimo-3dv @ git+https://github.com/panicPaul/marimo-3dv@main",
-#     "marimo-config-gui @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/marimo-config-gui",
+#     "marimo-3dv[desktop] @ git+https://github.com/panicPaul/marimo-3dv@main",
+#     "marimo-config-gui @ git+https://github.com/panicPaul/splatkit@main#subdirectory=packages/marimo-config-gui",
 #     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
 #     "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit",
 #     "splatkit-native-3dgrt[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-3dgrt",
@@ -243,7 +243,7 @@ def _(load_config, viewer_state):
             else load_gaussian_scene(load_config.ply_path)
         )
     else:
-        picked_load_config = pick_splat_load_config()
+        picked_load_config = load_config or pick_splat_load_config()
         scene = (
             None
             if picked_load_config is None
@@ -307,9 +307,9 @@ def normalize_scalar_field(
     if upper - lower < 1e-6:
         normalized[valid] = 0.5
     else:
-        normalized[valid] = (
-            (values[valid] - lower) / (upper - lower)
-        ).astype(np.float32)
+        normalized[valid] = ((values[valid] - lower) / (upper - lower)).astype(
+            np.float32
+        )
     normalized = np.clip(normalized, 0.0, 1.0)
     if invert:
         normalized[valid] = 1.0 - normalized[valid]

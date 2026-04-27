@@ -205,6 +205,12 @@ convention = "google"
     "F401",       # Unused imports from marimo
     "RUF059",     # Unused unpacked variable
 ]
+"sandboxed_notebooks/*" = [
+    "ANN",        # Require function type annotations doesn't work well with marimos def _()
+    "B018",       # Useless expressions can be nice for output visualization in marimo
+    "F401",       # Unused imports from marimo
+    "RUF059",     # Unused unpacked variable
+]
 "packages/splatkit/src/splatkit/training/checkpoints.py" = [
     "NPY002",     # Capturing/restoring global NumPy RNG state requires the legacy stateful API
 ]

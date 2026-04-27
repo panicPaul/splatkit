@@ -913,7 +913,7 @@ requires-dist = [
     { name = "gsplat", marker = "extra == 'examples'", specifier = ">=1.5.3" },
     { name = "jaxtyping", specifier = ">=0.3.9" },
     { name = "marimo", specifier = ">=0.22.4" },
-    { name = "marimo-config-gui", editable = "packages/marimo-config-gui" },
+    { name = "marimo-config-gui", specifier = ">=0.0.1a0" },
     { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.10.8" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.10.8" },
     { name = "numpy", specifier = ">=2.4.4" },
