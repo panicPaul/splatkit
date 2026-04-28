@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from splatkit.core import CameraState
-from splatkit.viewer import (
+from ember_core.core import CameraState
+from ember_core.viewer import (
     ViewerState,
     camera_from_viewer_payload,
     camera_to_viewer_payload,

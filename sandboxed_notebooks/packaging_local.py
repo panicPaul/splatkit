@@ -2,11 +2,11 @@
 # dependencies = [
 #     "marimo",
 #     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
-#     "splatkit[cu130] @ file:///home/schlack/Repositories/splatkit/packages/splatkit",
-#     "splatkit-native-3dgrt[cu130] @ file:///home/schlack/Repositories/splatkit/packages/splatkit-native-3dgrt",
-#     "splatkit-native-faster-gs[cu130] @ file:///home/schlack/Repositories/splatkit/packages/splatkit-native-faster-gs",
-#     "splatkit-native-faster-gs-mojo[cu130] @ file:///home/schlack/Repositories/splatkit/packages/splatkit-native-faster-gs-mojo",
-#     "splatkit-native-svraster[cu130] @ file:///home/schlack/Repositories/splatkit/packages/splatkit-native-svraster",
+#     "ember-core[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-core",
+#     "ember-native-3dgrt[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-3dgrt",
+#     "ember-native-faster-gs[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-faster-gs",
+#     "ember-native-faster-gs-mojo[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-faster-gs-mojo",
+#     "ember-native-svraster[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-svraster",
 # ]
 # requires-python = ">=3.14"
 #
@@ -39,7 +39,7 @@ def _():
         """
         # Local Packaging Sandbox
 
-        This notebook installs `splatkit` native packages from local checkout
+        This notebook installs `ember-core` native packages from local checkout
         paths via PEP 723 metadata and verifies that the packages import.
         """
     )
@@ -49,17 +49,17 @@ def _():
 @app.cell
 def _():
     module_names = [
-        "splatkit",
-        "splatkit_native_faster_gs",
-        "splatkit_native_faster_gs.faster_gs",
-        "splatkit_native_faster_gs.faster_gs_depth",
-        "splatkit_native_faster_gs.gaussian_pop",
-        "splatkit_native_faster_gs_mojo",
-        "splatkit_native_faster_gs_mojo.core",
-        "splatkit_native_3dgrt",
-        "splatkit_native_3dgrt.stoch3dgs",
-        "splatkit_native_svraster",
-        "splatkit_native_svraster.core",
+        "ember_core",
+        "ember_native_faster_gs",
+        "ember_native_faster_gs.faster_gs",
+        "ember_native_faster_gs.faster_gs_depth",
+        "ember_native_faster_gs.gaussian_pop",
+        "ember_native_faster_gs_mojo",
+        "ember_native_faster_gs_mojo.core",
+        "ember_native_3dgrt",
+        "ember_native_3dgrt.stoch3dgs",
+        "ember_native_svraster",
+        "ember_native_svraster.core",
     ]
     return (module_names,)
 

@@ -39,7 +39,7 @@
     ]
   },
   "optimization": {
-    "optimizer": "splatkit_gaussian_training.FusedAdam",
+    "optimizer": "ember_splatting_training.FusedAdam",
     "means_lr_init": 0.00016,
     "means_lr_final": 0.0000016,
     "means_lr_max_steps": 30000,

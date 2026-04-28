@@ -2,7 +2,7 @@ from typing import Any, Protocol, cast, runtime_checkable
 
 import pytest
 from beartype.roar import BeartypeCallHintParamViolation
-from splatkit.core import (
+from ember_core.core import (
     BACKEND_REGISTRY,
     CameraState,
     GaussianScene3D,
@@ -11,8 +11,8 @@ from splatkit.core import (
     render,
     resolve_backend_trait,
 )
-from splatkit.core.registry import register_backend
-from splatkit_adapter_backends.gsplat import (
+from ember_core.core.registry import register_backend
+from ember_adapter_backends.gsplat import (
     GsplatRenderOptions,
     render_gsplat,
     render_gsplat_2dgs,

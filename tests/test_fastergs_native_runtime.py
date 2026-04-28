@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 import torch
-from splatkit_native_faster_gs.faster_gs.runtime import (
+from ember_native_faster_gs.faster_gs.runtime import (
     blend,
     preprocess,
     render,
     sort,
 )
-from splatkit_native_faster_gs.faster_gs.runtime.ops import (
+from ember_native_faster_gs.faster_gs.runtime.ops import (
     preprocess_fwd_op,
     render_fwd_op,
 )

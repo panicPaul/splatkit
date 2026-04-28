@@ -4,9 +4,9 @@ from typing import cast
 
 import pytest
 import torch
-from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_native_3dgrt.stoch3dgs import renderer as stoch3dgs_native_renderer
-from splatkit_native_3dgrt.stoch3dgs import (
+from ember_core.core import BACKEND_REGISTRY, render
+from ember_native_3dgrt.stoch3dgs import renderer as stoch3dgs_native_renderer
+from ember_native_3dgrt.stoch3dgs import (
     Stoch3DGSNativeRenderOptions,
     Stoch3DGSNativeRenderOutput,
     register,
@@ -98,7 +98,7 @@ def test_render_stoch3dgs_native_returns_full_surface(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_native_3dgrt.core.runtime.state._make_tracer_wrapper",
+        "ember_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: _FakeOptixTracer(),
     )
 
@@ -134,7 +134,7 @@ def test_generic_render_dispatches_to_stoch3dgs_native(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_native_3dgrt.core.runtime.state._make_tracer_wrapper",
+        "ember_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: _FakeOptixTracer(),
     )
 
@@ -174,7 +174,7 @@ def test_render_stoch3dgs_native_builds_bvh_with_contiguous_fields(
     stoch3dgs_native_renderer._STATE_TOKEN_CACHE.clear()
     tracer = _ContiguityCheckingOptixTracer()
     monkeypatch.setattr(
-        "splatkit_native_3dgrt.core.runtime.state._make_tracer_wrapper",
+        "ember_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: tracer,
     )
 

@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 import pytest
 import torch
-from splatkit import (
+from ember_core import (
     CameraState,
     GaussianScene3D,
     ImagePreparationConfig,
@@ -17,20 +17,20 @@ from splatkit import (
     initialize_gaussian_scene_from_scene_record,
     load_colmap_scene_record,
 )
-from splatkit.benchmarks import (
+from ember_core.benchmarks import (
     RenderAutogradBenchmarkResult,
     RenderBenchmarkResult,
     benchmark_backend_render,
     benchmark_backend_render_autograd,
     benchmark_dataloader,
 )
-from splatkit.benchmarks.ply_render import _default_repo_point_cloud_path
-from splatkit.benchmarks.render import (
+from ember_core.benchmarks.ply_render import _default_repo_point_cloud_path
+from ember_core.benchmarks.render import (
     _build_autograd_comparison_payload,
     _build_comparison_payload,
 )
-from splatkit.core import BACKEND_REGISTRY, register_backend
-from splatkit.data import collate_frame_samples
+from ember_core.core import BACKEND_REGISTRY, register_backend
+from ember_core.data import collate_frame_samples
 from torch.utils.data import DataLoader
 
 
@@ -280,7 +280,7 @@ def test_default_repo_point_cloud_benchmark_asset_exists() -> None:
 def test_gsplat_render_benchmark_runs_on_bundled_sample() -> None:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required for gsplat benchmark integration tests.")
-    gsplat_backend = pytest.importorskip("splatkit_adapter_backends.gsplat")
+    gsplat_backend = pytest.importorskip("ember_adapter_backends.gsplat")
     gsplat_backend.register()
 
     scene_record = load_colmap_scene_record(get_sample_scene_path())

@@ -13,17 +13,17 @@ with app.setup:
 
     import marimo as mo
     import numpy as np
-    import splatkit as sk
-    import splatkit_adapter_backends.fastergs as sk_fastergs
-    import splatkit_adapter_backends.fastgs as sk_fastgs
-    import splatkit_adapter_backends.gsplat as sk_gsplat
-    import splatkit_adapter_backends.inria as sk_inria
-    import splatkit_adapter_backends.stoch3dgs as sk_stoch
-    import splatkit_native_3dgrt.stoch3dgs as skn_stoch
-    import splatkit_native_faster_gs.faster_gs as skn_fastergs
-    import splatkit_native_faster_gs.faster_gs_depth as skn_fastergs_depth
-    import splatkit_native_faster_gs.gaussian_pop as skn_gaussian_pop
-    import splatkit_native_faster_gs_mojo.core as skn_fastergs_mojo
+    import ember_core as sk
+    import ember_adapter_backends.fastergs as sk_fastergs
+    import ember_adapter_backends.fastgs as sk_fastgs
+    import ember_adapter_backends.gsplat as sk_gsplat
+    import ember_adapter_backends.inria as sk_inria
+    import ember_adapter_backends.stoch3dgs as sk_stoch
+    import ember_native_3dgrt.stoch3dgs as skn_stoch
+    import ember_native_faster_gs.faster_gs as skn_fastergs
+    import ember_native_faster_gs.faster_gs_depth as skn_fastergs_depth
+    import ember_native_faster_gs.gaussian_pop as skn_gaussian_pop
+    import ember_native_faster_gs_mojo.core as skn_fastergs_mojo
     import torch
     from marimo_3dv import (
         CameraState,
@@ -393,7 +393,7 @@ def rasterize_scene(
     quantile_bias: float = 0.5,
     invert_colormap: bool = False,
 ) -> RenderResult:
-    """Render a splat scene through splatkit."""
+    """Render a splat scene through ember_core."""
     if scene is None:
         return RenderResult(
             image=np.full(

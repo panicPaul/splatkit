@@ -4,13 +4,13 @@ from typing import cast
 
 import pytest
 import torch
-from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_native_faster_gs.faster_gs import (
+from ember_core.core import BACKEND_REGISTRY, render
+from ember_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     register as register_faster_gs,
     render_faster_gs_native,
 )
-from splatkit_native_faster_gs_mojo.core import (
+from ember_native_faster_gs_mojo.core import (
     FasterGSMojoRenderOutput,
     register,
     render_faster_gs_mojo,

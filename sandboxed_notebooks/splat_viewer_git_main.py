@@ -2,13 +2,13 @@
 # dependencies = [
 #     "marimo",
 #     "marimo-3dv[desktop] @ git+https://github.com/panicPaul/marimo-3dv@main",
-#     "marimo-config-gui @ git+https://github.com/panicPaul/splatkit@main#subdirectory=packages/marimo-config-gui",
+#     "marimo-config-gui @ git+https://github.com/panicPaul/ember@main#subdirectory=packages/marimo-config-gui",
 #     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
-#     "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit",
-#     "splatkit-native-3dgrt[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-3dgrt",
-#     "splatkit-native-faster-gs[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs",
-#     "splatkit-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs-mojo",
-#     "splatkit-native-svraster[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-svraster",
+#     "ember-core[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-core",
+#     "ember-native-3dgrt[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-3dgrt",
+#     "ember-native-faster-gs[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-faster-gs",
+#     "ember-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-faster-gs-mojo",
+#     "ember-native-svraster[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-svraster",
 # ]
 # requires-python = ">=3.14"
 #
@@ -39,12 +39,12 @@ with app.setup:
 
     import marimo as mo
     import numpy as np
-    import splatkit as sk
-    import splatkit_native_3dgrt.stoch3dgs as skn_stoch
-    import splatkit_native_faster_gs.faster_gs as skn_fastergs
-    import splatkit_native_faster_gs.faster_gs_depth as skn_fastergs_depth
-    import splatkit_native_faster_gs.gaussian_pop as skn_gaussian_pop
-    import splatkit_native_faster_gs_mojo.core as skn_fastergs_mojo
+    import ember_core as sk
+    import ember_native_3dgrt.stoch3dgs as skn_stoch
+    import ember_native_faster_gs.faster_gs as skn_fastergs
+    import ember_native_faster_gs.faster_gs_depth as skn_fastergs_depth
+    import ember_native_faster_gs.gaussian_pop as skn_gaussian_pop
+    import ember_native_faster_gs_mojo.core as skn_fastergs_mojo
     import torch
     from marimo_3dv import (
         CameraState,
@@ -404,7 +404,7 @@ def rasterize_scene(
     quantile_bias: float = 0.5,
     invert_colormap: bool = False,
 ) -> RenderResult:
-    """Render a splat scene through splatkit."""
+    """Render a splat scene through ember_core."""
     if scene is None:
         return RenderResult(
             image=np.full(

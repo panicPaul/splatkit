@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from splatkit import (
+from ember_core import (
     get_sample_scene_path,
     initialize_gaussian_scene_from_scene_record,
     load_colmap_scene_record,

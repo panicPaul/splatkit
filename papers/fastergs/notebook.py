@@ -11,7 +11,7 @@ with app.setup:
     from pathlib import Path
 
     import marimo as mo
-    import splatkit as sk
+    import ember_core as sk
 
     _NOTEBOOK_DIR = Path(__file__).resolve().parent
     if str(_NOTEBOOK_DIR) not in sys.path:

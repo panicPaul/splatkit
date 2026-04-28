@@ -24,7 +24,7 @@ class BuildSifCommand(BaseModel):
 
     cuda: Literal["cu128", "cu130"] = "cu128"
     output: Path | None = None
-    image_prefix: str = "splatkit-runtime"
+    image_prefix: str = "ember-runtime"
 
     def _run(self, *command: str, cwd: Path | None = None) -> None:
         """Run a subprocess and fail loudly on errors."""
@@ -72,7 +72,7 @@ class BuildSifCommand(BaseModel):
         project_root = Path(__file__).resolve().parent.parent
         output_path = self.output
         if output_path is None:
-            output_path = project_root / "dist" / f"splatkit-{self.cuda}.sif"
+            output_path = project_root / "dist" / f"ember-{self.cuda}.sif"
         if output_path.is_absolute():
             target = output_path
         else:

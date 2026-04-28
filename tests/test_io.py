@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
-from splatkit import (
+from ember_core import (
     GaussianScene3D,
     SparseVoxelScene,
     load_gaussian_ply,

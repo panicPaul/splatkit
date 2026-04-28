@@ -8,10 +8,10 @@ from textwrap import dedent
 
 import pytest
 import torch
-from splatkit_native_faster_gs.faster_gs_depth.runtime import (
+from ember_native_faster_gs.faster_gs_depth.runtime import (
     render as render_depth,
 )
-from splatkit_native_faster_gs.faster_gs.runtime import render
+from ember_native_faster_gs.faster_gs.runtime import render
 
 
 def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
@@ -33,9 +33,9 @@ def _repo_root() -> Path:
 def _subprocess_env() -> dict[str, str]:
     repo_root = _repo_root()
     pythonpath_parts = [
-        str(repo_root / "packages" / "splatkit-native-faster-gs" / "src"),
-        str(repo_root / "packages" / "splatkit-adapter-backends" / "src"),
-        str(repo_root / "packages" / "splatkit" / "src"),
+        str(repo_root / "packages" / "ember-native-faster-gs" / "src"),
+        str(repo_root / "packages" / "ember-adapter-backends" / "src"),
+        str(repo_root / "packages" / "ember-core" / "src"),
     ]
     existing = os.environ.get("PYTHONPATH")
     if existing:
@@ -168,8 +168,8 @@ def test_render_matches_reference_cuda_backend(cuda_scene, cuda_camera) -> None:
             """
             import torch
             from FasterGSCudaBackend import RasterizerSettings, diff_rasterize
-            from splatkit.core import CameraState, GaussianScene3D
-            from splatkit_native_faster_gs.faster_gs.runtime import render
+            from ember_core.core import CameraState, GaussianScene3D
+            from ember_native_faster_gs.faster_gs.runtime import render
 
             scene = GaussianScene3D(
                 center_position=torch.tensor(
@@ -272,8 +272,8 @@ def test_render_gradients_match_reference_cuda_backend(
             """
             import torch
             from FasterGSCudaBackend import RasterizerSettings, diff_rasterize
-            from splatkit.core import CameraState, GaussianScene3D
-            from splatkit_native_faster_gs.faster_gs.runtime import render
+            from ember_core.core import CameraState, GaussianScene3D
+            from ember_native_faster_gs.faster_gs.runtime import render
 
             scene = GaussianScene3D(
                 center_position=torch.tensor(

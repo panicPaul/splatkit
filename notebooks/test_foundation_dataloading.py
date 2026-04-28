@@ -13,7 +13,7 @@ with app.setup:
 
     import marimo as mo
     import numpy as np
-    import splatkit as sk
+    import ember_core as sk
     import torch
     from marimo_3dv import CameraState, Viewer, ViewerState, form_gui
     from pydantic import BaseModel, ConfigDict, Field, create_model

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from splatkit_native_faster_gs.faster_gs_depth.runtime import render
+from ember_native_faster_gs.faster_gs_depth.runtime import render
 
 
 def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:

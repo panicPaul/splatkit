@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
-from splatkit.core.contracts import CameraState
-from splatkit.data import (
+from ember_core.core.contracts import CameraState
+from ember_core.data import (
     CameraSensorDataset,
     ColmapSceneConfig,
     DatasetFrame,
@@ -39,7 +39,7 @@ from splatkit.data import (
     resolve_must3r_checkpoints,
     run_must3r_scene_record,
 )
-from splatkit.data.adapters import _resolve_materialization_num_workers
+from ember_core.data.adapters import _resolve_materialization_num_workers
 from torch.utils.data import DataLoader
 
 
@@ -684,7 +684,7 @@ def test_load_ncore_scene_record_discovers_camera_and_inventory_sensors(
         )
     )
     monkeypatch.setattr(
-        "splatkit.data.loaders.ncore._require_ncore",
+        "ember_core.data.loaders.ncore._require_ncore",
         lambda: fake_module,
     )
 
@@ -729,7 +729,7 @@ def test_explicit_two_step_ncore_flow_selects_prepared_camera_sensor(
         )
     )
     monkeypatch.setattr(
-        "splatkit.data.loaders.ncore._require_ncore",
+        "ember_core.data.loaders.ncore._require_ncore",
         lambda: fake_module,
     )
 
@@ -800,7 +800,7 @@ def test_resolve_must3r_checkpoints_uses_huggingface_download(
         return str(checkpoint_path)
 
     monkeypatch.setattr(
-        "splatkit.data.loaders.must3r._require_huggingface_hub",
+        "ember_core.data.loaders.must3r._require_huggingface_hub",
         lambda: fake_download,
     )
     checkpoints = resolve_must3r_checkpoints(
@@ -818,7 +818,7 @@ def test_run_must3r_scene_record_errors_when_runtime_is_missing(
     checkpoint_path = tmp_path / "model.pth"
     checkpoint_path.write_bytes(b"weights")
     monkeypatch.setattr(
-        "splatkit.data.loaders.must3r.resolve_must3r_checkpoints",
+        "ember_core.data.loaders.must3r.resolve_must3r_checkpoints",
         lambda **_: type(
             "Checkpoints",
             (),
@@ -878,7 +878,7 @@ def test_run_must3r_scene_record_with_stub_runtime(
     checkpoint_path = tmp_path / "model.pth"
     checkpoint_path.write_bytes(b"weights")
     monkeypatch.setattr(
-        "splatkit.data.loaders.must3r.resolve_must3r_checkpoints",
+        "ember_core.data.loaders.must3r.resolve_must3r_checkpoints",
         lambda **_: type(
             "Checkpoints",
             (),

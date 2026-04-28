@@ -14,7 +14,7 @@ def _require_cuda() -> None:
 def test_relocation_adjustment_matches_reference_cuda_backend() -> None:
     _require_cuda()
     reference_backend = pytest.importorskip("FasterGSCudaBackend")
-    from splatkit_native_faster_gs.faster_gs.training import (
+    from ember_native_faster_gs.faster_gs.training import (
         relocation_adjustment,
     )
 
@@ -50,7 +50,7 @@ def test_relocation_adjustment_matches_reference_cuda_backend() -> None:
 def test_add_noise_matches_reference_cuda_backend() -> None:
     _require_cuda()
     reference_backend = pytest.importorskip("FasterGSCudaBackend")
-    from splatkit_native_faster_gs.faster_gs.training import add_noise
+    from ember_native_faster_gs.faster_gs.training import add_noise
 
     raw_scales = torch.full((3, 3), -1.0, dtype=torch.float32, device="cuda")
     raw_rotations = torch.tensor(
@@ -83,7 +83,7 @@ def test_add_noise_matches_reference_cuda_backend() -> None:
 def test_fused_adam_matches_reference_cuda_backend() -> None:
     _require_cuda()
     reference_backend = pytest.importorskip("FasterGSCudaBackend")
-    from splatkit_native_faster_gs.faster_gs.training import FusedAdam
+    from ember_native_faster_gs.faster_gs.training import FusedAdam
 
     actual_parameter = torch.tensor(
         [[1.0, 2.0, 3.0]],

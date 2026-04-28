@@ -14,13 +14,13 @@ with app.setup:
 
     import marimo as mo
     import numpy as np
-    import splatkit as sk
-    import splatkit_adapter_backends.fastergs as sk_fastergs
-    import splatkit_adapter_backends.fastgs as sk_fastgs
-    import splatkit_adapter_backends.gsplat as sk_gsplat
-    import splatkit_adapter_backends.inria as sk_inria
-    import splatkit_adapter_backends.stoch3dgs as sk_stoch
-    import splatkit_native_svraster.svraster as sk_svraster
+    import ember_core as sk
+    import ember_adapter_backends.fastergs as sk_fastergs
+    import ember_adapter_backends.fastgs as sk_fastgs
+    import ember_adapter_backends.gsplat as sk_gsplat
+    import ember_adapter_backends.inria as sk_inria
+    import ember_adapter_backends.stoch3dgs as sk_stoch
+    import ember_native_svraster.svraster as sk_svraster
     import torch
     from marimo_3dv import (
         CameraState,
@@ -463,7 +463,7 @@ def rasterize_scene(
     *,
     backend: str | None,
 ) -> RenderResult:
-    """Render one scene through the selected splatkit backend."""
+    """Render one scene through the selected ember-core backend."""
     if scene is None or not backend:
         return blank_frame(camera)
 

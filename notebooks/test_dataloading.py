@@ -15,7 +15,7 @@ with app.setup:
     import cv2
     import marimo as mo
     import numpy as np
-    import splatkit as sk
+    import ember_core as sk
     import torch
     from marimo_3dv import CameraState, Viewer, ViewerState, form_gui
     from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -37,14 +37,14 @@ def _():
     class DatasetConfig(BaseModel):
         colmap_root: Path = Path(
             os.environ.get(
-                "SPLATKIT_COLMAP_ROOT",
+                "EMBER_COLMAP_ROOT",
                 str(sk.get_sample_scene_path()),
             )
         )
         write_undistorted_cache: bool = False
         undistort_output_dir: Path = Path(
             os.environ.get(
-                "SPLATKIT_COLMAP_UNDISTORTED",
+                "EMBER_COLMAP_UNDISTORTED",
                 str(sk.get_sample_scene_path() / "undistorted"),
             )
         )

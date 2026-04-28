@@ -1,7 +1,7 @@
 import pytest
 import torch
 from beartype.roar import BeartypeCallHintParamViolation
-from splatkit.core import (
+from ember_core.core import (
     CameraState,
     GaussianScene2D,
     GaussianScene3D,
@@ -9,7 +9,7 @@ from splatkit.core import (
     camera_params_to_intrinsics,
     intrinsics_to_camera_params,
 )
-from splatkit.core.sparse_voxel import (
+from ember_core.core.sparse_voxel import (
     svraster_build_grid_points_link,
     svraster_octpath_to_ijk,
 )

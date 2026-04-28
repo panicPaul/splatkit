@@ -1,16 +1,16 @@
 [project]
-name = "splatkit-dev-environment"
+name = "ember-dev-environment"
 version = "0.0.1"
-description = "Dev environment for splatkit."
+description = "Dev environment for Ember."
 readme = "README.md"
 authors = [
-    { name = "Florian Barthel, Paul Schlack" }
+    { name = "Paul Schlack" }
 ]
 requires-python = ">=3.11"
 dependencies = [
     "torch>=2.11.0",
     # Editable dependencies
-    "splatkit[all]",
+    "ember-core[all]",
     "marimo-config-gui>=0.0.2",
     "marimo-3dv>=0.1.3",
     # Non editable dependencies
@@ -20,61 +20,60 @@ dependencies = [
     "altair>=6.1.0",
 ]
 [project.optional-dependencies]
-adapter-backends = ["splatkit-adapter-backends"]
-native-faster-gs = ["splatkit-native-faster-gs"]
-native-faster-gs-mojo = ["splatkit-native-faster-gs-mojo"]
-native-3dgrt = ["splatkit-native-3dgrt"]
-native-svraster = ["splatkit-native-svraster"]
+adapter-backends = ["ember-adapter-backends"]
+native-faster-gs = ["ember-native-faster-gs"]
+native-faster-gs-mojo = ["ember-native-faster-gs-mojo"]
+native-3dgrt = ["ember-native-3dgrt"]
+native-svraster = ["ember-native-svraster"]
 svraster-adapter = ["new-svraster-cuda"]
-gaussian-training = ["splatkit-gaussian-training"]
-all-backends = ["splatkit-adapter-backends[all]"]
+splatting-training = ["ember-splatting-training"]
+all-backends = ["ember-adapter-backends[all]"]
 all-native = [
-    "splatkit-gaussian-training",
-    "splatkit-native-faster-gs",
-    "splatkit-native-faster-gs-mojo",
-    "splatkit-native-3dgrt",
-    "splatkit-native-svraster",
+    "ember-splatting-training",
+    "ember-native-faster-gs",
+    "ember-native-faster-gs-mojo",
+    "ember-native-3dgrt",
+    "ember-native-svraster",
 ]
 all-unrestricted = [
-    "splatkit-adapter-backends[all]",
-    "splatkit-gaussian-training",
-    "splatkit-native-faster-gs",
-    "splatkit-native-faster-gs-mojo",
-    "splatkit-native-3dgrt",
+    "ember-adapter-backends[all]",
+    "ember-splatting-training",
+    "ember-native-faster-gs",
+    "ember-native-faster-gs-mojo",
+    "ember-native-3dgrt",
 ]
 all = [
-    "splatkit-adapter-backends[all]",
-    "splatkit-gaussian-training",
-    "splatkit-native-faster-gs",
-    "splatkit-native-faster-gs-mojo",
-    "splatkit-native-3dgrt",
-    "splatkit-native-svraster",
+    "ember-adapter-backends[all]",
+    "ember-splatting-training",
+    "ember-native-faster-gs",
+    "ember-native-faster-gs-mojo",
+    "ember-native-3dgrt",
+    "ember-native-svraster",
 ]
 cu128 = ["torch>=2.11.0"]
 cu130 = ["torch>=2.11.0"]
 cu128-dev = [
-    "splatkit-adapter-backends[all]",
-    "splatkit-gaussian-training",
-    "splatkit-native-faster-gs",
-    "splatkit-native-faster-gs-mojo",
-    "splatkit-native-3dgrt",
-    "splatkit-native-svraster",
+    "ember-adapter-backends[all]",
+    "ember-splatting-training",
+    "ember-native-faster-gs",
+    "ember-native-faster-gs-mojo",
+    "ember-native-3dgrt",
+    "ember-native-svraster",
     "torch>=2.11.0",
 ]
 cu130-dev = [
-    "splatkit-adapter-backends[all]",
-    "splatkit-gaussian-training",
-    "splatkit-native-faster-gs",
-    "splatkit-native-faster-gs-mojo",
-    "splatkit-native-3dgrt",
-    "splatkit-native-svraster",
+    "ember-adapter-backends[all]",
+    "ember-splatting-training",
+    "ember-native-faster-gs",
+    "ember-native-faster-gs-mojo",
+    "ember-native-3dgrt",
+    "ember-native-svraster",
     "torch>=2.11.0",
 ]
 
 [tool.uv]
 package = false
 prerelease = "allow"
-no-build-isolation-package = ["diff-gaussian-rasterization-fastgs"]
 conflicts = [
     [
         { extra = "cu128" },
@@ -96,19 +95,23 @@ conflicts = [
 
 [tool.uv.extra-build-dependencies]
 diff-gaussian-rasterization = [{ requirement = "torch", match-runtime = true }]
+diff-gaussian-rasterization-fastgs = [
+    { requirement = "setuptools", match-runtime = false },
+    { requirement = "torch", match-runtime = false },
+]
 FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
 new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.sources]
 marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
-marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
-splatkit = { path = "packages/splatkit", editable = true }
-splatkit-gaussian-training = { path = "packages/splatkit-gaussian-training", editable = true }
-splatkit-adapter-backends = { path = "packages/splatkit-adapter-backends", editable = true }
-splatkit-native-faster-gs = { path = "packages/splatkit-native-faster-gs", editable = true }
-splatkit-native-faster-gs-mojo = { path = "packages/splatkit-native-faster-gs-mojo", editable = true }
-splatkit-native-3dgrt = { path = "packages/splatkit-native-3dgrt", editable = true }
-splatkit-native-svraster = { path = "packages/splatkit-native-svraster", editable = true }
+marimo-3dv = { path = "packages/marimo-3dv", editable = true }
+ember-core = { path = "packages/ember-core", editable = true }
+ember-splatting-training = { path = "packages/ember-splatting-training", editable = true }
+ember-adapter-backends = { path = "packages/ember-adapter-backends", editable = true }
+ember-native-faster-gs = { path = "packages/ember-native-faster-gs", editable = true }
+ember-native-faster-gs-mojo = { path = "packages/ember-native-faster-gs-mojo", editable = true }
+ember-native-3dgrt = { path = "packages/ember-native-3dgrt", editable = true }
+ember-native-svraster = { path = "packages/ember-native-svraster", editable = true }
 diff-gaussian-rasterization-fastgs = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
 max = { index = "modular-nightly" }
@@ -211,7 +214,7 @@ convention = "google"
     "F401",       # Unused imports from marimo
     "RUF059",     # Unused unpacked variable
 ]
-"packages/splatkit/src/splatkit/training/checkpoints.py" = [
+"packages/ember-core/src/ember_core/training/checkpoints.py" = [
     "NPY002",     # Capturing/restoring global NumPy RNG state requires the legacy stateful API
 ]
 
@@ -289,9 +292,9 @@ cu130 = ["cu130"]
 
 [tool.pixi.pypi-dependencies]
 marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
-splatkit = { path = "packages/splatkit", editable = true }
-splatkit-gaussian-training = { path = "packages/splatkit-gaussian-training", editable = true }
-marimo-3dv = { path = "third_party/marimo-3dv", editable = true }
+ember-core = { path = "packages/ember-core", editable = true }
+ember-splatting-training = { path = "packages/ember-splatting-training", editable = true }
+marimo-3dv = { path = "packages/marimo-3dv", editable = true }
 diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
 "diff-gaussian-rasterization-fastgs" = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 "FasterGSCudaBackend" = { path = "third_party/faster-gaussian-splatting/FasterGSCudaBackend", editable = true }

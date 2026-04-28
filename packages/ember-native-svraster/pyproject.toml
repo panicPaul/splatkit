@@ -1,0 +1,83 @@
+[project]
+name = "ember-native-svraster"
+dynamic = ["version"]
+description = "Official SVRaster-family native backends for Ember."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "LicenseRef-NVIDIA-SVRaster AND LicenseRef-INRIA-Gaussian-Splatting"
+license-files = ["LICENSE", "LICENSE_inria.md"]
+authors = [
+    { name = "Paul Schlack" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "beartype>=0.22.9",
+    "jaxtyping>=0.3.9",
+    "ember-core",
+    "torch>=2.11.0",
+]
+
+[project.urls]
+Repository = "https://github.com/panicPaul/ember"
+Issues = "https://github.com/panicPaul/ember/issues"
+
+[project.optional-dependencies]
+all = []
+cu128 = [
+    "torch>=2.11.0",
+]
+cu130 = [
+    "torch>=2.11.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.27.0", "hatch-vcs>=0.5.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cu128" },
+        { extra = "cu130" },
+    ],
+]
+
+[tool.uv.sources]
+ember-core = { path = "../ember-core", editable = true }
+torch = [
+    { index = "pytorch-cu128", extra = "cu128" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.1a0"
+
+[tool.hatch.version.raw-options]
+root = "../.."
+version_scheme = "no-guess-dev"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/ember_native_svraster/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ember_native_svraster"]

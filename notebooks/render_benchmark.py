@@ -13,25 +13,25 @@ with app.setup:
     from pathlib import Path
 
     import marimo as mo
-    import splatkit as sk
+    import ember_core as sk
     import torch
-    from splatkit.benchmarks import benchmark_backend_render
-    from splatkit.core import BACKEND_REGISTRY, GaussianScene3D
-    from splatkit.initialization import (
+    from ember_core.benchmarks import benchmark_backend_render
+    from ember_core.core import BACKEND_REGISTRY, GaussianScene3D
+    from ember_core.initialization import (
         initialize_gaussian_scene_from_scene_record,
     )
 
     OPTIONAL_BACKEND_MODULES = (
-        "splatkit_adapter_backends.fastgs",
-        "splatkit_adapter_backends.fastergs",
-        "splatkit_adapter_backends.gsplat",
-        "splatkit_adapter_backends.inria",
-        "splatkit_adapter_backends.stoch3dgs",
-        "splatkit_native_faster_gs.faster_gs",
-        "splatkit_native_faster_gs.faster_gs_depth",
-        "splatkit_native_faster_gs.gaussian_pop",
-        "splatkit_native_faster_gs_mojo.core",
-        "splatkit_native_3dgrt.stoch3dgs",
+        "ember_adapter_backends.fastgs",
+        "ember_adapter_backends.fastergs",
+        "ember_adapter_backends.gsplat",
+        "ember_adapter_backends.inria",
+        "ember_adapter_backends.stoch3dgs",
+        "ember_native_faster_gs.faster_gs",
+        "ember_native_faster_gs.faster_gs_depth",
+        "ember_native_faster_gs.gaussian_pop",
+        "ember_native_faster_gs_mojo.core",
+        "ember_native_3dgrt.stoch3dgs",
     )
 
     def register_optional_backends() -> None:
@@ -86,7 +86,7 @@ def _():
 def _():
     scene_root = mo.ui.text(
         value=os.environ.get(
-            "SPLATKIT_COLMAP_ROOT",
+            "EMBER_COLMAP_ROOT",
             str(sk.get_sample_scene_path()),
         ),
         label="COLMAP Root",

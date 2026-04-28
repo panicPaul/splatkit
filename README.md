@@ -1,14 +1,19 @@
-# splatkit
+# Ember
+
+Extensible Modular Backend Ecosystem for Rendering
+
+Contract-based tools to spark your inverse graphics research.
 
 Research monorepo for fast, typed, reproducible experimentation around the 3D
 Gaussian Splatting family and closely related explicit inverse-graphics
 methods.
 
-The core idea is to make orthogonal research choices easy to recombine:
-primitive type, backend, initialization, densification, data preparation,
-training loop, and pre/post-processing should be explicit pieces rather than
-one hidden monolith. See [NORTH_STAR.md](NORTH_STAR.md) for the longer design
-constitution.
+Ember is organized around explicit rendering and training contracts. Primitive
+type, backend, initialization, densification, data preparation, training loop,
+and pre/post-processing are meant to be recombinable pieces rather than one
+hidden monolith. The workflow is notebook-first, backend packages are opt-in,
+and the core stays focused on shared contracts for inverse graphics research.
+See [NORTH_STAR.md](NORTH_STAR.md) for the longer design constitution.
 
 ## Status
 
@@ -16,7 +21,7 @@ Pre-alpha. APIs may change when a better boundary becomes clear.
 
 This repo is currently useful for:
 
-- shared `splatkit` scene, camera, render, data, and training contracts
+- shared `ember-core` / `ember_core` scene, camera, render, data, and training contracts
 - adapter backends around existing third-party rasterizers
 - first-party native backend families for hackable kernel/runtime work
 - marimo-first paper demos, viewers, and training notebooks
@@ -44,7 +49,7 @@ uv sync --extra native-3dgrt --extra cu130
 uv sync --extra native-svraster --extra cu130
 ```
 
-Install the first-party native backend families plus Gaussian training helpers:
+Install the first-party native backend families plus splatting training helpers:
 
 ```bash
 uv sync --extra all-native --extra cu130
@@ -89,10 +94,10 @@ explicit = true
 ```
 
 ```bash
-uv add "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit"
-uv add "splatkit-native-faster-gs[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs"
-uv add "splatkit-native-3dgrt[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-3dgrt"
-uv add "splatkit-native-svraster[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-svraster"
+uv add "ember-core[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-core"
+uv add "ember-native-faster-gs[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-faster-gs"
+uv add "ember-native-3dgrt[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-3dgrt"
+uv add "ember-native-svraster[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-svraster"
 ```
 
 The Mojo backend also needs Modular nightly packages:
@@ -112,13 +117,13 @@ url = "https://whl.modular.com/nightly/simple/"
 ```
 
 ```bash
-uv add "splatkit-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs-mojo"
+uv add "ember-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-faster-gs-mojo"
 ```
 
 Prefer release tags over `main` once a release is cut:
 
 ```bash
-uv add "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit"
+uv add "ember-core[cu130] @ https://github.com/panicPaul/ember/archive/refs/tags/v0.0.1.zip#subdirectory=packages/ember-core"
 ```
 
 For PEP 723 / `marimo edit --sandbox` notebooks, put the archive dependencies
@@ -133,9 +138,9 @@ URL and only forward the Modular index when using the Mojo backend:
 # dependencies = [
 #     "marimo",
 #     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
-#     "splatkit[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit",
-#     "splatkit-native-faster-gs[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs",
-#     "splatkit-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/splatkit/archive/refs/heads/main.zip#subdirectory=packages/splatkit-native-faster-gs-mojo",
+#     "ember-core[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-core",
+#     "ember-native-faster-gs[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-faster-gs",
+#     "ember-native-faster-gs-mojo[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-native-faster-gs-mojo",
 # ]
 # requires-python = ">=3.14"
 #
@@ -165,7 +170,7 @@ See `sandboxed_notebooks/packaging_local.py`,
 
 There are two backend categories.
 
-**Adapter backends** wrap external implementations behind the shared `splatkit`
+**Adapter backends** wrap external implementations behind the shared `ember-core`
 contracts. They are primarily for comparison, interoperability, and reuse of
 existing paper code.
 
@@ -173,7 +178,7 @@ existing paper code.
 uv sync --extra adapter-backends --extra cu130
 ```
 
-Package: `packages/splatkit-adapter-backends`
+Package: `packages/ember-adapter-backends`
 
 Current adapter names include:
 
@@ -202,10 +207,10 @@ uv sync --extra all-native --extra cu130
 
 Native packages:
 
-- `packages/splatkit-native-faster-gs`
-- `packages/splatkit-native-faster-gs-mojo`
-- `packages/splatkit-native-3dgrt`
-- `packages/splatkit-native-svraster`
+- `packages/ember-native-faster-gs`
+- `packages/ember-native-faster-gs-mojo`
+- `packages/ember-native-3dgrt`
+- `packages/ember-native-svraster`
 
 Current native backend names include:
 
@@ -223,14 +228,14 @@ first render or viewer launch may spend time compiling.
 
 ```text
 packages/
-  splatkit/                     Core contracts, traits, registry, data helpers
-  splatkit-adapter-backends/    Official wrappers around third-party backends
-  splatkit-native-faster-gs/    First-party FasterGS-family native backends
-  splatkit-native-faster-gs-mojo/ Mojo-backed FasterGS experiments
-  splatkit-native-3dgrt/        First-party 3DGRT-family native backend
-  splatkit-native-svraster/     First-party SVRaster-family native backend
-  splatkit-gaussian-training/   Optional Gaussian-specific training utilities
-  marimo-config-gui/            Pydantic-driven config UI helpers for marimo
+  ember-core/                    Core contracts, traits, registry, data helpers
+  ember-adapter-backends/        Official wrappers around third-party backends
+  ember-native-faster-gs/        First-party FasterGS-family native backends
+  ember-native-faster-gs-mojo/   Mojo-backed FasterGS experiments
+  ember-native-3dgrt/            First-party 3DGRT-family native backend
+  ember-native-svraster/         First-party SVRaster-family native backend
+  ember-splatting-training/      Optional splatting training utilities
+  marimo-config-gui/             Pydantic-driven config UI helpers for marimo
 
 papers/
   fastergs/                     Paper-specific notebook/config work
@@ -241,7 +246,7 @@ third_party/                    Upstream projects and editable submodules
 ```
 
 The root `pyproject.toml` is a development environment, not the main library
-package. The library package is `packages/splatkit`.
+package. The library package is `packages/ember-core`.
 
 ## 3DGRT / OptiX
 
@@ -249,7 +254,7 @@ package. The library package is `packages/splatkit`.
 compile the native package is vendored in this repository at:
 
 ```text
-packages/splatkit-native-3dgrt/src/splatkit_native_3dgrt/core/native/stoch3dgs/dependencies/optix-dev/include/optix.h
+packages/ember-native-3dgrt/src/ember_native_3dgrt/core/native/stoch3dgs/dependencies/optix-dev/include/optix.h
 ```
 
 You still need a system NVIDIA driver and OptiX-capable GPU. For local
@@ -295,7 +300,7 @@ Build an Apptainer/SIF artifact for cluster use:
 
 ```bash
 python scripts/build_sif.py --cuda cu130
-apptainer exec --nv dist/splatkit-cu130.sif python -c "import torch"
+apptainer exec --nv dist/ember-cu130.sif python -c "import torch"
 ```
 
 These flows require an NVIDIA GPU and the relevant container tooling.
@@ -317,9 +322,9 @@ git push origin main v0.0.1
 GitHub source-archive pinning examples:
 
 ```bash
-pip install "https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit"
-pip install "https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit-adapter-backends"
-pip install "https://github.com/panicPaul/splatkit/archive/refs/tags/v0.0.1.zip#subdirectory=packages/splatkit-native-faster-gs"
+pip install "https://github.com/panicPaul/ember/archive/refs/tags/v0.0.1.zip#subdirectory=packages/ember-core"
+pip install "https://github.com/panicPaul/ember/archive/refs/tags/v0.0.1.zip#subdirectory=packages/ember-adapter-backends"
+pip install "https://github.com/panicPaul/ember/archive/refs/tags/v0.0.1.zip#subdirectory=packages/ember-native-faster-gs"
 ```
 
 Use source archives instead of `git+https` URLs for package subdirectories.

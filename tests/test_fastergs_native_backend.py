@@ -4,15 +4,15 @@ from typing import cast
 
 import pytest
 import torch
-from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_adapter_backends.fastergs import (
+from ember_core.core import BACKEND_REGISTRY, render
+from ember_adapter_backends.fastergs import (
     FasterGSRenderOutput,
     render_fastergs,
 )
-from splatkit_adapter_backends.fastergs import (
+from ember_adapter_backends.fastergs import (
     register as register_fastergs,
 )
-from splatkit_native_faster_gs.faster_gs import (
+from ember_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     register,
     render_faster_gs_native,

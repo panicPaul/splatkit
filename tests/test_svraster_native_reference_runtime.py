@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 import torch
-from splatkit_native_svraster.core import runtime
+from ember_native_svraster.core import runtime
 
 
 def _extract_camera_params(

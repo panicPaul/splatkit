@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 import torch
-from splatkit.core import (
+from ember_core.core import (
     CameraState,
     GaussianScene2D,
     GaussianScene3D,

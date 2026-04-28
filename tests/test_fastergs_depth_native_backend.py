@@ -4,19 +4,19 @@ from typing import cast
 
 import pytest
 import torch
-from splatkit.core import render
-from splatkit_adapter_backends.gsplat import GsplatRenderOutput, render_gsplat
-from splatkit_native_faster_gs.faster_gs_depth import (
+from ember_core.core import render
+from ember_adapter_backends.gsplat import GsplatRenderOutput, render_gsplat
+from ember_native_faster_gs.faster_gs_depth import (
     FasterGSDepthNativeDepthRenderOutput,
     FasterGSDepthNativeRenderOutput,
     register,
     render_faster_gs_depth,
 )
-from splatkit_native_faster_gs.faster_gs import (
+from ember_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     render_faster_gs_native,
 )
-from splatkit_native_faster_gs.faster_gs import (
+from ember_native_faster_gs.faster_gs import (
     register as register_root,
 )
 

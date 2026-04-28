@@ -1,4 +1,4 @@
-"""Simple COLMAP 3DGS training notebook using splatkit + gsplat backend."""
+"""Simple COLMAP 3DGS training notebook using ember-core + gsplat backend."""
 
 import marimo
 
@@ -13,8 +13,8 @@ with app.setup:
 
     import marimo as mo
     import numpy as np
-    import splatkit as sk
-    import splatkit_adapter_backends.gsplat as sk_gsplat
+    import ember_core as sk
+    import ember_adapter_backends.gsplat as sk_gsplat
     import torch
     import torch.nn.functional as F
     from marimo_config_gui import (
@@ -27,8 +27,8 @@ with app.setup:
     )
     from PIL import Image
     from pydantic import BaseModel, Field
-    from splatkit.benchmarks import benchmark_dataloader
-    from splatkit.data import (
+    from ember_core.benchmarks import benchmark_dataloader
+    from ember_core.data import (
         ColmapSceneConfig,
         MaterializationConfig,
         MipNerf360IndoorPreparedFrameDatasetConfig,
@@ -37,7 +37,7 @@ with app.setup:
         load_scene_record,
         prepare_frame_dataset,
     )
-    from splatkit.io.scene import save_scene
+    from ember_core.io.scene import save_scene
     from torch.utils.data import DataLoader
     from tqdm import tqdm
 
@@ -48,8 +48,8 @@ def _():
     # gsplat COLMAP Trainer
 
     Minimal 3DGS training notebook for COLMAP reconstructions using
-    `splatkit` data loading + initialization and
-    `splatkit-adapter-backends.gsplat` rendering.
+    `ember-core` data loading + initialization and
+    `ember-adapter-backends.gsplat` rendering.
 
     This omits densification by design and keeps the loop explicit to stress
     backend behavior.
@@ -281,7 +281,7 @@ def _():
         return ColmapSceneConfig(
             path=Path(
                 os.environ.get(
-                    "SPLATKIT_COLMAP_ROOT",
+                    "EMBER_COLMAP_ROOT",
                     str(sk.get_sample_scene_path()),
                 )
             ),

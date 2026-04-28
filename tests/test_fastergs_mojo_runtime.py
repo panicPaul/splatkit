@@ -8,27 +8,27 @@ from textwrap import dedent
 
 import pytest
 import torch
-from splatkit_native_faster_gs.faster_gs.runtime.ops.blend import (
+from ember_native_faster_gs.faster_gs.runtime.ops.blend import (
     blend_bwd_op as native_blend_bwd_op,
 )
-from splatkit_native_faster_gs.faster_gs.runtime.ops.blend import (
+from ember_native_faster_gs.faster_gs.runtime.ops.blend import (
     blend_fwd_op as native_blend_fwd_op,
 )
-from splatkit_native_faster_gs.faster_gs.runtime.ops.preprocess import (
+from ember_native_faster_gs.faster_gs.runtime.ops.preprocess import (
     preprocess_fwd_op as native_preprocess_fwd_op,
 )
-from splatkit_native_faster_gs.faster_gs.runtime.ops.render import (
+from ember_native_faster_gs.faster_gs.runtime.ops.render import (
     render_fwd_op as native_render_fwd_op,
 )
-from splatkit_native_faster_gs_mojo.core.runtime import (
+from ember_native_faster_gs_mojo.core.runtime import (
     blend,
     preprocess,
     render,
     sort,
 )
-from splatkit_native_faster_gs_mojo.core.runtime._mojo import load_custom_op_library
-from splatkit_native_faster_gs_mojo.core.runtime.ops._common import BLOCK_SIZE_BLEND
-from splatkit_native_faster_gs_mojo.core.runtime.ops import (
+from ember_native_faster_gs_mojo.core.runtime._mojo import load_custom_op_library
+from ember_native_faster_gs_mojo.core.runtime.ops._common import BLOCK_SIZE_BLEND
+from ember_native_faster_gs_mojo.core.runtime.ops import (
     blend_bwd_op,
     blend_fwd_op,
     preprocess_fwd_op,
@@ -56,10 +56,10 @@ def _repo_root() -> Path:
 def _subprocess_env() -> dict[str, str]:
     repo_root = _repo_root()
     pythonpath_parts = [
-        str(repo_root / "packages" / "splatkit-native-faster-gs-mojo" / "src"),
-        str(repo_root / "packages" / "splatkit-native-faster-gs" / "src"),
-        str(repo_root / "packages" / "splatkit-adapter-backends" / "src"),
-        str(repo_root / "packages" / "splatkit" / "src"),
+        str(repo_root / "packages" / "ember-native-faster-gs-mojo" / "src"),
+        str(repo_root / "packages" / "ember-native-faster-gs" / "src"),
+        str(repo_root / "packages" / "ember-adapter-backends" / "src"),
+        str(repo_root / "packages" / "ember-core" / "src"),
     ]
     existing = os.environ.get("PYTHONPATH")
     if existing:
@@ -641,10 +641,10 @@ def test_blend_backward_large_scene_repeated_call_does_not_crash() -> None:
     script = dedent(
         """
         import torch
-        from splatkit.io import load_gaussian_ply
-        from splatkit.core import CameraState
-        from splatkit_native_faster_gs_mojo.core.runtime import preprocess, sort
-        from splatkit_native_faster_gs_mojo.core.runtime.ops import blend_bwd_op, blend_fwd_op
+        from ember_core.io import load_gaussian_ply
+        from ember_core.core import CameraState
+        from ember_native_faster_gs_mojo.core.runtime import preprocess, sort
+        from ember_native_faster_gs_mojo.core.runtime.ops import blend_bwd_op, blend_fwd_op
 
         device = torch.device("cuda")
         scene = load_gaussian_ply("point_cloud.ply").to(device)

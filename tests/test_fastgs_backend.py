@@ -6,14 +6,14 @@ from typing import cast
 import pytest
 import torch
 from beartype.roar import BeartypeCallHintParamViolation
-from splatkit.core import (
+from ember_core.core import (
     BACKEND_REGISTRY,
     RenderOptions,
     render,
     resolve_backend_trait,
 )
-from splatkit.densification import GaussianMetricAttribution
-from splatkit_adapter_backends.fastgs import (
+from ember_core.densification import GaussianMetricAttribution
+from ember_adapter_backends.fastgs import (
     FastGSRenderOptions,
     FastGSRenderOutput,
     register,
@@ -148,7 +148,7 @@ def test_render_fastgs_returns_expected_shapes(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
+        "ember_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _FakeRasterizer),
     )
 
@@ -173,7 +173,7 @@ def test_fastgs_metric_attribution_returns_per_gaussian_counts(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
+        "ember_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _FakeRasterizer),
     )
     provider = resolve_backend_trait(
@@ -213,7 +213,7 @@ def test_fastgs_metric_attribution_accepts_empty_metric_map(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
+        "ember_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _EmptyMetricMapRasterizer),
     )
     provider = resolve_backend_trait(
@@ -250,7 +250,7 @@ def test_render_fastgs_normalizes_quaternions(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
+        "ember_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _QuaternionCheckingRasterizer),
     )
     unnormalized_scene = type(cuda_scene)(
@@ -351,7 +351,7 @@ def test_generic_render_fastgs_returns_backend_specific_signals(
     cuda_scene, cuda_camera, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "splatkit_adapter_backends.fastgs.renderer._import_fastgs_runtime",
+        "ember_adapter_backends.fastgs.renderer._import_fastgs_runtime",
         lambda: (_FakeSettings, _FakeRasterizer),
     )
 

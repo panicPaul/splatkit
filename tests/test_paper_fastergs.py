@@ -53,7 +53,7 @@ def test_fastergs_build_training_config_supports_both_backends(
         ]
         assert (
             training_config.optimization.parameter_groups[0].scheduler.target
-            == "splatkit.training.exponential_decay_to"
+            == "ember_core.training.exponential_decay_to"
         )
         assert training_config.model_dump(mode="json")["render"][
             "backend_options"

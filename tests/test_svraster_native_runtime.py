@@ -4,12 +4,12 @@ from dataclasses import replace
 
 import pytest
 import torch
-from splatkit.core.sparse_voxel import svraster_octpath_to_ijk
-from splatkit_native_svraster.core import runtime
-from splatkit_native_svraster.core.runtime.gather import (
+from ember_core.core.sparse_voxel import svraster_octpath_to_ijk
+from ember_native_svraster.core import runtime
+from ember_native_svraster.core.runtime.gather import (
     gather_triinterp_geo_params,
 )
-from splatkit_native_svraster.core.runtime.ops import (
+from ember_native_svraster.core.runtime.ops import (
     preprocess_op,
     rasterize_op,
     sh_eval_op,

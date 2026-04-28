@@ -7,29 +7,29 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
-from splatkit.core.contracts import (
+from ember_core.core.contracts import (
     CameraState,
     GaussianScene3D,
     RenderOptions,
     RenderOutput,
     SparseVoxelScene,
 )
-from splatkit.core.registry import BACKEND_REGISTRY, register_backend
-from splatkit.data.contracts import (
+from ember_core.core.registry import BACKEND_REGISTRY, register_backend
+from ember_core.data.contracts import (
     CameraSensorDataset,
     DatasetFrame,
     PathCameraImageSource,
     PointCloudState,
     SceneRecord,
 )
-from splatkit.data import PreparedFrameDataset, PreparedFrameDatasetConfig, prepare_frame_dataset
-from splatkit.densification import (
+from ember_core.data import PreparedFrameDataset, PreparedFrameDatasetConfig, prepare_frame_dataset
+from ember_core.densification import (
     DensificationContext,
     DensificationRenderRequirements,
 )
-from splatkit.densification.runtime import merge_densification_requirements
-from splatkit.initialization import InitializedModel
-from splatkit.training import (
+from ember_core.densification.runtime import merge_densification_requirements
+from ember_core.initialization import InitializedModel
+from ember_core.training import (
     CallableSpec,
     DensificationConfig,
     LoadedCheckpoint,
@@ -46,8 +46,8 @@ from splatkit.training import (
     save_checkpoint_dir,
     train_step,
 )
-from splatkit.training.checkpoints import build_checkpoint_metadata
-from splatkit.training.config import (
+from ember_core.training.checkpoints import build_checkpoint_metadata
+from ember_core.training.config import (
     BatchingConfig,
     CheckpointExportConfig,
     HookConfig,
@@ -63,7 +63,7 @@ from splatkit.training.config import (
     TensorSliceSpec,
     TensorViewSpec,
 )
-from splatkit.training.protocols import TrainState
+from ember_core.training.protocols import TrainState
 from torch import nn
 
 MODULE_NAME = __name__
@@ -371,7 +371,7 @@ def build_config(output_dir: Path) -> TrainingConfig:
         batching=BatchingConfig(batch_size=1, shuffle=False),
         initialization=InitializationSpec(
             initializer=CallableSpec(
-                target="splatkit.initialization.initialize_gaussian_model_from_scene_record",
+                target="ember_core.initialization.initialize_gaussian_model_from_scene_record",
                 kwargs={"sh_degree": 0},
             )
         ),
@@ -418,7 +418,7 @@ def test_train_step_supports_modules_parameters_and_hooks(
         batching=BatchingConfig(batch_size=1, shuffle=False),
         initialization=InitializationSpec(
             initializer=CallableSpec(
-                target="splatkit.initialization.initialize_gaussian_model_from_scene_record"
+                target="ember_core.initialization.initialize_gaussian_model_from_scene_record"
             )
         ),
         model=ModelSpec(
@@ -508,7 +508,7 @@ def test_train_step_supports_direct_densification_injection(
     loss_fn = build_loss_fn(config)
     optimizers = build_optimizer_set(state, config)
     densification = CloneFirstSplatDensification()
-    from splatkit.densification.runtime import bind_densification
+    from ember_core.densification.runtime import bind_densification
 
     bind_densification(densification, state, optimizers)
 
@@ -638,7 +638,7 @@ def test_scheduler_steps_after_optimizer_step(
                     optimizer="sgd",
                     lr=1.0,
                     scheduler=CallableSpec(
-                        target="splatkit.training.schedules.exponential_decay_to",
+                        target="ember_core.training.schedules.exponential_decay_to",
                         kwargs={"final_lr": 0.01, "max_steps": 2},
                     ),
                 )
@@ -710,7 +710,7 @@ def test_run_training_merges_densification_render_requirements(
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
     config.densification = DensificationConfig(
-        builder=CallableSpec(target="splatkit.densification.Vanilla3DGS")
+        builder=CallableSpec(target="ember_core.densification.Vanilla3DGS")
     )
 
     with pytest.raises(ValueError, match="2d_projections"):
@@ -745,7 +745,7 @@ def build_dataset_loader(
     dataset: PreparedFrameDataset,
     config: TrainingConfig,
 ) -> torch.utils.data.DataLoader:
-    from splatkit.training.runtime import build_dataloader
+    from ember_core.training.runtime import build_dataloader
 
     return build_dataloader(dataset, config)
 
@@ -772,7 +772,7 @@ def test_checkpoint_metadata_records_reproducibility_fields(
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
     config.optimization.parameter_groups[0].scheduler = CallableSpec(
-        target="splatkit.training.schedules.exponential_decay_to",
+        target="ember_core.training.schedules.exponential_decay_to",
         kwargs={"final_lr": 0.02, "max_steps": 3},
     )
     model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
@@ -793,7 +793,7 @@ def test_checkpoint_metadata_records_reproducibility_fields(
     assert metadata.backend_name == "unit_test_backend"
     assert f"{MODULE_NAME}.rgb_l2_loss" in metadata.import_paths
     assert (
-        "splatkit.training.schedules.exponential_decay_to"
+        "ember_core.training.schedules.exponential_decay_to"
         in metadata.import_paths
     )
     assert metadata.dataset_summary["num_frames"] == 2

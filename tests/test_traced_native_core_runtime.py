@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from splatkit_native_3dgrt.core.runtime import (
+from ember_native_3dgrt.core.runtime import (
     TraceStateConfig,
     acquire_state_token,
     build_acc,
@@ -171,7 +171,7 @@ def test_traced_runtime_build_update_render_and_backward(
 ) -> None:
     fake_tracer = _FakeOptixTracer()
     monkeypatch.setattr(
-        "splatkit_native_3dgrt.core.runtime.state._make_tracer_wrapper",
+        "ember_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: fake_tracer,
     )
     state_token = acquire_state_token(_state_config(), cuda_scene.center_position.device)
@@ -269,24 +269,24 @@ def test_traced_native_code_no_longer_imports_upstream_runtime() -> None:
     traced_sources = [
         _REPO_ROOT
         / "packages"
-        / "splatkit-native-3dgrt"
+        / "ember-native-3dgrt"
         / "src"
-        / "splatkit_native_3dgrt"
+        / "ember_native_3dgrt"
         / "native_build"
         / "stoch3dgs.py",
         _REPO_ROOT
         / "packages"
-        / "splatkit-native-3dgrt"
+        / "ember-native-3dgrt"
         / "src"
-        / "splatkit_native_3dgrt"
+        / "ember_native_3dgrt"
         / "core"
         / "runtime"
         / "state.py",
         _REPO_ROOT
         / "packages"
-        / "splatkit-native-3dgrt"
+        / "ember-native-3dgrt"
         / "src"
-        / "splatkit_native_3dgrt"
+        / "ember_native_3dgrt"
         / "stoch3dgs"
         / "renderer.py",
     ]
@@ -301,7 +301,7 @@ def test_native_backends_pyproject_no_longer_declares_threedgrut() -> None:
     pyproject = (
         _REPO_ROOT
         / "packages"
-        / "splatkit-native-3dgrt"
+        / "ember-native-3dgrt"
         / "pyproject.toml"
     ).read_text()
     assert "threedgrut" not in pyproject

@@ -5,18 +5,18 @@ from typing import cast
 
 import pytest
 import torch
-from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_native_faster_gs.faster_gs_depth import (
+from ember_core.core import BACKEND_REGISTRY, render
+from ember_native_faster_gs.faster_gs_depth import (
     FasterGSDepthNativeDepthRenderOutput,
     register as register_depth,
     render_faster_gs_depth,
 )
-from splatkit_native_faster_gs.faster_gs import (
+from ember_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     register as register_root,
     render_faster_gs_native,
 )
-from splatkit_native_faster_gs.gaussian_pop import (
+from ember_native_faster_gs.gaussian_pop import (
     GaussianPopNativeDepthGaussianImpactScoreRenderOutput,
     GaussianPopNativeGaussianImpactScoreRenderOutput,
     register,

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-STRICT_ENV_VAR = "SPLATKIT_SUBMODULE_REMOTE_CHECK"
+STRICT_ENV_VAR = "EMBER_SUBMODULE_REMOTE_CHECK"
 
 
 @dataclass(frozen=True)

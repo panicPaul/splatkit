@@ -7,7 +7,6 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
-    { name = "Florian Barthel" },
     { name = "Paul Schlack" },
 ]
 classifiers = [
@@ -31,8 +30,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/panicPaul/splatkit"
-Issues = "https://github.com/panicPaul/splatkit/issues"
+Repository = "https://github.com/panicPaul/ember"
+Issues = "https://github.com/panicPaul/ember/issues"
 
 [build-system]
 requires = ["hatchling>=1.27.0", "hatch-vcs>=0.5.0"]

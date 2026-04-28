@@ -9,13 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal, Sequence
 
-import splatkit as sk
+import ember_core as sk
 import torch
 import torch.nn.functional as F
 import tyro
 from jaxtyping import Float
 from pydantic import BaseModel, Field
-from splatkit.training import LossResult, TrainState
+from ember_core.training import LossResult, TrainState
 from torch import Tensor
 
 FasterGSBackendName = Literal["adapter.fastergs", "faster_gs.core"]
@@ -26,8 +26,8 @@ _REPO_ROOT = _NOTEBOOK_DIR.parents[1]
 _DEFAULT_CHECKPOINT_ROOT = _REPO_ROOT / "checkpoints" / "papers" / "fastergs"
 _DEFAULTS_DIR = _NOTEBOOK_DIR / "defaults"
 _FASTERGS_BACKEND_MODULES = (
-    "splatkit_adapter_backends.fastergs",
-    "splatkit_native_faster_gs.faster_gs",
+    "ember_adapter_backends.fastergs",
+    "ember_native_faster_gs.faster_gs",
 )
 
 
@@ -83,7 +83,7 @@ class FasterGSRenderConfig(FasterGSConfigBase):
 class FasterGSOptimizationConfig(FasterGSConfigBase):
     """Optimizer settings following the FasterGS garden default config."""
 
-    optimizer: str = "splatkit_gaussian_training.FusedAdam"
+    optimizer: str = "ember_splatting_training.FusedAdam"
     means_lr_init: float = Field(default=1.6e-4, gt=0.0)
     means_lr_final: float = Field(default=1.6e-6, gt=0.0)
     means_lr_max_steps: int | None = Field(default=None, ge=1)
@@ -321,7 +321,7 @@ def _resolve_config_paths(
     allow_default_scene_env_override: bool,
 ) -> FasterGSExperimentConfig:
     scene_path = config.scene.path
-    env_scene_path = os.environ.get("SPLATKIT_FASTERGS_GARDEN_ROOT")
+    env_scene_path = os.environ.get("EMBER_FASTERGS_GARDEN_ROOT")
     if (
         allow_default_scene_env_override
         and env_scene_path is not None
@@ -551,8 +551,8 @@ def build_fastergs_mcmc_densification(
     noise_lr_scale: float,
 ) -> Any:
     """Construct the CUDA-backed Gaussian MCMC densification method."""
-    from splatkit.densification import Schedule
-    from splatkit_gaussian_training import GaussianMCMC
+    from ember_core.densification import Schedule
+    from ember_splatting_training import GaussianMCMC
 
     return GaussianMCMC(
         schedule=Schedule(
@@ -584,7 +584,7 @@ def build_training_config(
             optimizer=config.optimization.optimizer,
             lr=config.optimization.means_lr_init,
             scheduler=sk.CallableSpec(
-                target="splatkit.training.exponential_decay_to",
+                target="ember_core.training.exponential_decay_to",
                 kwargs={
                     "final_lr": config.optimization.means_lr_final,
                     "max_steps": means_lr_max_steps,
@@ -652,7 +652,7 @@ def build_training_config(
         )
     else:
         densification_builder = sk.CallableSpec(
-            target="splatkit.Vanilla3DGS",
+            target="ember_core.Vanilla3DGS",
             kwargs={
                 "refine_every": config.densification.refine_every,
                 "start_iter": config.densification.start_iter,
@@ -679,7 +679,7 @@ def build_training_config(
         initialization=sk.InitializationSpec(
             initializer=sk.CallableSpec(
                 target=(
-                    "splatkit.initialization.initialize_gaussian_model_from_scene_record"
+                    "ember_core.initialization.initialize_gaussian_model_from_scene_record"
                 ),
                 kwargs={
                     "sh_degree": config.model.sh_degree,

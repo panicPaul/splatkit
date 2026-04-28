@@ -50,7 +50,7 @@ class SmokeFreshCloneCommand(BaseModel):
     source: Literal["remote", "worktree"] = "remote"
     repo: str | None = None
     ref: str | None = None
-    image_prefix: str = "splatkit-smoke"
+    image_prefix: str = "ember-smoke"
 
     def _run(self, *command: str, cwd: Path | None = None) -> None:
         """Run a subprocess and fail loudly on errors."""
@@ -91,7 +91,7 @@ class SmokeFreshCloneCommand(BaseModel):
         self, project_root: Path
     ) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         """Clone the repository recursively into a temporary directory."""
-        temp_dir = tempfile.TemporaryDirectory(prefix="splatkit-smoke-")
+        temp_dir = tempfile.TemporaryDirectory(prefix="ember-smoke-")
         clone_root = Path(temp_dir.name) / "repo"
         repo = self._resolve_repo(project_root)
         self._run("git", "clone", "--recurse-submodules", repo, str(clone_root))

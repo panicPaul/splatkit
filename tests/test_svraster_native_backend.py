@@ -4,8 +4,8 @@ from typing import cast
 
 import pytest
 import torch
-from splatkit.core import BACKEND_REGISTRY, render
-from splatkit_native_svraster.svraster import (
+from ember_core.core import BACKEND_REGISTRY, render
+from ember_native_svraster.svraster import (
     SVRasterDepthRenderOutput,
     SVRasterRenderOutput,
     register,

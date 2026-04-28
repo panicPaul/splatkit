@@ -2,13 +2,13 @@ from typing import cast
 
 import pytest
 import torch
-from splatkit.core import (
+from ember_core.core import (
     RenderWith2DProjections,
     RenderWithDepth2DProjections,
     RenderWithDepthProjectiveIntersectionTransforms,
     render,
 )
-from splatkit_adapter_backends.gsplat import (
+from ember_adapter_backends.gsplat import (
     GsplatAlphaRenderOutput,
     GsplatRenderOptions,
     GsplatRenderOutput,

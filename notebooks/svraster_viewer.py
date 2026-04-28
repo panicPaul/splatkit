@@ -11,8 +11,8 @@ with app.setup:
 
     import marimo as mo
     import numpy as np
-    import splatkit as sk
-    import splatkit_native_svraster.svraster as sk_svraster
+    import ember_core as sk
+    import ember_native_svraster.svraster as sk_svraster
     import torch
     from marimo_3dv import (
         CameraState,
@@ -153,7 +153,7 @@ def blank_frame(camera: CameraState) -> RenderResult:
 
 @app.function
 def build_backend_camera(camera: CameraState) -> sk.CameraState:
-    """Convert a viewer camera into the splatkit camera contract."""
+    """Convert a viewer camera into the ember-core camera contract."""
     return sk.CameraState(
         width=torch.tensor([camera.width], dtype=torch.int64),
         height=torch.tensor([camera.height], dtype=torch.int64),

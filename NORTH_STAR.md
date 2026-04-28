@@ -88,7 +88,7 @@ The core package should not own:
 ## Dependency And Packaging Goals
 
 The repository should keep the core dependency surface low enough that other
-people can adopt `splatkit` contracts and swap backends in their own codebases
+people can adopt `ember-core` contracts and swap backends in their own codebases
 without opting into the more opinionated research stack.
 
 - The core should stay lightweight and broadly installable.
