@@ -1,4 +1,4 @@
-# Ember
+# EMBER
 
 Extensible Modular Backend Ecosystem for Rendering
 
