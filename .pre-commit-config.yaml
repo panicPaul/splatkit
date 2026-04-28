@@ -1,4 +1,4 @@
-default_install_hook_types: [pre-commit, pre-push]
+default_install_hook_types: [pre-commit]
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -16,7 +16,7 @@ repos:
         language: system
         pass_filenames: false
         types_or: [python]
-        stages: [pre-push]
+        stages: [manual]
       - id: marimo-check
         name: marimo check
         entry: uv run marimo check --strict --ignore-scripts
@@ -28,4 +28,4 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-        stages: [pre-push]
+        stages: [pre-commit]
