@@ -422,6 +422,14 @@ provides-extras = ["cu128", "cu130"]
 name = "diff-gaussian-rasterization-fastgs"
 version = "0.0.0"
 source = { editable = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs" }
+dependencies = [
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-21-ember-dev-environment-cu128' and extra == 'extra-21-ember-dev-environment-cu130') or (extra == 'extra-21-ember-dev-environment-cu128' and extra == 'extra-21-ember-dev-environment-cu130-dev') or (extra == 'extra-21-ember-dev-environment-cu128-dev' and extra == 'extra-21-ember-dev-environment-cu130') or (extra == 'extra-21-ember-dev-environment-cu128-dev' and extra == 'extra-21-ember-dev-environment-cu130-dev') or (extra != 'extra-21-ember-dev-environment-cu128' and extra != 'extra-21-ember-dev-environment-cu128-dev' and extra != 'extra-21-ember-dev-environment-cu130' and extra != 'extra-21-ember-dev-environment-cu130-dev')" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-21-ember-dev-environment-cu128' or extra == 'extra-21-ember-dev-environment-cu128-dev'" },
+    { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-21-ember-dev-environment-cu130' or extra == 'extra-21-ember-dev-environment-cu130-dev'" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "torch" }]
 
 [[package]]
 name = "distlib"

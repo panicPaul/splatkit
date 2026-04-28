@@ -99,7 +99,7 @@ conflicts = [
 diff-gaussian-rasterization = [{ requirement = "torch", match-runtime = true }]
 diff-gaussian-rasterization-fastgs = [
     { requirement = "setuptools", match-runtime = false },
-    { requirement = "torch", match-runtime = false },
+    { requirement = "torch", match-runtime = true },
 ]
 FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
 new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
