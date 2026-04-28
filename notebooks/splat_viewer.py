@@ -379,96 +379,100 @@ def render_options_for_backend(
     return None
 
 
-@app.function
-@torch.no_grad()
-def rasterize_scene(
-    camera: CameraState,
-    scene: SplatScene | None,
-    *,
-    backend: str = "adapter.gsplat",
-    antialiasing: bool = True,
-    view_mode: str = "image",
-    colormap: str = "viridis",
-    quantile_percent: float = 90.0,
-    quantile_bias: float = 0.5,
-    invert_colormap: bool = False,
-) -> RenderResult:
-    """Render a splat scene through ember_core."""
-    if scene is None:
-        return RenderResult(
-            image=np.full(
-                (camera.height, camera.width, 3),
-                245,
-                dtype=np.uint8,
+app._unparsable_cell(
+    """
+    @torch.no_grad()
+    def rasterize_scene(
+        camera: CameraState,
+        scene: SplatScene | None,
+        *,
+        backend: str = \"adapter.gsplat\",
+        antialiasing: bool = True,
+        view_mode: str = \"image\",
+        colormap: str = \"viridis\",
+        quantile_percent: float = 90.0,
+        quantile_bias: float = 0.5,
+        invert_colormap: bool = False,
+    ) -> RenderResult:
+        \"\"\"Render a splat scene through ember_core.\"\"\"
+        if scene is None:
+            return RenderResult(
+                image=np.full(
+                    (camera.height, camera.width, 3),
+                    245,
+                    dtype=np.uint8,
+                )
             )
-        )
 
-    backend_camera = sk.CameraState(
-        width=torch.tensor([camera.width], dtype=torch.int64),
-        height=torch.tensor([camera.height], dtype=torch.int64),
-        fov_degrees=torch.tensor([camera.fov_degrees], dtype=torch.float32),
-        cam_to_world=torch.from_numpy(
-            camera.with_convention("opencv").cam_to_world
-        ).to(dtype=torch.float32)[None],
-        camera_convention="opencv",
-    )
-    backend_scene = sk.GaussianScene3D(
-        center_position=scene.center_positions,
-        log_scales=scene.log_half_extents,
-        quaternion_orientation=scene.quaternion_orientation,
-        logit_opacity=scene.opacity_logits.squeeze(-1),
-        feature=scene.spherical_harmonics,
-        sh_degree=scene.sh_degree,
-    )
-    render_kwargs = {
-        "backend": backend,
-        "return_alpha": view_mode == "alpha",
-        "return_depth": view_mode == "depth",
-        "return_2d_projections": (
-            backend == "adapter.gsplat" and view_mode == "image"
-        ),
-    }
-    render_options = render_options_for_backend(
-        backend,
-        antialiasing=antialiasing,
-    )
-    if render_options is not None:
-        render_kwargs["options"] = render_options
-    render_output = sk.render(
-        backend_scene,
-        backend_camera.to(scene.center_positions.device),
-        **render_kwargs,
-    )
-    if view_mode == "alpha":
-        image_uint8 = alpha_to_image(
-            render_output.alphas[0],
-            colormap=colormap,
-            quantile_percent=quantile_percent,
-            quantile_bias=quantile_bias,
-            invert_colormap=invert_colormap,
+        backend_camera = sk.CameraState(
+            width=torch.tensor([camera.width], dtype=torch.int64),
+            height=torch.tensor([camera.height], dtype=torch.int64),
+            fov_degrees=torch.tensor([camera.fov_degrees], dtype=torch.float32),
+            cam_to_world=torch.from_numpy(
+                camera.with_convention(\"opencv\").cam_to_world
+            ).to(dtype=torch.float32)[None],
+            camera_convention=\"opencv\",
         )
-    elif view_mode == "depth":
-        image_uint8 = depth_to_image(
-            render_output.depth[0],
-            colormap=colormap,
-            quantile_percent=quantile_percent,
-            quantile_bias=quantile_bias,
-            invert_colormap=invert_colormap,
+        backend_scene = sk.GaussianScene3D(
+            center_position=scene.center_positions,
+            log_scales=scene.log_half_extents,
+            quaternion_orientation=scene.quaternion_orientation,
+            logit_opacity=scene.opacity_logits.squeeze(-1),
+            feature=scene.spherical_harmonics,
+            sh_degree=scene.sh_degree,
         )
-    else:
-        image = render_output.render[0].clamp(0.0, 1.0).cpu().numpy()
-        image_uint8 = (image * 255).astype(np.uint8)
+        render_kwargs = {
+            \"backend\": backend, backend,
+            \"return_alpha\": view_mode == \"alpha\",
+            \"return_depth\": view_mode == \"depth\",
+            \"return_2d_projections\": (
+                backend == \"adapter.gsplat\" and view_mode == \"image\"
+            ),
+        }
+        render_options = render_options_for_backend(
+            backend,
+            antialiasing=antialiasing,
+        )
+        if render_options is not None:
+            render_kwargs[\"options\"] = render_options
+        render_output = sk.render(
+            backend_scene,
+            backend_camera.to(scene.center_positions.device),
+            **render_kwargs,
+        )
+        if view_mode == \"alpha\":
+            image_uint8 = alpha_to_image(
+                render_output.alphas[0],
+                colormap=colormap,
+                quantile_percent=quantile_percent,
+                quantile_bias=quantile_bias,
+                invert_colormap=invert_colormap,
+            )
+        elif view_mode == \"depth\":
+            image_uint8 = depth_to_image(
+                render_output.depth[0],
+                colormap=colormap,
+                quantile_percent=quantile_percent,
+                quantile_bias=quantile_bias,
+                invert_colormap=invert_colormap,
+            )
+        else:
+            image = render_output.render[0].clamp(0.0, 1.0).cpu().numpy()
+            image_uint8 = (image * 255).astype(np.uint8)
 
-    metadata = {}
-    if backend == "adapter.gsplat" and view_mode == "image":
-        projected_means = getattr(render_output, "projected_means", None)
-        projected_conics = getattr(render_output, "projected_conics", None)
-        if projected_means is not None and projected_conics is not None:
-            metadata = {
-                "projected_means": projected_means[0],
-                "projected_conics": projected_conics[0],
-            }
-    return RenderResult(image=image_uint8, metadata=metadata)
+        metadata = {}
+        if backend == \"adapter.gsplat\" and view_mode == \"image\":
+            projected_means = getattr(render_output, \"projected_means\", None)
+            projected_conics = getattr(render_output, \"projected_conics\", None)
+            if projected_means is not None and projected_conics is not None:
+                metadata = {
+                    \"projected_means\": projected_means[0],
+                    \"projected_conics\": projected_conics[0],
+                }
+        return RenderResult(image=image_uint8, metadata=metadata)
+    """,
+    name="*rasterize_scene"
+)
 
 
 @app.cell
@@ -493,6 +497,7 @@ def _(
     normalization_bias,
     normalization_percent,
     pipeline_result,
+    rasterize_scene,
     view_mode,
     viewer_controls_gui,
     viewer_state,

@@ -35,7 +35,7 @@ For local development from a fresh checkout:
 ```bash
 git submodule update --init --recursive
 uv venv
-uv sync
+uv sync --extra cu130-dev
 ```
 
 `uv sync` installs the minimal development environment. Add one CUDA wheel
