@@ -36,8 +36,8 @@ def test_render_matches_explicit_stage_composition(
     cuda_sparse_voxel_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
@@ -123,8 +123,8 @@ def test_render_backward_produces_finite_gradients(
     cuda_sparse_voxel_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
@@ -166,7 +166,9 @@ def test_render_backward_produces_finite_gradients(
 
 
 @pytest.mark.cuda
-def test_auxiliary_ops_match_sparse_voxel_contract(cuda_sparse_voxel_scene) -> None:
+def test_auxiliary_ops_match_sparse_voxel_contract(
+    cuda_sparse_voxel_scene,
+) -> None:
     care_idx = torch.arange(
         cuda_sparse_voxel_scene.num_voxels,
         device=cuda_sparse_voxel_scene.octpath.device,
@@ -177,7 +179,9 @@ def test_auxiliary_ops_match_sparse_voxel_contract(cuda_sparse_voxel_scene) -> N
         care_idx,
         cuda_sparse_voxel_scene.geo_grid_pts,
     )
-    torch.testing.assert_close(gathered, cuda_sparse_voxel_scene.voxel_geometries)
+    torch.testing.assert_close(
+        gathered, cuda_sparse_voxel_scene.voxel_geometries
+    )
 
     native_ijk = runtime.utils.octpath_2_ijk(
         cuda_sparse_voxel_scene.octpath.reshape(-1, 1),
@@ -196,8 +200,8 @@ def test_raw_ops_support_fake_tensor_mode(
     cpu_sparse_voxel_scene,
     cpu_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cpu_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cpu_camera)
     )
     cam_to_world = cpu_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
@@ -206,7 +210,9 @@ def test_raw_ops_support_fake_tensor_mode(
     with FakeTensorMode(allow_non_fake_inputs=True) as mode:
         octpath = mode.from_tensor(cpu_sparse_voxel_scene.octpath.reshape(-1))
         vox_centers = mode.from_tensor(cpu_sparse_voxel_scene.vox_center)
-        vox_lengths = mode.from_tensor(cpu_sparse_voxel_scene.vox_size.reshape(-1))
+        vox_lengths = mode.from_tensor(
+            cpu_sparse_voxel_scene.vox_size.reshape(-1)
+        )
         geos = mode.from_tensor(torch.empty((2, 8), dtype=torch.float32))
         sh0 = mode.from_tensor(cpu_sparse_voxel_scene.sh0)
         shs = mode.from_tensor(cpu_sparse_voxel_scene.shs)

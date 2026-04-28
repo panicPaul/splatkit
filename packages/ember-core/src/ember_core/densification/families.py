@@ -33,7 +33,9 @@ def copy_field() -> FieldBehavior:
 def zero_field() -> FieldBehavior:
     """Zero newly created children or clones."""
 
-    def clone_fn(name: str, tensor: Tensor, mask: Tensor, context: dict[str, Any]) -> Tensor:
+    def clone_fn(
+        name: str, tensor: Tensor, mask: Tensor, context: dict[str, Any]
+    ) -> Tensor:
         del name, context
         return torch.cat([tensor, torch.zeros_like(tensor[mask])], dim=0)
 
@@ -57,8 +59,10 @@ def zero_field() -> FieldBehavior:
 
 def custom_field(
     *,
-    clone: Callable[[str, Tensor, Tensor, dict[str, Any]], Tensor] | None = None,
-    split: Callable[[str, Tensor, Tensor, dict[str, Any]], Tensor] | None = None,
+    clone: Callable[[str, Tensor, Tensor, dict[str, Any]], Tensor]
+    | None = None,
+    split: Callable[[str, Tensor, Tensor, dict[str, Any]], Tensor]
+    | None = None,
 ) -> FieldBehavior:
     """Build a custom per-field behavior."""
     return FieldBehavior(clone=clone, split=split)
@@ -243,10 +247,14 @@ class GaussianFamilyOps:
                 if behavior is not None and behavior.clone is not None
                 else _default_clone_tensor(value, mask)
             )
-            updates[name] = new_value.detach().requires_grad_(value.requires_grad)
-            state_transforms[name] = lambda _key, old_value, local_mask=mask: torch.cat(
-                [old_value, torch.zeros_like(old_value[local_mask])],
-                dim=0,
+            updates[name] = new_value.detach().requires_grad_(
+                value.requires_grad
+            )
+            state_transforms[name] = lambda _key, old_value, local_mask=mask: (
+                torch.cat(
+                    [old_value, torch.zeros_like(old_value[local_mask])],
+                    dim=0,
+                )
             )
         self._replace_scene(scene, updates, state_transforms)
 
@@ -319,18 +327,25 @@ class GaussianFamilyOps:
                 )
             else:
                 new_value = _default_split_tensor(value, mask, num_children)
-            updates[name] = new_value.detach().requires_grad_(value.requires_grad)
+            updates[name] = new_value.detach().requires_grad_(
+                value.requires_grad
+            )
             state_transforms[name] = (
-                lambda _key, old_value, local_mask=mask, repeats=num_children: torch.cat(
-                    [
-                        old_value[~local_mask],
-                        torch.zeros(
-                            (int(local_mask.sum()) * repeats, *old_value.shape[1:]),
-                            dtype=old_value.dtype,
-                            device=old_value.device,
-                        ),
-                    ],
-                    dim=0,
+                lambda _key, old_value, local_mask=mask, repeats=num_children: (
+                    torch.cat(
+                        [
+                            old_value[~local_mask],
+                            torch.zeros(
+                                (
+                                    int(local_mask.sum()) * repeats,
+                                    *old_value.shape[1:],
+                                ),
+                                dtype=old_value.dtype,
+                                device=old_value.device,
+                            ),
+                        ],
+                        dim=0,
+                    )
                 )
             )
         self._replace_scene(scene, updates, state_transforms)
@@ -345,12 +360,14 @@ class GaussianFamilyOps:
             value = getattr(scene, name)
             if not _is_per_splat_tensor(name, value, num_splats):
                 continue
-            updates[name] = value[keep_mask].detach().requires_grad_(
-                value.requires_grad
+            updates[name] = (
+                value[keep_mask].detach().requires_grad_(value.requires_grad)
             )
-            state_transforms[name] = lambda _key, old_value, local_keep=keep_mask: old_value[
-                local_keep
-            ]
+            state_transforms[name] = (
+                lambda _key, old_value, local_keep=keep_mask: old_value[
+                    local_keep
+                ]
+            )
         self._replace_scene(scene, updates, state_transforms)
 
     def reset_opacity(self, max_post_sigmoid_value: float) -> None:
@@ -369,7 +386,11 @@ class GaussianFamilyOps:
         self._replace_scene(
             scene,
             updates,
-            {"logit_opacity": lambda _key, old_value: torch.zeros_like(old_value)},
+            {
+                "logit_opacity": lambda _key, old_value: torch.zeros_like(
+                    old_value
+                )
+            },
         )
 
     def copy_from_indices(
@@ -402,8 +423,10 @@ class GaussianFamilyOps:
         for name in self._tensor_field_names():
             value = getattr(scene, name)
             appended = overrides.get(name, value[source_indices])
-            updates[name] = torch.cat([value, appended], dim=0).detach().requires_grad_(
-                value.requires_grad
+            updates[name] = (
+                torch.cat([value, appended], dim=0)
+                .detach()
+                .requires_grad_(value.requires_grad)
             )
             state_transforms[name] = (
                 lambda _key, old_value, local_indices=source_indices: torch.cat(
@@ -419,11 +442,11 @@ class GaussianFamilyOps:
         state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
         for name in self._tensor_field_names():
             value = getattr(scene, name)
-            updates[name] = value[order].detach().requires_grad_(
-                value.requires_grad
+            updates[name] = (
+                value[order].detach().requires_grad_(value.requires_grad)
             )
-            state_transforms[name] = (
-                lambda _key, old_value, local_order=order: old_value[local_order]
+            state_transforms[name] = lambda _key, old_value, local_order=order: (
+                old_value[local_order]
             )
         self._replace_scene(scene, updates, state_transforms)
 
@@ -453,7 +476,11 @@ class GaussianFamilyOps:
             scene=self._optimizer_adapter.replace_scene_fields(
                 scene,
                 updates,
-                {"logit_opacity": lambda _key, old_value: torch.zeros_like(old_value)},
+                {
+                    "logit_opacity": lambda _key, old_value: torch.zeros_like(
+                        old_value
+                    )
+                },
             ),
         )
 
@@ -463,14 +490,20 @@ class GaussianFamilyOps:
             "center_position": (
                 scene.center_position
                 + torch.randn_like(scene.center_position) * sigma
-            ).detach().requires_grad_(scene.center_position.requires_grad)
+            )
+            .detach()
+            .requires_grad_(scene.center_position.requires_grad)
         }
         self._state.model = replace(
             self._state.model,
             scene=self._optimizer_adapter.replace_scene_fields(
                 scene,
                 updates,
-                {"center_position": lambda _key, old_value: torch.zeros_like(old_value)},
+                {
+                    "center_position": lambda _key, old_value: torch.zeros_like(
+                        old_value
+                    )
+                },
             ),
         )
 
@@ -521,7 +554,9 @@ def _rebuild_sparse_geo_grid(
         backend_name=scene.backend_name,
         max_num_levels=scene.max_num_levels,
     )
-    num_grid_points = int(vox_key.max().item()) + 1 if vox_key.numel() > 0 else 0
+    num_grid_points = (
+        int(vox_key.max().item()) + 1 if vox_key.numel() > 0 else 0
+    )
     sums = torch.zeros(
         (num_grid_points, 1),
         dtype=voxel_geometries.dtype,
@@ -566,12 +601,12 @@ class SparseVoxelFamilyOps:
             "geo_grid_pts": geo_grid_pts.detach().requires_grad_(
                 scene.geo_grid_pts.requires_grad
             ),
-            "sh0": scene.sh0[keep_mask].detach().requires_grad_(
-                scene.sh0.requires_grad
-            ),
-            "shs": scene.shs[keep_mask].detach().requires_grad_(
-                scene.shs.requires_grad
-            ),
+            "sh0": scene.sh0[keep_mask]
+            .detach()
+            .requires_grad_(scene.sh0.requires_grad),
+            "shs": scene.shs[keep_mask]
+            .detach()
+            .requires_grad_(scene.shs.requires_grad),
         }
         self._state.model = replace(
             self._state.model,

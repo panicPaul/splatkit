@@ -35,16 +35,14 @@ with app.setup:
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        """
-        # Git Main Packaging Sandbox
+    mo.md("""
+    # Git Main Packaging Sandbox
 
-        This notebook installs `ember-core` native packages from GitHub `main`
-        source archives via PEP 723 metadata and verifies that the packages
-        import. Archive URLs are intentional: `git+https` checkouts initialize
-        repository submodules before building package subdirectories.
-        """
-    )
+    This notebook installs `ember-core` native packages from GitHub `main`
+    source archives via PEP 723 metadata and verifies that the packages
+    import. Archive URLs are intentional: `git+https` checkouts initialize
+    repository submodules before building package subdirectories.
+    """)
     return
 
 

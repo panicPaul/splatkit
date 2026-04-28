@@ -23,4 +23,3 @@ def backend() -> Any:
 def requires_grad(*tensors: Tensor) -> bool:
     """Return whether any differentiable input needs backward state."""
     return any(tensor.requires_grad for tensor in tensors)
-

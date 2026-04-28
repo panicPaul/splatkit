@@ -4,7 +4,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Literal
 
-import marimo_config_gui._pydantic as pgui
+import marimo_config_gui.api as pgui
+import marimo_config_gui.widgets as widgets
 import pytest
 from marimo_config_gui import (
     ConfigBindings,
@@ -78,7 +79,9 @@ def notebook_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: True)
 
 
-def _dispatch_form_change(form: PydanticGui[BaseModel], patch: dict[str, object]) -> None:
+def _dispatch_form_change(
+    form: PydanticGui[BaseModel], patch: dict[str, object]
+) -> None:
     form._convert_value(patch)
     form._on_change(None)
 
@@ -152,7 +155,9 @@ def test_config_gui_supports_form_only_without_error(
 
 
 def test_config_gui_requires_a_rendered_view(notebook_runtime: None) -> None:
-    with pytest.raises(ValueError, match="at least one of return_form or return_json"):
+    with pytest.raises(
+        ValueError, match="at least one of return_form or return_json"
+    ):
         config_gui(
             _RequiredModel,
             return_form=False,
@@ -160,7 +165,9 @@ def test_config_gui_requires_a_rendered_view(notebook_runtime: None) -> None:
         )
 
 
-def test_config_form_updates_payload_and_json_text(notebook_runtime: None) -> None:
+def test_config_form_updates_payload_and_json_text(
+    notebook_runtime: None,
+) -> None:
     (
         form_gui_state,
         _json_gui_state,
@@ -197,27 +204,36 @@ def test_config_json_updates_payload_only_on_valid_model(
 
     _dispatch_json_change(json_view, '{"title": "updated", "count": -1}')
     assert form_gui_state() == {"title": "demo", "count": 0}
-    assert config_error(
-        bindings,
-        form_gui_state=form_gui_state,
-        json_gui_state=json_gui_state,
-    ).text != pgui.mo.md("").text
+    assert (
+        config_error(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        ).text
+        != pgui.mo.md("").text
+    )
 
     _dispatch_json_change(json_view, "{")
     assert form_gui_state() == {"title": "demo", "count": 0}
-    assert "Expecting property name enclosed in double quotes" in config_error(
-        bindings,
-        form_gui_state=form_gui_state,
-        json_gui_state=json_gui_state,
-    ).text
+    assert (
+        "Expecting property name enclosed in double quotes"
+        in config_error(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        ).text
+    )
 
     _dispatch_json_change(json_view, '{"title": "updated", "count": 5}')
     assert form_gui_state() == {"title": "updated", "count": 5}
-    assert config_error(
-        bindings,
-        form_gui_state=form_gui_state,
-        json_gui_state=json_gui_state,
-    ).text == pgui.mo.md("").text
+    assert (
+        config_error(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        ).text
+        == pgui.mo.md("").text
+    )
 
 
 def test_config_error_prefers_json_errors_then_validation(
@@ -229,11 +245,15 @@ def test_config_error_prefers_json_errors_then_validation(
         bindings,
     ) = _make_state(_RequiredModel)
 
-    empty = config_error(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state)
+    empty = config_error(
+        bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state
+    )
     assert empty.text == pgui.mo.md("").text
 
     bindings.set_json_gui_state("{")
-    errored = config_error(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state)
+    errored = config_error(
+        bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state
+    )
     assert "Expecting property name enclosed in double quotes" in errored.text
 
 
@@ -244,12 +264,40 @@ def test_config_value_and_json_output(notebook_runtime: None) -> None:
         bindings,
     ) = _make_state(_RequiredModel)
 
-    assert config_value(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state) == _RequiredModel()
-    assert "&quot;count&quot;:0" in config_json_output(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state).text
+    assert (
+        config_value(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        )
+        == _RequiredModel()
+    )
+    assert (
+        "&quot;count&quot;:0"
+        in config_json_output(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        ).text
+    )
 
     bindings.set_json_gui_state("{")
-    assert config_value(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state) is None
-    assert "Not a valid config" in config_json_output(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state).text
+    assert (
+        config_value(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        )
+        is None
+    )
+    assert (
+        "Not a valid config"
+        in config_json_output(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        ).text
+    )
 
 
 def test_config_commit_button_commits_valid_dirty_draft(
@@ -304,7 +352,10 @@ def test_config_commit_button_stays_disabled_when_not_dirty(
     )
 
     assert commit_button._component_args["disabled"] is True
-    assert commit_button._component_args["tooltip"] == "No unapplied config changes."
+    assert (
+        commit_button._component_args["tooltip"]
+        == "No unapplied config changes."
+    )
 
 
 def test_config_commit_button_stays_disabled_when_invalid(
@@ -329,7 +380,10 @@ def test_config_commit_button_stays_disabled_when_invalid(
     )
 
     assert commit_button._component_args["disabled"] is True
-    assert commit_button._component_args["tooltip"] == "Fix config errors before applying."
+    assert (
+        commit_button._component_args["tooltip"]
+        == "Fix config errors before applying."
+    )
     assert committed_state() == {"title": "demo", "count": 0}
 
 
@@ -371,10 +425,17 @@ def test_config_require_valid_stops_when_invalid(
     monkeypatch.setattr(pgui.mo, "stop", _fake_stop)
 
     with pytest.raises(RuntimeError, match="stopped"):
-        config_require_valid(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state)
+        config_require_valid(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        )
 
     assert captured["condition"] is True
-    assert "Expecting property name enclosed in double quotes" in captured["output"].text
+    assert (
+        "Expecting property name enclosed in double quotes"
+        in captured["output"].text
+    )
 
 
 def test_script_mode_uses_tyro(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -531,8 +592,8 @@ def test_nested_models_use_accordion_until_flat_level() -> None:
 def test_indent_nested_layout_wraps_nested_content() -> None:
     layout = pgui.mo.md("demo")
 
-    unindented = pgui._indent_nested_layout(layout, current_level=0)
-    indented = pgui._indent_nested_layout(layout, current_level=2)
+    unindented = widgets._indent_nested_layout(layout, current_level=0)
+    indented = widgets._indent_nested_layout(layout, current_level=2)
 
     assert unindented is layout
     assert "border-left:" in indented.text
@@ -556,7 +617,14 @@ def test_union_json_serialization_keeps_kind(notebook_runtime: None) -> None:
         '{\n  "item": {\n    "__kind__": "_UnionB",\n    "title": "switched"\n  }\n}',
     )
 
-    assert "&quot;__kind__&quot;" in config_json_output(bindings, form_gui_state=form_gui_state, json_gui_state=json_gui_state).text
+    assert (
+        "&quot;__kind__&quot;"
+        in config_json_output(
+            bindings,
+            form_gui_state=form_gui_state,
+            json_gui_state=json_gui_state,
+        ).text
+    )
 
 
 def test_json_editor_uses_model_field_order(notebook_runtime: None) -> None:

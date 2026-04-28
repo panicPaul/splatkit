@@ -65,8 +65,7 @@ class NCoreSceneConfig(SceneLoadConfig):
     source_pipes: tuple[HorizonAlignPipeConfig] = Field(
         default=(HorizonAlignPipeConfig(),),
         description=(
-            "Ordered source-phase pipes applied while loading the scene "
-            "record."
+            "Ordered source-phase pipes applied while loading the scene record."
         ),
     )
 

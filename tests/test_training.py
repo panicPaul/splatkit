@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from PIL import Image
 from ember_core.core.contracts import (
     CameraState,
     GaussianScene3D,
@@ -15,6 +14,11 @@ from ember_core.core.contracts import (
     SparseVoxelScene,
 )
 from ember_core.core.registry import BACKEND_REGISTRY, register_backend
+from ember_core.data import (
+    PreparedFrameDataset,
+    PreparedFrameDatasetConfig,
+    prepare_frame_dataset,
+)
 from ember_core.data.contracts import (
     CameraSensorDataset,
     DatasetFrame,
@@ -22,7 +26,6 @@ from ember_core.data.contracts import (
     PointCloudState,
     SceneRecord,
 )
-from ember_core.data import PreparedFrameDataset, PreparedFrameDatasetConfig, prepare_frame_dataset
 from ember_core.densification import (
     DensificationContext,
     DensificationRenderRequirements,
@@ -35,10 +38,10 @@ from ember_core.training import (
     LoadedCheckpoint,
     LossResult,
     TrainingConfig,
-    build_raw_render_fn,
     build_inference_pipeline,
     build_loss_fn,
     build_optimizer_set,
+    build_raw_render_fn,
     build_render_fn,
     initialize_model,
     load_checkpoint_dir,
@@ -56,14 +59,15 @@ from ember_core.training.config import (
     ModelSpec,
     OptimizationConfig,
     ParameterGroupConfig,
-    ParameterTargetSpec,
     ParameterSpec,
+    ParameterTargetSpec,
     RenderPipelineSpec,
     RuntimeConfig,
     TensorSliceSpec,
     TensorViewSpec,
 )
 from ember_core.training.protocols import TrainState
+from PIL import Image
 from torch import nn
 
 MODULE_NAME = __name__
@@ -460,7 +464,9 @@ def test_train_step_supports_modules_parameters_and_hooks(
         hooks=HookConfig(),
         checkpoint=CheckpointExportConfig(output_dir=tmp_path / "unused"),
     )
-    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
     state = TrainState(
         model=model,
         step=0,
@@ -496,7 +502,9 @@ def test_train_step_supports_direct_densification_injection(
     register_test_backend()
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
-    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
     state = TrainState(
         model=model,
         step=0,
@@ -540,9 +548,13 @@ def test_view_backed_optimizer_updates_only_selected_slice(
         device=torch.device("cpu"),
     )
     config = TrainingConfig(
-        render=RenderPipelineSpec(backend="unit_test_backend", return_alpha=False),
+        render=RenderPipelineSpec(
+            backend="unit_test_backend", return_alpha=False
+        ),
         loss=LossConfig(
-            target=CallableSpec(target=f"{MODULE_NAME}.feature_regularization_loss"),
+            target=CallableSpec(
+                target=f"{MODULE_NAME}.feature_regularization_loss"
+            ),
         ),
         optimization=OptimizationConfig(
             parameter_groups=[
@@ -582,8 +594,12 @@ def test_build_optimizer_set_rejects_overlapping_views(
         device=torch.device("cpu"),
     )
     config = TrainingConfig(
-        render=RenderPipelineSpec(backend="unit_test_backend", return_alpha=False),
-        loss=LossConfig(target=CallableSpec(target=f"{MODULE_NAME}.rgb_l2_loss")),
+        render=RenderPipelineSpec(
+            backend="unit_test_backend", return_alpha=False
+        ),
+        loss=LossConfig(
+            target=CallableSpec(target=f"{MODULE_NAME}.rgb_l2_loss")
+        ),
         optimization=OptimizationConfig(
             parameter_groups=[
                 ParameterGroupConfig(
@@ -627,9 +643,13 @@ def test_scheduler_steps_after_optimizer_step(
         device=torch.device("cpu"),
     )
     config = TrainingConfig(
-        render=RenderPipelineSpec(backend="unit_test_backend", return_alpha=False),
+        render=RenderPipelineSpec(
+            backend="unit_test_backend", return_alpha=False
+        ),
         loss=LossConfig(
-            target=CallableSpec(target=f"{MODULE_NAME}.feature_regularization_loss"),
+            target=CallableSpec(
+                target=f"{MODULE_NAME}.feature_regularization_loss"
+            ),
         ),
         optimization=OptimizationConfig(
             parameter_groups=[
@@ -662,7 +682,9 @@ def test_rgb_l2_loss_uses_nhwc_batch_images(tmp_path: Path) -> None:
     register_test_backend()
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
-    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
     state = TrainState(
         model=model,
         step=0,
@@ -688,7 +710,9 @@ def test_build_raw_render_fn_skips_postprocess(tmp_path: Path) -> None:
     config.render.postprocess_fn = CallableSpec(
         target=f"{MODULE_NAME}.one_render_postprocess"
     )
-    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
     batch = next(iter(build_dataset_loader(dataset, config)))
     raw_render_fn = build_raw_render_fn(config)
     render_fn = build_render_fn(config)
@@ -775,7 +799,9 @@ def test_checkpoint_metadata_records_reproducibility_fields(
         target="ember_core.training.schedules.exponential_decay_to",
         kwargs={"final_lr": 0.02, "max_steps": 3},
     )
-    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
     state = TrainState(
         model=model,
         step=2,
@@ -799,9 +825,7 @@ def test_checkpoint_metadata_records_reproducibility_fields(
     assert metadata.dataset_summary["num_frames"] == 2
     assert metadata.dataset_summary["source_format"] == "colmap"
     assert metadata.dataset_summary["source_uris"] == [str(tmp_path)]
-    assert metadata.dataset_summary["available_camera_sensor_ids"] == [
-        "camera"
-    ]
+    assert metadata.dataset_summary["available_camera_sensor_ids"] == ["camera"]
     assert metadata.dataset_summary["default_camera_sensor_id"] == "camera"
 
 
@@ -812,7 +836,9 @@ def test_export_ply_omits_scene_payload_for_gaussian_scene(
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
     config.checkpoint.export_ply = True
-    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
     state = TrainState(
         model=model,
         step=0,
@@ -860,7 +886,9 @@ def test_export_ply_rejects_unsupported_scene_types(tmp_path: Path) -> None:
             export_ply=True,
         ),
     )
-    model = initialize_model(dataset.scene_record, config).to(torch.device("cpu"))
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
     state = TrainState(
         model=model,
         step=0,

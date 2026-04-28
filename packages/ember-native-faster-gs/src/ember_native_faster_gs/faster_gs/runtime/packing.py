@@ -78,7 +78,9 @@ def parse_render_outputs(outputs: tuple[Tensor, ...]) -> ParsedRenderOutputs:
     preprocess_stop = preprocess_start + _PREPROCESS_OUTPUT_COUNT
     sort_stop = preprocess_stop + _SORT_OUTPUT_COUNT
     image = outputs[0]
-    preprocess = parse_preprocess_outputs(outputs[preprocess_start:preprocess_stop])
+    preprocess = parse_preprocess_outputs(
+        outputs[preprocess_start:preprocess_stop]
+    )
     sort = parse_sort_outputs(outputs[preprocess_stop:sort_stop])
     blend = BlendResult.from_tensors(image, *outputs[sort_stop:])
     return ParsedRenderOutputs(preprocess=preprocess, sort=sort, blend=blend)

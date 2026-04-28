@@ -12,12 +12,14 @@ dependencies = [
     # Editable dependencies
     "ember-core[all]",
     "marimo-config-gui>=0.0.2",
-    "marimo-3dv>=0.1.3",
+    "marimo-3dv[desktop]>=0.1.3",
     # Non editable dependencies
     "marimo>=0.22.4",
     "ruff>=0.15.10",
     "ty>=0.0.29",
     "altair>=6.1.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
 ]
 [project.optional-dependencies]
 adapter-backends = ["ember-adapter-backends"]
@@ -202,17 +204,33 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN", "D"]
+"packages/*/tests/*" = ["ANN", "D"]
 "notebooks/*" = [
     "ANN",        # Require function type annotations doesn't work well with marimos def _()
     "B018",       # Useless expresions can be nice for output visualization in marimo
+    "D",          # Notebook functions/cells are display and workflow units, not public API docs
+    "F401",       # Unused imports from marimo
+    "RUF059",     # Unused unpacked variable
+]
+"papers/*/notebook.py" = [
+    "ANN",        # Require function type annotations doesn't work well with marimos def _()
+    "B018",       # Useless expressions can be nice for output visualization in marimo
+    "D",          # Paper notebooks are research artifacts, not public API docs
     "F401",       # Unused imports from marimo
     "RUF059",     # Unused unpacked variable
 ]
 "sandboxed_notebooks/*" = [
     "ANN",        # Require function type annotations doesn't work well with marimos def _()
     "B018",       # Useless expressions can be nice for output visualization in marimo
+    "D",          # Notebook functions/cells are display and workflow units, not public API docs
     "F401",       # Unused imports from marimo
     "RUF059",     # Unused unpacked variable
+]
+"packages/ember-adapter-backends/src/ember_adapter_backends/fastgs/renderer.py" = [
+    "D102",       # Trait implementations mirror protocol method names
+]
+"packages/ember-core/src/ember_core/densification/*.py" = [
+    "D102",       # Lifecycle and family operation names are self-documenting protocol hooks
 ]
 "packages/ember-core/src/ember_core/training/checkpoints.py" = [
     "NPY002",     # Capturing/restoring global NumPy RNG state requires the legacy stateful API

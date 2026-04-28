@@ -26,18 +26,24 @@ from ember_native_faster_gs_mojo.core.runtime import (
     render,
     sort,
 )
-from ember_native_faster_gs_mojo.core.runtime._mojo import load_custom_op_library
-from ember_native_faster_gs_mojo.core.runtime.ops._common import BLOCK_SIZE_BLEND
+from ember_native_faster_gs_mojo.core.runtime._mojo import (
+    load_custom_op_library,
+)
 from ember_native_faster_gs_mojo.core.runtime.ops import (
     blend_bwd_op,
     blend_fwd_op,
     preprocess_fwd_op,
     render_fwd_op,
 )
+from ember_native_faster_gs_mojo.core.runtime.ops._common import (
+    BLOCK_SIZE_BLEND,
+)
 from torch._subclasses.fake_tensor import FakeTensorMode
 
 
-def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
+def _extract_camera_params(
+    camera_state,
+) -> tuple[int, int, float, float, float, float]:
     intrinsics = camera_state.get_intrinsics()[0]
     return (
         int(camera_state.width[0].item()),
@@ -92,7 +98,9 @@ def _prepare_blend_stage_inputs(
     *,
     proper_antialiasing: bool,
 ):
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(camera)
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(camera)
+    )
     cam_to_world = camera.cam_to_world[0]
     preprocess_result = preprocess(
         scene.center_position,
@@ -132,18 +140,26 @@ def _prepare_blend_stage_inputs(
 def _basis_count_cases(scene) -> list[int]:
     """Return the FasterGS basis-count specializations covered by a scene."""
     max_bases = int(scene.feature.shape[1])
-    return [basis_count for basis_count in (1, 4, 9, 16) if basis_count <= max_bases]
+    return [
+        basis_count for basis_count in (1, 4, 9, 16) if basis_count <= max_bases
+    ]
 
 
-def _assert_forward_tensor_close(mojo_tensor: torch.Tensor, native_tensor: torch.Tensor) -> None:
+def _assert_forward_tensor_close(
+    mojo_tensor: torch.Tensor, native_tensor: torch.Tensor
+) -> None:
     """Compare one forward tensor with dtype-aware tolerances."""
     if mojo_tensor.dtype.is_floating_point:
-        torch.testing.assert_close(mojo_tensor, native_tensor, rtol=1e-4, atol=2e-4)
+        torch.testing.assert_close(
+            mojo_tensor, native_tensor, rtol=1e-4, atol=2e-4
+        )
     else:
         torch.testing.assert_close(mojo_tensor, native_tensor)
 
 
-def _assert_preprocess_outputs_match_native(mojo_outputs, native_outputs) -> None:
+def _assert_preprocess_outputs_match_native(
+    mojo_outputs, native_outputs
+) -> None:
     """Compare preprocess outputs while ignoring native rows left undefined by culling."""
     (
         mojo_projected_means,
@@ -171,7 +187,9 @@ def _assert_preprocess_outputs_match_native(mojo_outputs, native_outputs) -> Non
     ) = native_outputs
 
     _assert_forward_tensor_close(mojo_primitive_depth, native_primitive_depth)
-    _assert_forward_tensor_close(mojo_num_touched_tiles, native_num_touched_tiles)
+    _assert_forward_tensor_close(
+        mojo_num_touched_tiles, native_num_touched_tiles
+    )
     _assert_forward_tensor_close(mojo_visible_count, native_visible_count)
     _assert_forward_tensor_close(mojo_instance_count, native_instance_count)
 
@@ -211,7 +229,9 @@ def _assert_preprocess_outputs_match_native(mojo_outputs, native_outputs) -> Non
         torch.sort(visible_primitive_indices.to(torch.int64)).values,
     )
     native_depth_keys_by_primitive = torch.zeros_like(mojo_depth_keys)
-    native_depth_keys_by_primitive[native_prefix_indices] = native_depth_keys[:n_visible]
+    native_depth_keys_by_primitive[native_prefix_indices] = native_depth_keys[
+        :n_visible
+    ]
     _assert_forward_tensor_close(
         mojo_depth_keys[visible_primitive_indices],
         native_depth_keys_by_primitive[visible_primitive_indices],
@@ -238,8 +258,12 @@ def _assert_sort_outputs_match_native(mojo_outputs, native_outputs) -> None:
         mojo_instance_primitive_indices[:n_instances],
         native_instance_primitive_indices,
     )
-    _assert_forward_tensor_close(mojo_tile_instance_ranges, native_tile_instance_ranges)
-    _assert_forward_tensor_close(mojo_tile_bucket_offsets, native_tile_bucket_offsets)
+    _assert_forward_tensor_close(
+        mojo_tile_instance_ranges, native_tile_instance_ranges
+    )
+    _assert_forward_tensor_close(
+        mojo_tile_bucket_offsets, native_tile_bucket_offsets
+    )
     _assert_forward_tensor_close(mojo_bucket_count, native_bucket_count)
 
 
@@ -262,8 +286,12 @@ def _assert_blend_outputs_match_native(mojo_outputs, native_outputs) -> None:
 def _assert_render_outputs_match_native(mojo_outputs, native_outputs) -> None:
     """Compare packed render outputs by their staged contracts."""
     _assert_forward_tensor_close(mojo_outputs[0], native_outputs[0])
-    _assert_preprocess_outputs_match_native(mojo_outputs[1:11], native_outputs[1:11])
-    _assert_sort_outputs_match_native(mojo_outputs[11:15], native_outputs[11:15])
+    _assert_preprocess_outputs_match_native(
+        mojo_outputs[1:11], native_outputs[1:11]
+    )
+    _assert_sort_outputs_match_native(
+        mojo_outputs[11:15], native_outputs[11:15]
+    )
     _assert_blend_outputs_match_native(
         (mojo_outputs[0], *mojo_outputs[15:]),
         (native_outputs[0], *native_outputs[15:]),
@@ -353,8 +381,8 @@ def test_preprocess_forward_matches_native_stage(
     cuda_camera,
     proper_antialiasing: bool,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     world_2_camera = torch.linalg.inv(cam_to_world)
@@ -413,8 +441,8 @@ def test_render_forward_matches_native_stage(
     cuda_camera,
     proper_antialiasing: bool,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     world_2_camera = torch.linalg.inv(cam_to_world)
@@ -474,8 +502,8 @@ def test_render_forward_matches_native_stage_visible(
     cuda_visible_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     world_2_camera = torch.linalg.inv(cam_to_world)
@@ -589,15 +617,23 @@ def test_blend_backward_matches_native_stage(cuda_scene, cuda_camera) -> None:
 
 
 @pytest.mark.cuda
-def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+def test_render_backward_produces_finite_gradients(
+    cuda_scene, cuda_camera
+) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
-    center_positions = cuda_scene.center_position.detach().clone().requires_grad_(True)
+    center_positions = (
+        cuda_scene.center_position.detach().clone().requires_grad_(True)
+    )
     log_scales = cuda_scene.log_scales.detach().clone().requires_grad_(True)
-    rotations = cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
-    opacities = cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
+    rotations = (
+        cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
+    )
+    opacities = (
+        cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
+    )
     sh0 = cuda_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
     shrest = cuda_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
 
@@ -735,8 +771,8 @@ def test_blend_backward_large_scene_repeated_call_does_not_crash() -> None:
 
 
 def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cpu_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cpu_camera)
     )
     cam_to_world = cpu_camera.cam_to_world[0]
 
@@ -749,7 +785,9 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
         shrest = mode.from_tensor(cpu_scene.feature[:, 1:, :])
         world_2_camera = mode.from_tensor(torch.linalg.inv(cam_to_world))
         camera_position = mode.from_tensor(cam_to_world[:3, 3])
-        bg_color = mode.from_tensor(torch.zeros(3, dtype=center_positions.dtype))
+        bg_color = mode.from_tensor(
+            torch.zeros(3, dtype=center_positions.dtype)
+        )
         preprocess_result = preprocess_fwd_op(
             center_positions,
             log_scales,

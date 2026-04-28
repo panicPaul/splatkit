@@ -37,14 +37,14 @@ app = marimo.App(
 with app.setup:
     from dataclasses import replace
 
-    import marimo as mo
-    import numpy as np
     import ember_core as sk
     import ember_native_3dgrt.stoch3dgs as skn_stoch
     import ember_native_faster_gs.faster_gs as skn_fastergs
     import ember_native_faster_gs.faster_gs_depth as skn_fastergs_depth
     import ember_native_faster_gs.gaussian_pop as skn_gaussian_pop
     import ember_native_faster_gs_mojo.core as skn_fastergs_mojo
+    import marimo as mo
+    import numpy as np
     import torch
     from marimo_3dv import (
         CameraState,

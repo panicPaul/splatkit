@@ -67,9 +67,7 @@ _STATES: dict[int, _TraceState] = {}
 
 def _make_tracer_wrapper(config: TraceStateConfig) -> Any:
     """Instantiate a configured vendored OptiX tracer wrapper."""
-    runtime = load_stoch3dgs_optix_tracer_runtime(
-        config.to_plugin_config()
-    )
+    runtime = load_stoch3dgs_optix_tracer_runtime(config.to_plugin_config())
     torch.zeros(1, device="cuda")
     return runtime.tracer_class(
         runtime.source_root,
@@ -120,7 +118,9 @@ def destroy_state_token(state_token: Tensor) -> None:
         _STATES.pop(state_id, None)
 
 
-def _split_particle_density(particle_density: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+def _split_particle_density(
+    particle_density: Tensor,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Split packed particle density into the pieces expected by the OptiX tracer."""
     return (
         particle_density[:, 0:3].contiguous(),

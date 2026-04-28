@@ -307,7 +307,9 @@ def test_gaussian_family_ops_updates_all_bindings_for_shared_scene_field(
     rest_reset = rest_optimizer.state[
         rest_optimizer.param_groups[0]["params"][0]
     ]["exp_avg"]
-    assert torch.allclose(dc_reset[1, 0, :], torch.zeros_like(dc_reset[1, 0, :]))
+    assert torch.allclose(
+        dc_reset[1, 0, :], torch.zeros_like(dc_reset[1, 0, :])
+    )
     assert torch.equal(dc_reset[1, 1:, :], dc_before_reset[1, 1:, :])
     assert torch.allclose(
         rest_reset[1, 1:, :],

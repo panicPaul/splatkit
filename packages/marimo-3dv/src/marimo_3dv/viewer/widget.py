@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import atexit
 import asyncio
+import atexit
 import concurrent.futures
 import contextlib
 import gc
@@ -14,8 +14,8 @@ import socket
 import threading
 import time
 import traceback
-import weakref
 import warnings
+import weakref
 from collections.abc import Callable, Iterator, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1586,9 +1586,7 @@ class MarimoViewer(_StableMarimoAnyWidget):
             self._state._keyboard_navigation_callback = (
                 self.set_keyboard_navigation
             )
-            self._state._pointer_controls_callback = (
-                self.set_pointer_controls
-            )
+            self._state._pointer_controls_callback = self.set_pointer_controls
         self.rerender()
 
     def close(self) -> None:

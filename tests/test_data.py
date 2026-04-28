@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from PIL import Image
 from ember_core.core.contracts import CameraState
 from ember_core.data import (
     CameraSensorDataset,
@@ -40,6 +39,7 @@ from ember_core.data import (
     run_must3r_scene_record,
 )
 from ember_core.data.adapters import _resolve_materialization_num_workers
+from PIL import Image
 from torch.utils.data import DataLoader
 
 
@@ -192,9 +192,7 @@ def _build_camera_sensor(
             ),
             cam_to_world=torch.stack(cam_to_world, dim=0),
             intrinsics=torch.tensor(
-                [
-                    [[2.0, 0.0, 2.0], [0.0, 2.0, 1.5], [0.0, 0.0, 1.0]]
-                ]
+                [[[2.0, 0.0, 2.0], [0.0, 2.0, 1.5], [0.0, 0.0, 1.0]]]
                 * len(dataset_frames),
                 dtype=torch.float32,
             ),
@@ -257,14 +255,10 @@ def _make_ncore_sensor(
         "camera": CameraState(
             width=torch.tensor([4] * len(images), dtype=torch.int64),
             height=torch.tensor([3] * len(images), dtype=torch.int64),
-            fov_degrees=torch.tensor(
-                [60.0] * len(images), dtype=torch.float32
-            ),
+            fov_degrees=torch.tensor([60.0] * len(images), dtype=torch.float32),
             cam_to_world=torch.stack(cam_to_world, dim=0),
             intrinsics=torch.tensor(
-                [
-                    [[2.0, 0.0, 2.0], [0.0, 2.0, 1.5], [0.0, 0.0, 1.0]]
-                ]
+                [[[2.0, 0.0, 2.0], [0.0, 2.0, 1.5], [0.0, 0.0, 1.0]]]
                 * len(images),
                 dtype=torch.float32,
             ),
@@ -391,9 +385,7 @@ def test_colmap_scene_config_serializes_source_pipe_kinds() -> None:
 
     assert payload["kind"] == "colmap"
     assert payload["source_pipes"][0]["kind"] == "horizon_align"
-    assert (
-        prepared_payload["image_preparation"]["resize_width_target"] == 640
-    )
+    assert prepared_payload["image_preparation"]["resize_width_target"] == 640
     assert prepared_payload["image_preparation"]["normalize"] is True
 
 
@@ -430,8 +422,9 @@ def test_colmap_scene_and_prepared_frame_defaults_are_split() -> None:
     }
 
 
-def test_mipnerf360_indoor_prepared_frame_config_uses_quarter_scale_resize(
-) -> None:
+def test_mipnerf360_indoor_prepared_frame_config_uses_quarter_scale_resize() -> (
+    None
+):
     config = MipNerf360IndoorPreparedFrameDatasetConfig()
 
     payload = config.model_dump(mode="json")
@@ -444,8 +437,9 @@ def test_mipnerf360_indoor_prepared_frame_config_uses_quarter_scale_resize(
     }
 
 
-def test_mipnerf360_outdoor_prepared_frame_config_uses_half_scale_resize(
-) -> None:
+def test_mipnerf360_outdoor_prepared_frame_config_uses_half_scale_resize() -> (
+    None
+):
     config = MipNerf360OutdoorPreparedFrameDatasetConfig()
 
     payload = config.model_dump(mode="json")
@@ -553,7 +547,8 @@ def test_scene_record_can_omit_default_camera_sensor_for_multicam_scenes(
     )
     assert scene_record.default_camera_sensor_id is None
     with pytest.raises(
-        ValueError, match="multiple camera sensors but no default_camera_sensor_id"
+        ValueError,
+        match="multiple camera sensors but no default_camera_sensor_id",
     ):
         scene_record.resolve_camera_sensor()
 
@@ -581,11 +576,7 @@ def test_prepared_frame_dataset_supports_non_path_image_sources() -> None:
                     cam_to_world=torch.eye(4, dtype=torch.float32)[None],
                 ),
                 image_source=_MemoryImageSource(
-                    images={
-                        "memory_0": np.full(
-                            (3, 4, 3), 128, dtype=np.uint8
-                        )
-                    }
+                    images={"memory_0": np.full((3, 4, 3), 128, dtype=np.uint8)}
                 ),
             ),
         ),
@@ -634,14 +625,12 @@ def test_adjust_scene_record_horizon_updates_all_camera_sensors_consistently(
     )
 
     assert adjusted.world_up is not None
-    front_transform = (
-        adjusted.resolve_camera_sensor("front").camera.cam_to_world[0]
-        @ torch.linalg.inv(front.camera.cam_to_world[0])
-    )
-    rear_transform = (
-        adjusted.resolve_camera_sensor("rear").camera.cam_to_world[0]
-        @ torch.linalg.inv(rear.camera.cam_to_world[0])
-    )
+    front_transform = adjusted.resolve_camera_sensor(
+        "front"
+    ).camera.cam_to_world[0] @ torch.linalg.inv(front.camera.cam_to_world[0])
+    rear_transform = adjusted.resolve_camera_sensor("rear").camera.cam_to_world[
+        0
+    ] @ torch.linalg.inv(rear.camera.cam_to_world[0])
     assert torch.allclose(front_transform, rear_transform, atol=1e-5)
 
 

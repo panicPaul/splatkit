@@ -6,14 +6,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import marimo as mo
+from marimo_config_gui import form_gui
 from pydantic import BaseModel, Field, create_model
 
-from marimo_config_gui import form_gui
 from marimo_3dv.viewer.widget import ViewerState
 
 if TYPE_CHECKING:
     from marimo_3dv.pipeline.gui import ViewerPipelineResult
-    from marimo_3dv.viewer.controls import DesktopPydanticControls
 
 PipelineConfigT = TypeVar("PipelineConfigT", bound=BaseModel)
 
@@ -256,6 +255,8 @@ def viewer_controls_handle(
         default_config=resolved_default_config,
         gui=gui,
     )
+
+
 def viewer_controls_gui(
     viewer_state: ViewerState,
     *,

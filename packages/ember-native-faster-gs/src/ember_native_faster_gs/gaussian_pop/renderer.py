@@ -7,7 +7,6 @@ from typing import Literal, overload
 
 import torch
 from beartype import beartype
-from jaxtyping import Float
 from ember_core.core.capabilities import HasDepth, HasGaussianImpactScore
 from ember_core.core.contracts import (
     CameraState,
@@ -16,6 +15,7 @@ from ember_core.core.contracts import (
     RenderOutput,
 )
 from ember_core.core.registry import register_backend
+from jaxtyping import Float
 from torch import Tensor
 
 from ember_native_faster_gs.faster_gs import render_faster_gs_native
@@ -172,9 +172,7 @@ def render_gaussian_pop(
             "The gaussian_pop backend does not expose alpha output."
         )
     if return_normals:
-        raise ValueError(
-            "The gaussian_pop backend does not expose normals."
-        )
+        raise ValueError("The gaussian_pop backend does not expose normals.")
     if return_2d_projections:
         raise ValueError(
             "The gaussian_pop backend does not expose 2D projections."
@@ -255,7 +253,9 @@ def render_gaussian_pop(
         )
         renders.append(render_result.image.permute(1, 2, 0).contiguous())
         assert render_result.gaussian_impact_score is not None
-        gaussian_impact_scores.append(render_result.gaussian_impact_score.contiguous())
+        gaussian_impact_scores.append(
+            render_result.gaussian_impact_score.contiguous()
+        )
         if render_result.depth is not None:
             depths.append(render_result.depth.contiguous())
 

@@ -7,9 +7,6 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from ember_native_faster_gs.faster_gs_depth.reuse import (
-    blend_bwd_op as depth_blend_bwd_op,
-)
 from ember_native_faster_gs.faster_gs.reuse import (
     blend_bwd_op as core_blend_bwd_op,
 )
@@ -18,6 +15,9 @@ from ember_native_faster_gs.faster_gs.reuse.factories import (
 )
 from ember_native_faster_gs.faster_gs.runtime.ops._common import (
     BLOCK_SIZE_BLEND,
+)
+from ember_native_faster_gs.faster_gs_depth.reuse import (
+    blend_bwd_op as depth_blend_bwd_op,
 )
 from ember_native_faster_gs.gaussian_pop.runtime._extension import (
     load_extension,
@@ -65,7 +65,9 @@ def blend_fwd_op(
     height: int,
     return_depth: bool,
     return_gaussian_impact_score: bool,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor
+]:
     """Low-level GaussianPOP blend forward op."""
     return backend().pop_blend_fwd(
         instance_primitive_indices,
@@ -101,7 +103,9 @@ def _blend_fwd_fake(
     height: int,
     return_depth: bool,
     return_gaussian_impact_score: bool,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor
+]:
     del (
         instance_primitive_indices,
         tile_bucket_offsets,
@@ -122,7 +126,9 @@ def _blend_fwd_fake(
         else torch.empty((0,), device=device, dtype=dtype)
     )
     bucket_depth_prefix = (
-        torch.empty((tile_count * BLOCK_SIZE_BLEND,), device=device, dtype=dtype)
+        torch.empty(
+            (tile_count * BLOCK_SIZE_BLEND,), device=device, dtype=dtype
+        )
         if return_depth
         else torch.empty((0,), device=device, dtype=dtype)
     )
@@ -138,7 +144,9 @@ def _blend_fwd_fake(
         torch.empty((tile_count,), device=device, dtype=torch.int32),
         torch.empty((tile_pixels,), device=device, dtype=torch.int32),
         torch.empty((tile_count,), device=device, dtype=torch.int32),
-        torch.empty((tile_count * BLOCK_SIZE_BLEND, 4), device=device, dtype=dtype),
+        torch.empty(
+            (tile_count * BLOCK_SIZE_BLEND, 4), device=device, dtype=dtype
+        ),
         bucket_depth_prefix,
         gaussian_impact_score,
     )
@@ -159,7 +167,9 @@ def _blend_impl(
     height: int,
     return_depth: bool,
     return_gaussian_impact_score: bool,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor
+]:
     """Autograd-enabled GaussianPOP blend op."""
     return blend_fwd_op(
         instance_primitive_indices,
@@ -179,7 +189,11 @@ def _blend_impl(
     )
 
 
-def _blend_fake(*args: Any) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+def _blend_fake(
+    *args: Any,
+) -> tuple[
+    Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor
+]:
     """Fake implementation for the autograd GaussianPOP blend op."""
     return _blend_fwd_fake(*args)
 
@@ -343,24 +357,26 @@ def _blend_backward(
         bucket_tile_index,
         bucket_color_transmittance,
     ) = ctx.saved_tensors
-    grad_projected_means, grad_conic_opacity, grad_colors_rgb = core_blend_bwd_op(
-        grad_image,
-        image,
-        instance_primitive_indices,
-        tile_instance_ranges,
-        tile_bucket_offsets,
-        projected_means,
-        conic_opacity,
-        colors_rgb,
-        bg_color,
-        tile_final_transmittances,
-        tile_max_n_processed,
-        tile_n_processed,
-        bucket_tile_index,
-        bucket_color_transmittance,
-        ctx.proper_antialiasing,
-        ctx.width,
-        ctx.height,
+    grad_projected_means, grad_conic_opacity, grad_colors_rgb = (
+        core_blend_bwd_op(
+            grad_image,
+            image,
+            instance_primitive_indices,
+            tile_instance_ranges,
+            tile_bucket_offsets,
+            projected_means,
+            conic_opacity,
+            colors_rgb,
+            bg_color,
+            tile_final_transmittances,
+            tile_max_n_processed,
+            tile_n_processed,
+            bucket_tile_index,
+            bucket_color_transmittance,
+            ctx.proper_antialiasing,
+            ctx.width,
+            ctx.height,
+        )
     )
     return (
         None,

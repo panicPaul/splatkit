@@ -10,10 +10,10 @@ with app.setup:
     from functools import partial
 
     import altair as alt
-    import marimo as mo
-    import numpy as np
     import ember_core as sk
     import ember_native_faster_gs.gaussian_pop as skn_gaussian_pop
+    import marimo as mo
+    import numpy as np
     import torch
     from marimo_3dv import (
         CameraState,
@@ -90,7 +90,12 @@ def _(load_error):
 @app.cell
 def _(filter_controls, normalization_controls, selectors, viewer_controls_gui):
     mo.vstack(
-        [selectors, filter_controls, normalization_controls, viewer_controls_gui],
+        [
+            selectors,
+            filter_controls,
+            normalization_controls,
+            viewer_controls_gui,
+        ],
         gap=0.75,
     )
     return
@@ -164,9 +169,10 @@ def score_scene_from_values(
         colormap=colormap,
         invert=invert_colormap,
     )
-    score_colors = (
-        torch.from_numpy(score_colors_uint8.astype(np.float32) / 255.0)
-        .to(device=scene.center_positions.device, dtype=scene.center_positions.dtype)
+    score_colors = torch.from_numpy(
+        score_colors_uint8.astype(np.float32) / 255.0
+    ).to(
+        device=scene.center_positions.device, dtype=scene.center_positions.dtype
     )
     score_colors_sh = (score_colors - 0.5) / gaussian_sh_zero_degree_scale
     return SplatScene(
@@ -412,7 +418,9 @@ def _(scene, viewer_pipeline, viewer_state):
 
 @app.cell
 def _(filtered_viewer_state, scene, viewer_pipeline):
-    filtered_pipeline_result = viewer_pipeline.build(scene, filtered_viewer_state)
+    filtered_pipeline_result = viewer_pipeline.build(
+        scene, filtered_viewer_state
+    )
     return (filtered_pipeline_result,)
 
 
@@ -877,9 +885,9 @@ def normalize_scalar_field(
     if upper - lower < 1e-6:
         normalized[valid] = 0.5
     else:
-        normalized[valid] = (
-            (values[valid] - lower) / (upper - lower)
-        ).astype(np.float32)
+        normalized[valid] = ((values[valid] - lower) / (upper - lower)).astype(
+            np.float32
+        )
     normalized = np.clip(normalized, 0.0, 1.0)
     if invert:
         normalized[valid] = 1.0 - normalized[valid]
@@ -922,8 +930,10 @@ def score_filter_mask(
     """Return a boolean mask for score filtering."""
     flattened_scores = np.asarray(score_values, dtype=np.float32).reshape(-1)
     finite_mask = np.isfinite(flattened_scores)
-    positive_mask = flattened_scores > 0.0 if require_positive else np.ones_like(
-        finite_mask
+    positive_mask = (
+        flattened_scores > 0.0
+        if require_positive
+        else np.ones_like(finite_mask)
     )
     if filter_mode == "top_bottom":
         valid_mask = finite_mask & positive_mask
@@ -950,11 +960,7 @@ def score_filter_mask(
         threshold_mask = flattened_scores <= threshold
     else:
         threshold_mask = flattened_scores >= threshold
-    mask = (
-        finite_mask
-        & threshold_mask
-        & positive_mask
-    )
+    mask = finite_mask & threshold_mask & positive_mask
     return flattened_scores, mask, threshold
 
 
@@ -1143,9 +1149,7 @@ def rasterize_scene(
     backend_camera = sk.CameraState(
         width=torch.tensor([camera.width], dtype=torch.int64),
         height=torch.tensor([camera.height], dtype=torch.int64),
-        fov_degrees=torch.tensor(
-            [camera.fov_degrees], dtype=torch.float32
-        ),
+        fov_degrees=torch.tensor([camera.fov_degrees], dtype=torch.float32),
         cam_to_world=torch.from_numpy(
             camera.with_convention("opencv").cam_to_world
         ).to(dtype=torch.float32)[None],
@@ -1170,11 +1174,7 @@ def rasterize_scene(
         ),
     )
     score_values = (
-        render_output.gaussian_impact_score[0]
-        .detach()
-        .cpu()
-        .numpy()
-        .copy()
+        render_output.gaussian_impact_score[0].detach().cpu().numpy().copy()
     )
     if view_mode == "depth":
         image_uint8 = depth_to_image(

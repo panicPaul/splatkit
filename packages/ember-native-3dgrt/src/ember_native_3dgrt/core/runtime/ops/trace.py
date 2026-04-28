@@ -53,7 +53,14 @@ def _trace_fwd_fake(
     sph_degree: int,
     min_transmittance: float,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
-    del state_token, ray_to_world, ray_dir, render_opts, sph_degree, min_transmittance
+    del (
+        state_token,
+        ray_to_world,
+        ray_dir,
+        render_opts,
+        sph_degree,
+        min_transmittance,
+    )
     batch_size, height, width, _ = ray_ori.shape
     device = ray_ori.device
     dtype = ray_ori.dtype
@@ -68,7 +75,9 @@ def _trace_fwd_fake(
         torch.empty((batch_size, height, width, 1), device=device, dtype=dtype),
         torch.empty((num_particles, 1), device=device, dtype=dtype),
         torch.empty((num_particles, 1), device=device, dtype=dtype),
-        torch.empty((batch_size, height, width, 16), device=device, dtype=dtype),
+        torch.empty(
+            (batch_size, height, width, 16), device=device, dtype=dtype
+        ),
     )
 
 

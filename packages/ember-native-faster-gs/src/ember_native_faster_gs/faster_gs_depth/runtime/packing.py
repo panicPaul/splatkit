@@ -6,20 +6,23 @@ from dataclasses import dataclass
 
 from torch import Tensor
 
-from ember_native_faster_gs.faster_gs_depth.runtime.types import (
-    BlendResult,
-    RenderResult,
-)
 from ember_native_faster_gs.faster_gs.runtime.types import (
     PreprocessResult,
     SortResult,
+)
+from ember_native_faster_gs.faster_gs_depth.runtime.types import (
+    BlendResult,
+    RenderResult,
 )
 
 _PREPROCESS_OUTPUT_COUNT = 10
 _SORT_OUTPUT_COUNT = 4
 _BLEND_OUTPUT_COUNT = 8
-_RENDER_OUTPUT_COUNT = 2 + _PREPROCESS_OUTPUT_COUNT + _SORT_OUTPUT_COUNT + (
-    _BLEND_OUTPUT_COUNT - 2
+_RENDER_OUTPUT_COUNT = (
+    2
+    + _PREPROCESS_OUTPUT_COUNT
+    + _SORT_OUTPUT_COUNT
+    + (_BLEND_OUTPUT_COUNT - 2)
 )
 
 
@@ -72,9 +75,13 @@ def parse_render_outputs(outputs: tuple[Tensor, ...]) -> ParsedRenderOutputs:
     preprocess_start = 2
     preprocess_stop = preprocess_start + _PREPROCESS_OUTPUT_COUNT
     sort_stop = preprocess_stop + _SORT_OUTPUT_COUNT
-    preprocess = PreprocessResult.from_tensors(*outputs[preprocess_start:preprocess_stop])
+    preprocess = PreprocessResult.from_tensors(
+        *outputs[preprocess_start:preprocess_stop]
+    )
     sort = SortResult.from_tensors(*outputs[preprocess_stop:sort_stop])
-    blend = BlendResult.from_tensors(outputs[0], outputs[1], *outputs[sort_stop:])
+    blend = BlendResult.from_tensors(
+        outputs[0], outputs[1], *outputs[sort_stop:]
+    )
     return ParsedRenderOutputs(preprocess=preprocess, sort=sort, blend=blend)
 
 

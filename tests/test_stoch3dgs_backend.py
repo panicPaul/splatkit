@@ -5,7 +5,6 @@ from typing import Any, cast
 import pytest
 import torch
 from beartype.roar import BeartypeCallHintParamViolation
-from ember_core.core import BACKEND_REGISTRY, RenderOptions, render
 from ember_adapter_backends.stoch3dgs import (
     Stoch3DGSAlphaRenderOutput,
     Stoch3DGSRenderOptions,
@@ -14,6 +13,7 @@ from ember_adapter_backends.stoch3dgs import (
     render_stoch3dgs,
 )
 from ember_adapter_backends.stoch3dgs.renderer import _flatten_sh_features
+from ember_core.core import BACKEND_REGISTRY, RenderOptions, render
 
 register()
 

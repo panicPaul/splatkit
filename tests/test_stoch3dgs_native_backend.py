@@ -5,13 +5,13 @@ from typing import cast
 import pytest
 import torch
 from ember_core.core import BACKEND_REGISTRY, render
-from ember_native_3dgrt.stoch3dgs import renderer as stoch3dgs_native_renderer
 from ember_native_3dgrt.stoch3dgs import (
     Stoch3DGSNativeRenderOptions,
     Stoch3DGSNativeRenderOutput,
     register,
     render_stoch3dgs_native,
 )
+from ember_native_3dgrt.stoch3dgs import renderer as stoch3dgs_native_renderer
 
 register()
 
@@ -39,31 +39,60 @@ class _FakeOptixTracer:
         dtype = ray_ori.dtype
         batch_size, height, width, _ = ray_ori.shape
         num_particles = int(particle_density.shape[0])
-        radiance = torch.full((batch_size, height, width, 3), 0.25, device=device, dtype=dtype)
-        density = torch.full((batch_size, height, width, 1), 0.5, device=device, dtype=dtype)
-        hit = torch.zeros((batch_size, height, width, 2), device=device, dtype=dtype)
+        radiance = torch.full(
+            (batch_size, height, width, 3), 0.25, device=device, dtype=dtype
+        )
+        density = torch.full(
+            (batch_size, height, width, 1), 0.5, device=device, dtype=dtype
+        )
+        hit = torch.zeros(
+            (batch_size, height, width, 2), device=device, dtype=dtype
+        )
         hit[..., 0] = 3.0
         normals = torch.nn.functional.normalize(_args[3], dim=3)
-        hitcounts = torch.full((batch_size, height, width, 1), 2.0, device=device, dtype=dtype)
+        hitcounts = torch.full(
+            (batch_size, height, width, 1), 2.0, device=device, dtype=dtype
+        )
         visibility = torch.ones((num_particles, 1), device=device, dtype=dtype)
-        weights = torch.full((num_particles, 1), 0.75, device=device, dtype=dtype)
-        sample_cache = torch.zeros((batch_size, height, width, 16), device=device, dtype=dtype)
-        return (radiance, density, hit, normals, hitcounts, visibility, weights, sample_cache)
+        weights = torch.full(
+            (num_particles, 1), 0.75, device=device, dtype=dtype
+        )
+        sample_cache = torch.zeros(
+            (batch_size, height, width, 16), device=device, dtype=dtype
+        )
+        return (
+            radiance,
+            density,
+            hit,
+            normals,
+            hitcounts,
+            visibility,
+            weights,
+            sample_cache,
+        )
 
-    def trace_bwd(self, *_args, **_kwargs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def trace_bwd(
+        self, *_args, **_kwargs
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         particle_density = _args[9]
         particle_radiance = _args[10]
         return (
             torch.full_like(particle_density, 0.1),
             torch.full_like(particle_radiance, 0.2),
-            torch.zeros((particle_density.shape[0], 1), device=particle_density.device, dtype=particle_density.dtype),
+            torch.zeros(
+                (particle_density.shape[0], 1),
+                device=particle_density.device,
+                dtype=particle_density.dtype,
+            ),
         )
 
 
 class _ContiguityCheckingOptixTracer(_FakeOptixTracer):
     def __init__(self) -> None:
         super().__init__()
-        self.last_build_inputs_contiguous: tuple[bool, bool, bool, bool] | None = None
+        self.last_build_inputs_contiguous: (
+            tuple[bool, bool, bool, bool] | None
+        ) = None
 
     def build_bvh(
         self,
@@ -147,7 +176,9 @@ def test_generic_render_dispatches_to_stoch3dgs_native(
     assert output.depth.shape == (1, 32, 32)
 
 
-def test_render_stoch3dgs_native_rejects_cpu_scene(cpu_scene, cpu_camera) -> None:
+def test_render_stoch3dgs_native_rejects_cpu_scene(
+    cpu_scene, cpu_camera
+) -> None:
     with pytest.raises(ValueError, match="scene tensors on CUDA"):
         render_stoch3dgs_native(cpu_scene, cpu_camera)
 

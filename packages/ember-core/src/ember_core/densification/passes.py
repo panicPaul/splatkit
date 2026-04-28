@@ -24,7 +24,9 @@ def _average_signal(
 ) -> torch.Tensor | None:
     total = signals.local.get(sum_key)
     count = signals.local.get(count_key)
-    if not isinstance(total, torch.Tensor) or not isinstance(count, torch.Tensor):
+    if not isinstance(total, torch.Tensor) or not isinstance(
+        count, torch.Tensor
+    ):
         return None
     return total / count.clamp_min(1.0)
 
@@ -145,7 +147,9 @@ class GaussianPruneOpacityPass(BaseDensificationComponent):
         scene = context.state.model.scene
         if not isinstance(scene, GaussianScene) or self.family_ops is None:
             return
-        self.family_ops.prune(torch.sigmoid(scene.logit_opacity) >= self.opacity_threshold)
+        self.family_ops.prune(
+            torch.sigmoid(scene.logit_opacity) >= self.opacity_threshold
+        )
 
 
 @dataclass
@@ -274,7 +278,9 @@ class SparseVoxelPrunePass(BaseDensificationComponent):
         scene = context.state.model.scene
         if not isinstance(scene, SparseVoxelScene) or self.family_ops is None:
             return
-        self.family_ops.prune(scene.voxel_geometries.mean(dim=-1) >= self.density_threshold)
+        self.family_ops.prune(
+            scene.voxel_geometries.mean(dim=-1) >= self.density_threshold
+        )
 
 
 __all__ = [

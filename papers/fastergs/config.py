@@ -5,17 +5,18 @@ from __future__ import annotations
 import importlib
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, Sequence
+from typing import Annotated, Any, Literal
 
 import ember_core as sk
 import torch
 import torch.nn.functional as F
 import tyro
+from ember_core.training import LossResult, TrainState
 from jaxtyping import Float
 from pydantic import BaseModel, Field
-from ember_core.training import LossResult, TrainState
 from torch import Tensor
 
 FasterGSBackendName = Literal["adapter.fastergs", "faster_gs.core"]
@@ -858,6 +859,7 @@ __all__ = [
     "FasterGSBackendName",
     "FasterGSCheckpointConfig",
     "FasterGSDataConfig",
+    "FasterGSDefaultName",
     "FasterGSDensificationConfig",
     "FasterGSExecutionConfig",
     "FasterGSExperimentConfig",
@@ -865,7 +867,6 @@ __all__ = [
     "FasterGSLossConfig",
     "FasterGSModelConfig",
     "FasterGSOptimizationConfig",
-    "FasterGSDefaultName",
     "FasterGSRenderConfig",
     "FasterGSSceneConfig",
     "build_fastergs_mcmc_densification",

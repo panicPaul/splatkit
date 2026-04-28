@@ -9,10 +9,10 @@ with app.setup:
     import importlib
     from pathlib import Path
 
-    import marimo as mo
-    import numpy as np
     import ember_core as sk
     import ember_native_svraster.svraster as sk_svraster
+    import marimo as mo
+    import numpy as np
     import torch
     from marimo_3dv import (
         CameraState,
@@ -82,11 +82,6 @@ def _(backend_selector):
         )
         adapter_status
     backend_selector
-    return
-
-
-@app.cell(column=1)
-def _():
     return
 
 

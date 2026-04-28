@@ -6,6 +6,12 @@ from typing import cast
 import pytest
 import torch
 from beartype.roar import BeartypeCallHintParamViolation
+from ember_adapter_backends.fastgs import (
+    FastGSRenderOptions,
+    FastGSRenderOutput,
+    register,
+    render_fastgs,
+)
 from ember_core.core import (
     BACKEND_REGISTRY,
     RenderOptions,
@@ -13,12 +19,6 @@ from ember_core.core import (
     resolve_backend_trait,
 )
 from ember_core.densification import GaussianMetricAttribution
-from ember_adapter_backends.fastgs import (
-    FastGSRenderOptions,
-    FastGSRenderOutput,
-    register,
-    render_fastgs,
-)
 
 register()
 
@@ -71,7 +71,9 @@ class _FakeRasterizer:
             device=means3D.device,
             dtype=means3D.dtype,
         )
-        radii = torch.tensor([3, 0, 2], device=means3D.device, dtype=torch.int32)
+        radii = torch.tensor(
+            [3, 0, 2], device=means3D.device, dtype=torch.int32
+        )
         counts = torch.arange(
             means3D.shape[0],
             device=means3D.device,
@@ -195,7 +197,11 @@ def test_fastgs_metric_attribution_returns_per_gaussian_counts(
     metric_counts = provider.attribute_metric_map(
         cuda_scene,
         single_camera,
-        torch.ones((32, 32), device=cuda_scene.center_position.device, dtype=torch.int32),
+        torch.ones(
+            (32, 32),
+            device=cuda_scene.center_position.device,
+            dtype=torch.int32,
+        ),
         options=FastGSRenderOptions(),
     )
 
@@ -235,7 +241,11 @@ def test_fastgs_metric_attribution_accepts_empty_metric_map(
     metric_counts = provider.attribute_metric_map(
         cuda_scene,
         single_camera,
-        torch.zeros((32, 32), device=cuda_scene.center_position.device, dtype=torch.int32),
+        torch.zeros(
+            (32, 32),
+            device=cuda_scene.center_position.device,
+            dtype=torch.int32,
+        ),
         options=FastGSRenderOptions(),
     )
 

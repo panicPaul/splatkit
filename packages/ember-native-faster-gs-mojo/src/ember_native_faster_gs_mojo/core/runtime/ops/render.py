@@ -94,7 +94,11 @@ def _graph_render_fwd(
         TensorType(MaxDType.float32, ("primitive_count", 4), device=device),
         TensorType(MaxDType.float32, ("primitive_count", 1), device=device),
         TensorType(MaxDType.float32, ("primitive_count", 1, 3), device=device),
-        TensorType(MaxDType.float32, ("primitive_count", "rest_bases", 3), device=device),
+        TensorType(
+            MaxDType.float32,
+            ("primitive_count", "rest_bases", 3),
+            device=device,
+        ),
         TensorType(MaxDType.float32, (4, 4), device=device),
         TensorType(MaxDType.float32, (3,), device=device),
         TensorType(MaxDType.float32, (3,), device=device),
@@ -223,14 +227,21 @@ def _graph_render_fwd(
             ],
             out_types=blend_output_types,
         )
-        return [blend_outputs[0], *preprocess_outputs, *sort_outputs, *blend_outputs[1:]]
+        return [
+            blend_outputs[0],
+            *preprocess_outputs,
+            *sort_outputs,
+            *blend_outputs[1:],
+        ]
 
     return render_fwd_graph
 
 
 def _graph_device_index(device: torch.device) -> int:
     if device.type != "cuda":
-        raise ValueError("The FasterGS Mojo render graph currently requires CUDA tensors.")
+        raise ValueError(
+            "The FasterGS Mojo render graph currently requires CUDA tensors."
+        )
     return torch.cuda.current_device() if device.index is None else device.index
 
 
@@ -643,7 +654,9 @@ def _render_setup_context(
     inputs: tuple[Any, ...],
     output: tuple[Tensor, ...],
 ) -> None:
-    if not requires_grad(inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5]):
+    if not requires_grad(
+        inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5]
+    ):
         ctx.has_context = False
         return
     render_result = parse_render_outputs(output)

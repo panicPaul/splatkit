@@ -15,7 +15,9 @@ from ember_native_faster_gs.faster_gs.runtime.ops import (
 from torch._subclasses.fake_tensor import FakeTensorMode
 
 
-def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
+def _extract_camera_params(
+    camera_state,
+) -> tuple[int, int, float, float, float, float]:
     intrinsics = camera_state.get_intrinsics()[0]
     return (
         int(camera_state.width[0].item()),
@@ -32,8 +34,8 @@ def test_preprocess_sort_blend_return_expected_shapes(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     preprocess_result = preprocess(
@@ -94,8 +96,8 @@ def test_render_fwd_matches_explicit_stage_composition(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     render_outputs = render_fwd_op(
@@ -170,15 +172,23 @@ def test_render_fwd_matches_explicit_stage_composition(
 
 
 @pytest.mark.cuda
-def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+def test_render_backward_produces_finite_gradients(
+    cuda_scene, cuda_camera
+) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
-    center_positions = cuda_scene.center_position.detach().clone().requires_grad_(True)
+    center_positions = (
+        cuda_scene.center_position.detach().clone().requires_grad_(True)
+    )
     log_scales = cuda_scene.log_scales.detach().clone().requires_grad_(True)
-    rotations = cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
-    opacities = cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
+    rotations = (
+        cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
+    )
+    opacities = (
+        cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
+    )
     sh0 = cuda_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
     shrest = cuda_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
 
@@ -218,8 +228,8 @@ def test_render_backward_produces_finite_gradients(cuda_scene, cuda_camera) -> N
 
 
 def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cpu_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cpu_camera)
     )
     cam_to_world = cpu_camera.cam_to_world[0]
 
@@ -232,7 +242,9 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
         shrest = mode.from_tensor(cpu_scene.feature[:, 1:, :])
         world_2_camera = mode.from_tensor(torch.linalg.inv(cam_to_world))
         camera_position = mode.from_tensor(cam_to_world[:3, 3])
-        bg_color = mode.from_tensor(torch.zeros(3, dtype=center_positions.dtype))
+        bg_color = mode.from_tensor(
+            torch.zeros(3, dtype=center_positions.dtype)
+        )
         preprocess_result = preprocess_fwd_op(
             center_positions,
             log_scales,
@@ -282,8 +294,8 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
 
 @pytest.mark.cuda
 def test_render_op_supports_torch_compile(cuda_scene, cuda_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     world_2_camera = torch.linalg.inv(cam_to_world)
@@ -314,7 +326,9 @@ def test_render_op_supports_torch_compile(cuda_scene, cuda_camera) -> None:
             active_sh_bases=active_sh_bases,
         ).image.sum()
 
-    compiled_fn = torch.compile(compiled_render, backend="eager", fullgraph=True)
+    compiled_fn = torch.compile(
+        compiled_render, backend="eager", fullgraph=True
+    )
     result = compiled_fn(cuda_scene.center_position)
 
     assert result.ndim == 0

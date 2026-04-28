@@ -94,8 +94,7 @@ def main() -> int:
     fail = _should_fail()
     stream = sys.stderr if fail else sys.stdout
     mode_text = (
-        "Failing because "
-        f"`{STRICT_ENV_VAR}` requests strict enforcement."
+        f"Failing because `{STRICT_ENV_VAR}` requests strict enforcement."
         if fail
         else "Continuing with a warning."
     )

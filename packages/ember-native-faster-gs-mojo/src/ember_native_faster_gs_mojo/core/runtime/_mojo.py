@@ -12,8 +12,7 @@ def custom_op_library_path() -> Path:
     ops_root = Path(__file__).resolve().parent.parent / "operations"
     if not ops_root.exists():
         raise RuntimeError(
-            "Missing FasterGS Mojo operations package at "
-            f"{ops_root}."
+            f"Missing FasterGS Mojo operations package at {ops_root}."
         )
     return ops_root
 
@@ -27,7 +26,7 @@ def load_custom_op_library() -> Any:
         raise RuntimeError(
             "Failed to import MAX/Mojo custom-op support required for "
             f"`faster_gs_mojo.core` ({exc!r})."
-        )
+        ) from exc
 
     ops_root = custom_op_library_path()
 
@@ -37,4 +36,4 @@ def load_custom_op_library() -> Any:
         raise RuntimeError(
             "Failed to load FasterGS Mojo custom-op package from "
             f"{ops_root} ({exc!r})."
-        )
+        ) from exc

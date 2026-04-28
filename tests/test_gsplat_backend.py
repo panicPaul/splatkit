@@ -2,18 +2,18 @@ from typing import cast
 
 import pytest
 import torch
-from ember_core.core import (
-    RenderWith2DProjections,
-    RenderWithDepth2DProjections,
-    RenderWithDepthProjectiveIntersectionTransforms,
-    render,
-)
 from ember_adapter_backends.gsplat import (
     GsplatAlphaRenderOutput,
     GsplatRenderOptions,
     GsplatRenderOutput,
     render_gsplat,
     render_gsplat_2dgs,
+)
+from ember_core.core import (
+    RenderWith2DProjections,
+    RenderWithDepth2DProjections,
+    RenderWithDepthProjectiveIntersectionTransforms,
+    render,
 )
 
 pytestmark = [pytest.mark.backend, pytest.mark.cuda, pytest.mark.integration]

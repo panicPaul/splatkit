@@ -47,8 +47,10 @@ def sort_fwd_op(
             height,
         )
 
-    actual_tile_count = (width + TILE_WIDTH - 1) // TILE_WIDTH * (
-        (height + TILE_HEIGHT - 1) // TILE_HEIGHT
+    actual_tile_count = (
+        (width + TILE_WIDTH - 1)
+        // TILE_WIDTH
+        * ((height + TILE_HEIGHT - 1) // TILE_HEIGHT)
     )
     tile_count = stable_capacity(
         (
@@ -91,15 +93,25 @@ def sort_fwd_op(
             device=depth_keys.device,
             dtype=torch.int32,
         ),
-        torch.empty((tile_count, 2), device=depth_keys.device, dtype=torch.int32),
+        torch.empty(
+            (tile_count, 2), device=depth_keys.device, dtype=torch.int32
+        ),
         torch.empty((tile_count,), device=depth_keys.device, dtype=torch.int32),
         torch.empty((1,), device=depth_keys.device, dtype=torch.int32),
     )
     work_outputs = (
-        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.uint32),
-        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.int32),
-        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.int32),
-        torch.empty((visible_capacity,), device=depth_keys.device, dtype=torch.int32),
+        torch.empty(
+            (visible_capacity,), device=depth_keys.device, dtype=torch.uint32
+        ),
+        torch.empty(
+            (visible_capacity,), device=depth_keys.device, dtype=torch.int32
+        ),
+        torch.empty(
+            (visible_capacity,), device=depth_keys.device, dtype=torch.int32
+        ),
+        torch.empty(
+            (visible_capacity,), device=depth_keys.device, dtype=torch.int32
+        ),
     )
     mojo_backend().sort_fwd(
         *outputs,

@@ -45,4 +45,3 @@ class ParsedRasterizeOutputs:
     binning_buffer: Tensor
     image_buffer: Tensor
     result: RasterizeResult
-

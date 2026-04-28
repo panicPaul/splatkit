@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import torch
-from torch import Tensor
-
 from ember_native_faster_gs.faster_gs.runtime.ops.preprocess import (
-    _preprocess_bwd_fake,
+    _preprocess_bwd_fake as _preprocess_bwd_fake,
+)
+from ember_native_faster_gs.faster_gs.runtime.ops.preprocess import (
     _preprocess_fwd_fake,
+)
+from ember_native_faster_gs.faster_gs.runtime.ops.preprocess import (
     preprocess_bwd_op as faster_preprocess_bwd_op,
 )
+from torch import Tensor
+
 from ember_native_faster_gs_mojo.core.runtime.ops._common import (
     mojo_backend,
     normalize_active_sh_bases,
@@ -35,7 +39,18 @@ def preprocess_fwd_op(
     center_y: float,
     proper_antialiasing: bool,
     active_sh_bases: int,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+]:
     """Run the MAX/Mojo preprocess forward stage."""
     if center_positions.device.type != "cuda":
         return _preprocess_fwd_fake(

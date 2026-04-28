@@ -320,14 +320,14 @@ class BaseDensificationMethod:
 
 
 __all__ = [
-    "BaseDensificationMethod",
     "BaseDensificationComponent",
-    "DensificationRuntime",
+    "BaseDensificationMethod",
     "DensificationCollector",
     "DensificationContext",
     "DensificationMethod",
     "DensificationPass",
     "DensificationRenderRequirements",
+    "DensificationRuntime",
     "DensificationSignals",
     "GaussianMetricAttribution",
     "Schedule",

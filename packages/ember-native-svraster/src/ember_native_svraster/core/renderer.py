@@ -106,8 +106,12 @@ def _render_single_camera(
         tanfovy=float(raster_settings["tanfovy"]),
         cx=float(raster_settings["cx"]),
         cy=float(raster_settings["cy"]),
-        w2c_matrix=raster_settings["w2c_matrix"].to(device=scene.octpath.device),
-        c2w_matrix=raster_settings["c2w_matrix"].to(device=scene.octpath.device),
+        w2c_matrix=raster_settings["w2c_matrix"].to(
+            device=scene.octpath.device
+        ),
+        c2w_matrix=raster_settings["c2w_matrix"].to(
+            device=scene.octpath.device
+        ),
         near=options.near_plane,
         bg_color=_background_scalar(options),
         octree_paths=scene.octpath.reshape(-1),
@@ -151,8 +155,7 @@ def render_svraster_core(
         raise ValueError("svraster.core does not expose 2D projections.")
     if return_projective_intersection_transforms:
         raise ValueError(
-            "svraster.core does not expose projective intersection "
-            "transforms."
+            "svraster.core does not expose projective intersection transforms."
         )
 
     _validate_inputs(scene, camera)

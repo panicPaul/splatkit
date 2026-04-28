@@ -79,7 +79,10 @@ def _import_paths(config: TrainingConfig) -> list[str]:
         import_paths.append(config.render.feature_fn.target)
     if config.render.postprocess_fn is not None:
         import_paths.append(config.render.postprocess_fn.target)
-    if config.densification is not None and config.densification.builder is not None:
+    if (
+        config.densification is not None
+        and config.densification.builder is not None
+    ):
         import_paths.append(config.densification.builder.target)
     import_paths.extend(builder.target for builder in config.hooks.builders)
     import_paths.extend(
@@ -97,7 +100,9 @@ def _scene_record_summary(scene_record: SceneRecord) -> dict[str, Any]:
         "source_uris": None
         if scene_record.source_uris is None
         else list(scene_record.source_uris),
-        "available_camera_sensor_ids": list(scene_record.available_camera_sensor_ids),
+        "available_camera_sensor_ids": list(
+            scene_record.available_camera_sensor_ids
+        ),
         "default_camera_sensor_id": scene_record.default_camera_sensor_id,
         "has_point_cloud": scene_record.point_cloud is not None,
     }

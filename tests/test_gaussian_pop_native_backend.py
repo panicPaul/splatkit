@@ -6,15 +6,19 @@ from typing import cast
 import pytest
 import torch
 from ember_core.core import BACKEND_REGISTRY, render
-from ember_native_faster_gs.faster_gs_depth import (
-    FasterGSDepthNativeDepthRenderOutput,
-    register as register_depth,
-    render_faster_gs_depth,
-)
 from ember_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
-    register as register_root,
     render_faster_gs_native,
+)
+from ember_native_faster_gs.faster_gs import (
+    register as register_root,
+)
+from ember_native_faster_gs.faster_gs_depth import (
+    FasterGSDepthNativeDepthRenderOutput,
+    render_faster_gs_depth,
+)
+from ember_native_faster_gs.faster_gs_depth import (
+    register as register_depth,
 )
 from ember_native_faster_gs.gaussian_pop import (
     GaussianPopNativeDepthGaussianImpactScoreRenderOutput,
@@ -71,7 +75,9 @@ def test_gaussian_pop_backend_returns_score_without_perturbing_rgb(
     )
     assert torch.isfinite(output.gaussian_impact_score).all()
     assert output.render.abs().sum() > 0
-    torch.testing.assert_close(output.render, root_output.render, rtol=1e-4, atol=2e-4)
+    torch.testing.assert_close(
+        output.render, root_output.render, rtol=1e-4, atol=2e-4
+    )
 
 
 @pytest.mark.backend
@@ -91,7 +97,9 @@ def test_gaussian_pop_score_matches_naive_leave_one_out_render_error(
     full_render = output.render[0]
     expected_scores = []
     assert full_render.abs().sum() > 0
-    for primitive_index in range(int(cuda_visible_scene.center_position.shape[0])):
+    for primitive_index in range(
+        int(cuda_visible_scene.center_position.shape[0])
+    ):
         removed_scene = _remove_primitive(cuda_visible_scene, primitive_index)
         removed_output = cast(
             FasterGSNativeRenderOutput,
@@ -141,8 +149,12 @@ def test_gaussian_pop_depth_and_score_match_depth_backend(
         ),
     )
 
-    torch.testing.assert_close(depth_output.render, expected_depth.render, rtol=1e-4, atol=2e-4)
-    torch.testing.assert_close(depth_output.depth, expected_depth.depth, rtol=1e-4, atol=2e-4)
+    torch.testing.assert_close(
+        depth_output.render, expected_depth.render, rtol=1e-4, atol=2e-4
+    )
+    torch.testing.assert_close(
+        depth_output.depth, expected_depth.depth, rtol=1e-4, atol=2e-4
+    )
     torch.testing.assert_close(
         depth_output.gaussian_impact_score,
         score_output.gaussian_impact_score,

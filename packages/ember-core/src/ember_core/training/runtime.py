@@ -35,8 +35,8 @@ from ember_core.initialization import InitializedModel
 from ember_core.training.config import (
     CallableSpec,
     ParameterGroupConfig,
-    ParameterTargetSpec,
     ParameterSpec,
+    ParameterTargetSpec,
     TensorViewSpec,
     TrainingConfig,
 )
@@ -449,7 +449,10 @@ def _validate_requested_outputs(config: TrainingConfig) -> None:
         for name, enabled in (
             ("alpha", config.render.return_alpha),
             ("depth", config.render.return_depth),
-            ("gaussian_impact_score", config.render.return_gaussian_impact_score),
+            (
+                "gaussian_impact_score",
+                config.render.return_gaussian_impact_score,
+            ),
             ("normals", config.render.return_normals),
             ("2d_projections", config.render.return_2d_projections),
             (
@@ -545,7 +548,9 @@ class _TrainingDensificationRuntime(DensificationRuntime):
             return ()
         sample_count = min(count, dataset_size)
         indices = torch.randperm(dataset_size)[:sample_count].tolist()
-        return tuple(self._frame_dataset[index].to(self._device) for index in indices)
+        return tuple(
+            self._frame_dataset[index].to(self._device) for index in indices
+        )
 
     def render_raw(self, model: InitializedModel, camera: Any) -> Any:
         return self._raw_render_fn(model, camera)
@@ -708,9 +713,7 @@ def _build_scheduler(
         return None
     scheduler_factory = resolve_target(spec.target)
     if not callable(scheduler_factory):
-        raise TypeError(
-            f"Resolved scheduler {spec.target!r} is not callable."
-        )
+        raise TypeError(f"Resolved scheduler {spec.target!r} is not callable.")
     scheduler = scheduler_factory(optimizer, **spec.kwargs)
     if not isinstance(scheduler, LRScheduler):
         raise TypeError(
@@ -773,7 +776,9 @@ def build_optimizer_set(
             "TrainingConfig.optimization.parameter_groups must not be empty."
         )
     optimizers: list[OptimizerBinding] = []
-    seen_targets: dict[int, list[tuple[ParameterTargetSpec, _BindingView | None]]] = {}
+    seen_targets: dict[
+        int, list[tuple[ParameterTargetSpec, _BindingView | None]]
+    ] = {}
     for group in config.optimization.parameter_groups:
         resolved = _resolve_target(state.model, group.target)
         view = _build_binding_view(group.target, resolved.base_parameter)

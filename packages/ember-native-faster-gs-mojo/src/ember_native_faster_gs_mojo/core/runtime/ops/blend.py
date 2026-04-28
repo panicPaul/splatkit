@@ -43,8 +43,10 @@ def _call_graph_blend_fwd(
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     tile_count = int(tile_instance_ranges.shape[0])
     tile_pixels = tile_count * BLOCK_SIZE_BLEND
-    actual_tile_count = (width + TILE_WIDTH - 1) // TILE_WIDTH * (
-        (height + TILE_HEIGHT - 1) // TILE_HEIGHT
+    actual_tile_count = (
+        (width + TILE_WIDTH - 1)
+        // TILE_WIDTH
+        * ((height + TILE_HEIGHT - 1) // TILE_HEIGHT)
     )
     actual_tile_pixels = actual_tile_count * BLOCK_SIZE_BLEND
     actual_bucket_count = int(bucket_count.item())
@@ -75,10 +77,20 @@ def _call_graph_blend_fwd(
             device=projected_means.device,
             dtype=projected_means.dtype,
         ),
-        torch.empty((tile_pixels,), device=projected_means.device, dtype=projected_means.dtype),
-        torch.empty((tile_count,), device=projected_means.device, dtype=torch.int32),
-        torch.empty((tile_pixels,), device=projected_means.device, dtype=torch.int32),
-        torch.empty((bucket_capacity,), device=projected_means.device, dtype=torch.int32),
+        torch.empty(
+            (tile_pixels,),
+            device=projected_means.device,
+            dtype=projected_means.dtype,
+        ),
+        torch.empty(
+            (tile_count,), device=projected_means.device, dtype=torch.int32
+        ),
+        torch.empty(
+            (tile_pixels,), device=projected_means.device, dtype=torch.int32
+        ),
+        torch.empty(
+            (bucket_capacity,), device=projected_means.device, dtype=torch.int32
+        ),
         torch.empty(
             (bucket_capacity * BLOCK_SIZE_BLEND, 4),
             device=projected_means.device,
@@ -96,7 +108,9 @@ def _call_graph_blend_fwd(
         colors_rgb,
         bg_color,
         torch.tensor([width], device=projected_means.device, dtype=torch.int32),
-        torch.tensor([height], device=projected_means.device, dtype=torch.int32),
+        torch.tensor(
+            [height], device=projected_means.device, dtype=torch.int32
+        ),
     )
     # MAX uses the larger allocation for shape stability, but FasterGS backward
     # treats the bucket tensor length as the real bucket count.
@@ -159,8 +173,12 @@ def blend_image_only(
         conic_opacity,
         colors_rgb,
         bg_color,
-        torch.tensor([image_width], device=projected_means.device, dtype=torch.int32),
-        torch.tensor([image_height], device=projected_means.device, dtype=torch.int32),
+        torch.tensor(
+            [image_width], device=projected_means.device, dtype=torch.int32
+        ),
+        torch.tensor(
+            [image_height], device=projected_means.device, dtype=torch.int32
+        ),
     )
     return image[:, :height, :width]
 
@@ -267,7 +285,9 @@ def _blend_impl(
     )
 
 
-def _blend_fake(*args: Any) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+def _blend_fake(
+    *args: Any,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     return _blend_fwd_fake(*args)
 
 

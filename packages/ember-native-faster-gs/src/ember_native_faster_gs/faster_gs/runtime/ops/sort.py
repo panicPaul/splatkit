@@ -108,4 +108,3 @@ def sort_op(
 def _sort_fake(*args: Any) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Fake implementation for the public sort op."""
     return _sort_fwd_fake(*args)
-

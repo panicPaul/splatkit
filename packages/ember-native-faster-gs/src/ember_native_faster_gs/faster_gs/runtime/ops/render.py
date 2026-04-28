@@ -499,6 +499,7 @@ def _render_backward(
     )
     return (*grads, *(None,) * 13)
 
+
 render_op = register_render_family(
     op_name="faster_gs::render",
     forward_impl=_render_impl,

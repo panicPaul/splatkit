@@ -27,8 +27,8 @@ def test_runtime_matches_optional_reference_adapter(
     cuda_camera,
 ) -> None:
     raw_svraster_renderer = pytest.importorskip("new_svraster_cuda.renderer")
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
@@ -121,8 +121,8 @@ def test_runtime_backward_matches_optional_reference_adapter(
     cuda_camera,
 ) -> None:
     raw_svraster_renderer = pytest.importorskip("new_svraster_cuda.renderer")
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
@@ -166,9 +166,7 @@ def test_runtime_backward_matches_optional_reference_adapter(
         need_depth=True,
     )
     native_loss = (
-        native.color.sum()
-        + native.depth.sum()
-        + native.transmittance.sum()
+        native.color.sum() + native.depth.sum() + native.transmittance.sum()
     )
     native_loss.backward()
 

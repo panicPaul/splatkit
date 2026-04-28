@@ -291,14 +291,10 @@ def benchmark_backend_render_autograd(
         p90_backward_ms=p90_backward_ms,
         mean_total_ms=mean_total_ms,
         forward_fps=(
-            float(1000.0 / mean_forward_ms)
-            if mean_forward_ms > 0.0
-            else 0.0
+            float(1000.0 / mean_forward_ms) if mean_forward_ms > 0.0 else 0.0
         ),
         backward_fps=(
-            float(1000.0 / mean_backward_ms)
-            if mean_backward_ms > 0.0
-            else 0.0
+            float(1000.0 / mean_backward_ms) if mean_backward_ms > 0.0 else 0.0
         ),
         total_fps=float(1000.0 / mean_total_ms) if mean_total_ms > 0.0 else 0.0,
     )

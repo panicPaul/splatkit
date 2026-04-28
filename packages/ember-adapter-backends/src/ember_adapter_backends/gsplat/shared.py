@@ -5,7 +5,6 @@ from typing import Literal
 
 import torch
 from beartype import beartype
-from jaxtyping import Float
 from ember_core.core.capabilities import (
     Has2DProjections,
     HasAlpha,
@@ -18,6 +17,7 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
+from jaxtyping import Float
 from torch import Tensor
 
 SUPPORTED_OUTPUTS_3D = frozenset({"alpha", "depth", "2d_projections"})

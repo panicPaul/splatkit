@@ -43,16 +43,15 @@ class Stoch3DGSVendoredRuntime:
 def get_cuda_home() -> str:
     """Return the CUDA toolkit path used for native compilation."""
     if CUDA_HOME is None:
-        raise RuntimeError("CUDA_HOME is required to build the vendored Stoch3DGS backend.")
+        raise RuntimeError(
+            "CUDA_HOME is required to build the vendored Stoch3DGS backend."
+        )
     return CUDA_HOME
 
 
 def _native_root() -> Path:
     return (
-        Path(__file__).resolve().parent.parent
-        / "core"
-        / "native"
-        / "stoch3dgs"
+        Path(__file__).resolve().parent.parent / "core" / "native" / "stoch3dgs"
     )
 
 
@@ -66,7 +65,9 @@ def _resolve_slangc() -> str | None:
     if env_path:
         slangc = Path(env_path)
         if not slangc.is_file():
-            raise RuntimeError(f"SLANGC points to a missing executable: {slangc}.")
+            raise RuntimeError(
+                f"SLANGC points to a missing executable: {slangc}."
+            )
         return str(slangc)
 
     path_slangc = shutil.which("slangc")
@@ -129,7 +130,10 @@ def _prepare_optix_symlink(stage_root: Path, optix_include_dir: Path) -> None:
     include_link = stage_root / "dependencies" / "optix-dev" / "include"
     include_link.parent.mkdir(parents=True, exist_ok=True)
     if include_link.is_symlink() or include_link.exists():
-        if include_link.is_symlink() and include_link.resolve() == optix_include_dir.resolve():
+        if (
+            include_link.is_symlink()
+            and include_link.resolve() == optix_include_dir.resolve()
+        ):
             return
         if include_link.is_symlink() or include_link.is_file():
             include_link.unlink()
@@ -182,7 +186,13 @@ def _run_slang_codegen(
 
 
 def _stage_runtime_sources(config: Stoch3DGSPluginConfig) -> Path:
-    stage_root = _native_root() / "build" / "generated" / _runtime_key(config) / "stoch3dgs_vendored"
+    stage_root = (
+        _native_root()
+        / "build"
+        / "generated"
+        / _runtime_key(config)
+        / "stoch3dgs_vendored"
+    )
     stage_root.mkdir(parents=True, exist_ok=True)
     _copy_vendored_sources(stage_root)
     _prepare_optix_symlink(stage_root, _resolve_optix_include_dir())

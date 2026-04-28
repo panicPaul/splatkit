@@ -19,7 +19,9 @@ from ember_core.benchmarks import (
 )
 from ember_core.core import BACKEND_REGISTRY, CameraState, GaussianScene3D
 from ember_core.data import load_colmap_scene_record, resolve_colmap_scene_path
-from ember_core.initialization import initialize_gaussian_scene_from_scene_record
+from ember_core.initialization import (
+    initialize_gaussian_scene_from_scene_record,
+)
 
 _OPTIONAL_BACKEND_MODULES = (
     "ember_adapter_backends.fastgs",

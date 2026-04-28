@@ -9,7 +9,6 @@ from typing import Any, Literal, cast, overload
 import torch
 import torch.nn.functional as torch_f
 from beartype import beartype
-from jaxtyping import Float
 from ember_core.core.capabilities import HasAlpha, HasDepth
 from ember_core.core.contracts import (
     CameraState,
@@ -18,6 +17,7 @@ from ember_core.core.contracts import (
     RenderOutput,
 )
 from ember_core.core.registry import register_backend
+from jaxtyping import Float
 from torch import Tensor
 
 _SUPPORTED_OUTPUTS = frozenset({"alpha", "depth"})

@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-from jaxtyping import Float, Int
 from ember_core.core.contracts import GaussianScene
 from ember_core.densification.contracts import (
     BaseDensificationMethod,
@@ -22,6 +21,7 @@ from ember_native_faster_gs.faster_gs.training import (
 from ember_native_faster_gs.faster_gs.training import (
     relocation_adjustment as _relocation_adjustment,
 )
+from jaxtyping import Float, Int
 from torch import Tensor
 
 

@@ -11,11 +11,11 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 import torch
 from jaxtyping import Float
+from marimo_config_gui import form_gui
 from plyfile import PlyData
 from pydantic import BaseModel, Field
 from torch import Tensor
 
-from marimo_config_gui import form_gui
 from marimo_3dv.pipeline.bundle import ViewerBackendBundle, backend_bundle
 from marimo_3dv.pipeline.context import ViewerContext
 from marimo_3dv.pipeline.gui import (

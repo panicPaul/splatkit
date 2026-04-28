@@ -134,12 +134,16 @@ def _rasterize_fake(
         torch.empty((0,), device=device, dtype=torch.uint8),
         torch.empty((3, image_height, image_width), device=device, dtype=dtype),
         (
-            torch.empty((3, image_height, image_width), device=device, dtype=dtype)
+            torch.empty(
+                (3, image_height, image_width), device=device, dtype=dtype
+            )
             if need_depth
             else empty
         ),
         (
-            torch.empty((3, image_height, image_width), device=device, dtype=dtype)
+            torch.empty(
+                (3, image_height, image_width), device=device, dtype=dtype
+            )
             if need_normal
             else empty
         ),

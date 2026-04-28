@@ -4,9 +4,9 @@ from typing import Any, Literal, overload
 
 import torch
 from beartype import beartype
+from ember_core.core.contracts import CameraState, GaussianScene3D
 from gsplat import rasterization
 from jaxtyping import Float
-from ember_core.core.contracts import CameraState, GaussianScene3D
 from torch import Tensor
 
 from ember_adapter_backends.gsplat.shared import (

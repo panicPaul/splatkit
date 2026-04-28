@@ -1,9 +1,9 @@
 """Torch custom ops for the FasterGS Mojo runtime."""
 
 from ember_native_faster_gs_mojo.core.runtime.ops.blend import (
-    blend_image_only,
     blend_bwd_op,
     blend_fwd_op,
+    blend_image_only,
     blend_op,
 )
 from ember_native_faster_gs_mojo.core.runtime.ops.preprocess import (
@@ -22,9 +22,9 @@ from ember_native_faster_gs_mojo.core.runtime.ops.sort import (
 )
 
 __all__ = [
-    "blend_image_only",
     "blend_bwd_op",
     "blend_fwd_op",
+    "blend_image_only",
     "blend_op",
     "preprocess_bwd_op",
     "preprocess_fwd_op",

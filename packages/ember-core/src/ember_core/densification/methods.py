@@ -41,12 +41,16 @@ class ComposedDensificationMethod:
     expected_scene_families: tuple[str, ...]
     collectors: list[Any] = field(default_factory=list)
     passes: list[Any] = field(default_factory=list)
-    signals: DensificationSignals = field(default_factory=DensificationSignals, init=False)
+    signals: DensificationSignals = field(
+        default_factory=DensificationSignals, init=False
+    )
 
     def get_render_requirements(self) -> DensificationRenderRequirements:
         requirements = DensificationRenderRequirements()
         for component in [*self.collectors, *self.passes]:
-            requirements = requirements.merge(component.get_render_requirements())
+            requirements = requirements.merge(
+                component.get_render_requirements()
+            )
         return requirements
 
     def bind(
@@ -56,7 +60,10 @@ class ComposedDensificationMethod:
         family_ops: Any,
     ) -> None:
         family = state.model.scene.scene_family
-        if self.expected_scene_families and family not in self.expected_scene_families:
+        if (
+            self.expected_scene_families
+            and family not in self.expected_scene_families
+        ):
             raise TypeError(
                 f"{self.name} expects scene families "
                 f"{self.expected_scene_families!r}, got {family!r}."
@@ -134,7 +141,9 @@ class Vanilla3DGS(ComposedDensificationMethod):
         super().__init__(
             name="Vanilla3DGS",
             expected_scene_families=("gaussian",),
-            collectors=[ImagePlaneGradientCollector(use_absolute_gradients=False)],
+            collectors=[
+                ImagePlaneGradientCollector(use_absolute_gradients=False)
+            ],
             passes=[
                 GaussianClonePass(
                     schedule=schedule,
@@ -171,8 +180,12 @@ class AbsGS(ComposedDensificationMethod):
         start_iter = int(kwargs.pop("start_iter", 500))
         stop_iter = int(kwargs.pop("stop_iter", 15_000))
         grad_threshold = float(kwargs.pop("grad_threshold", 8e-4))
-        relative_size_threshold = float(kwargs.pop("relative_size_threshold", 0.01))
-        prune_opacity_threshold = float(kwargs.pop("prune_opacity_threshold", 0.005))
+        relative_size_threshold = float(
+            kwargs.pop("relative_size_threshold", 0.01)
+        )
+        prune_opacity_threshold = float(
+            kwargs.pop("prune_opacity_threshold", 0.005)
+        )
         opacity_reset_every = int(kwargs.pop("opacity_reset_every", 3_000))
         max_reset_opacity = float(kwargs.pop("max_reset_opacity", 0.01))
         schedule = Schedule(
@@ -183,7 +196,9 @@ class AbsGS(ComposedDensificationMethod):
         super().__init__(
             name="AbsGS",
             expected_scene_families=("gaussian",),
-            collectors=[ImagePlaneGradientCollector(use_absolute_gradients=True)],
+            collectors=[
+                ImagePlaneGradientCollector(use_absolute_gradients=True)
+            ],
             passes=[
                 GaussianClonePass(
                     schedule=schedule,
@@ -228,10 +243,18 @@ class FastGS(BaseDensificationMethod):
     importance_threshold: float = 5.0
     expected_scene_families: tuple[str, ...] = ("gaussian",)
     family_ops: Any | None = field(default=None, init=False, repr=False)
-    clone_grad_sum: torch.Tensor | None = field(default=None, init=False, repr=False)
-    split_grad_sum: torch.Tensor | None = field(default=None, init=False, repr=False)
-    grad_count: torch.Tensor | None = field(default=None, init=False, repr=False)
-    max_screen_radii: torch.Tensor | None = field(default=None, init=False, repr=False)
+    clone_grad_sum: torch.Tensor | None = field(
+        default=None, init=False, repr=False
+    )
+    split_grad_sum: torch.Tensor | None = field(
+        default=None, init=False, repr=False
+    )
+    grad_count: torch.Tensor | None = field(
+        default=None, init=False, repr=False
+    )
+    max_screen_radii: torch.Tensor | None = field(
+        default=None, init=False, repr=False
+    )
 
     def bind(
         self,
@@ -285,7 +308,9 @@ class FastGS(BaseDensificationMethod):
         visible_radii = torch.where(
             render_output.visibility_filter,
             render_output.radii.to(scene.center_position.dtype),
-            torch.zeros_like(render_output.radii, dtype=scene.center_position.dtype),
+            torch.zeros_like(
+                render_output.radii, dtype=scene.center_position.dtype
+            ),
         )
         self.max_screen_radii = torch.maximum(
             self.max_screen_radii,
@@ -297,10 +322,7 @@ class FastGS(BaseDensificationMethod):
             return
         if context.step > self.stop_iter:
             return
-        if (
-            context.step != 0
-            and context.step % self.opacity_reset_every == 0
-        ):
+        if context.step != 0 and context.step % self.opacity_reset_every == 0:
             self.family_ops.reset_opacity(0.01)
         if not self._should_refine(context.step):
             return
@@ -329,7 +351,9 @@ class FastGS(BaseDensificationMethod):
         importance_sum = torch.zeros_like(self.clone_grad_sum)
         pruning_sum = torch.zeros_like(self.clone_grad_sum)
         for sample in probe_views:
-            probe_output = runtime.render_raw(context.state.model, sample.camera)
+            probe_output = runtime.render_raw(
+                context.state.model, sample.camera
+            )
             predicted = probe_output.render[0]
             l1_map = (predicted - sample.image).abs().mean(dim=-1)
             normalized_l1 = self._normalize_l1_map(l1_map)
@@ -340,7 +364,9 @@ class FastGS(BaseDensificationMethod):
                 metric_map,
                 options=runtime.render_options,
             )
-            weighted_l1 = (normalized_l1 * metric_map.to(normalized_l1.dtype)).mean()
+            weighted_l1 = (
+                normalized_l1 * metric_map.to(normalized_l1.dtype)
+            ).mean()
             importance_sum += attributed
             pruning_sum += weighted_l1 * attributed
 
@@ -370,7 +396,8 @@ class FastGS(BaseDensificationMethod):
         )
         max_screen_radii = self.max_screen_radii
         prune_mask = (
-            torch.sigmoid(current_scene.logit_opacity) < self.prune_opacity_threshold
+            torch.sigmoid(current_scene.logit_opacity)
+            < self.prune_opacity_threshold
         )
         if context.step > self.opacity_reset_every:
             prune_mask = torch.logical_or(
@@ -438,37 +465,51 @@ class FastGS(BaseDensificationMethod):
             or self.clone_grad_sum.device != device
             or self.clone_grad_sum.dtype != dtype
         ):
-            self.clone_grad_sum = torch.zeros(expected_shape, device=device, dtype=dtype)
+            self.clone_grad_sum = torch.zeros(
+                expected_shape, device=device, dtype=dtype
+            )
         if (
             self.split_grad_sum is None
             or self.split_grad_sum.shape != expected_shape
             or self.split_grad_sum.device != device
             or self.split_grad_sum.dtype != dtype
         ):
-            self.split_grad_sum = torch.zeros(expected_shape, device=device, dtype=dtype)
+            self.split_grad_sum = torch.zeros(
+                expected_shape, device=device, dtype=dtype
+            )
         if (
             self.grad_count is None
             or self.grad_count.shape != expected_shape
             or self.grad_count.device != device
             or self.grad_count.dtype != dtype
         ):
-            self.grad_count = torch.zeros(expected_shape, device=device, dtype=dtype)
+            self.grad_count = torch.zeros(
+                expected_shape, device=device, dtype=dtype
+            )
         if (
             self.max_screen_radii is None
             or self.max_screen_radii.shape != expected_shape
             or self.max_screen_radii.device != device
             or self.max_screen_radii.dtype != dtype
         ):
-            self.max_screen_radii = torch.zeros(expected_shape, device=device, dtype=dtype)
+            self.max_screen_radii = torch.zeros(
+                expected_shape, device=device, dtype=dtype
+            )
 
     def _reset_buffers(self, scene: Any) -> None:
         num_splats = int(scene.center_position.shape[0])
         device = scene.center_position.device
         dtype = scene.center_position.dtype
-        self.clone_grad_sum = torch.zeros(num_splats, device=device, dtype=dtype)
-        self.split_grad_sum = torch.zeros(num_splats, device=device, dtype=dtype)
+        self.clone_grad_sum = torch.zeros(
+            num_splats, device=device, dtype=dtype
+        )
+        self.split_grad_sum = torch.zeros(
+            num_splats, device=device, dtype=dtype
+        )
         self.grad_count = torch.zeros(num_splats, device=device, dtype=dtype)
-        self.max_screen_radii = torch.zeros(num_splats, device=device, dtype=dtype)
+        self.max_screen_radii = torch.zeros(
+            num_splats, device=device, dtype=dtype
+        )
 
     def _should_refine(self, step: int) -> bool:
         if step <= self.start_iter or step > self.stop_iter:

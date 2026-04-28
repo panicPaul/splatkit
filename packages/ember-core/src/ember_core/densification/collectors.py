@@ -37,8 +37,13 @@ class ImagePlaneGradientCollector(BaseDensificationComponent):
         signals: DensificationSignals,
     ) -> None:
         del signals
-        projected_means = getattr(context.render_output, "projected_means", None)
-        if isinstance(projected_means, Tensor) and projected_means.requires_grad:
+        projected_means = getattr(
+            context.render_output, "projected_means", None
+        )
+        if (
+            isinstance(projected_means, Tensor)
+            and projected_means.requires_grad
+        ):
             projected_means.retain_grad()
 
     def post_backward(
@@ -46,7 +51,9 @@ class ImagePlaneGradientCollector(BaseDensificationComponent):
         context: DensificationContext,
         signals: DensificationSignals,
     ) -> None:
-        projected_means = getattr(context.render_output, "projected_means", None)
+        projected_means = getattr(
+            context.render_output, "projected_means", None
+        )
         if not isinstance(projected_means, Tensor):
             return
         gradients = None

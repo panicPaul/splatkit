@@ -1,7 +1,8 @@
 """Tests for the marimo-3dv public package surface."""
 
-import pytest
 import warnings
+
+import pytest
 
 
 def test_core_imports_work():
@@ -147,9 +148,9 @@ def test_pipeline_imports_work():
 def test_cleanup_before_splat_reload_ignores_cuda_cleanup_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marimo_3dv import ViewerState, cleanup_before_splat_reload
     import marimo_3dv.ops.gs as gs_module
     import marimo_3dv.viewer.widget as widget_module
+    from marimo_3dv import ViewerState, cleanup_before_splat_reload
 
     monkeypatch.setattr(gs_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(widget_module.torch.cuda, "is_available", lambda: True)
@@ -161,7 +162,9 @@ def test_cleanup_before_splat_reload_ignores_cuda_cleanup_failures(
     monkeypatch.setattr(
         widget_module.torch.cuda,
         "ipc_collect",
-        lambda: pytest.fail("ipc_collect should not run after empty_cache fails"),
+        lambda: pytest.fail(
+            "ipc_collect should not run after empty_cache fails"
+        ),
     )
 
     with warnings.catch_warnings(record=True) as caught:
@@ -173,7 +176,9 @@ def test_cleanup_before_splat_reload_ignores_cuda_cleanup_failures(
         )
 
     assert caught
-    assert "CUDA cleanup during viewer teardown failed" in str(caught[0].message)
+    assert "CUDA cleanup during viewer teardown failed" in str(
+        caught[0].message
+    )
 
 
 def test_gs_pipe_imports_work():

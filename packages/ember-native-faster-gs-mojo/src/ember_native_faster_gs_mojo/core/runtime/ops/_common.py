@@ -91,7 +91,9 @@ def stable_multiple_capacity(
     required_with_headroom = (
         required * headroom_numerator + headroom_denominator - 1
     ) // headroom_denominator
-    capacity = max(minimum, _round_multiple_capacity(required_with_headroom, multiple))
+    capacity = max(
+        minimum, _round_multiple_capacity(required_with_headroom, multiple)
+    )
     if previous is not None and previous > capacity:
         capacity = previous
     _CAPACITY_CACHE[key] = capacity

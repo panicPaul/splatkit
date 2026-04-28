@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+
 class TrainingConfigBase(BaseModel):
     """Base config with strict validation."""
 
@@ -211,8 +212,8 @@ __all__ = [
     "ModelSpec",
     "OptimizationConfig",
     "ParameterGroupConfig",
-    "ParameterTargetSpec",
     "ParameterSpec",
+    "ParameterTargetSpec",
     "RenderPipelineSpec",
     "RuntimeConfig",
     "TensorSliceSpec",

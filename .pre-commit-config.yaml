@@ -2,7 +2,7 @@ default_install_hook_types: [pre-commit, pre-push]
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.9
+    rev: v0.15.10
     hooks:
       - id: ruff-check
       - id: ruff-format
@@ -12,13 +12,19 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: uv run pytest tests -q
+        entry: uv run --extra cu130-dev python -m pytest tests -q
         language: system
         pass_filenames: false
         types_or: [python]
-      - id: check-submodule-remotes
-        name: check submodule remotes
-        entry: python scripts/check_submodule_remotes.py
+        stages: [pre-push]
+      - id: marimo-check
+        name: marimo check
+        entry: uv run marimo check --strict --ignore-scripts
+        language: system
+        files: ^(notebooks/.*\.py|papers/.*/notebook\.py|sandboxed_notebooks/.*\.py|packages/marimo-3dv/notebooks/.*\.py)$
+      - id: check-submodule-checkouts
+        name: check submodule checkouts
+        entry: uv run python scripts/check_submodule_checkouts.py
         language: system
         pass_filenames: false
         always_run: true

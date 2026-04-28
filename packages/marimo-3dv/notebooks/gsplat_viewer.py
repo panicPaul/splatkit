@@ -33,11 +33,11 @@ with app.setup:
     import torch
     from gsplat import rasterization
     from jaxtyping import Float
+    from marimo_config_gui import config_gui
     from plyfile import PlyData
     from pydantic import BaseModel, Field
     from torch import Tensor
 
-    from marimo_config_gui import config_gui
     from marimo_3dv import (
         CameraState,
         RenderResult,

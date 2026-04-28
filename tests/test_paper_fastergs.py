@@ -29,9 +29,11 @@ def test_fastergs_build_training_config_supports_both_backends(
     fastergs_config_module,
 ) -> None:
     for backend in ("adapter.fastergs", "faster_gs.core"):
-        experiment_config = fastergs_config_module.load_default_experiment_config(
-            "garden_baseline"
-        ).model_copy(update={"backend": backend})
+        experiment_config = (
+            fastergs_config_module.load_default_experiment_config(
+                "garden_baseline"
+            ).model_copy(update={"backend": backend})
+        )
         training_config = fastergs_config_module.build_training_config(
             experiment_config
         )
@@ -43,7 +45,10 @@ def test_fastergs_build_training_config_supports_both_backends(
             "proper_antialiasing": False,
             "background_color": [0.0, 0.0, 0.0],
         }
-        assert [group.target.name for group in training_config.optimization.parameter_groups] == [
+        assert [
+            group.target.name
+            for group in training_config.optimization.parameter_groups
+        ] == [
             "center_position",
             "feature",
             "feature",
@@ -117,11 +122,7 @@ def test_fastergs_script_loader_resolves_relative_paths_from_json_file(
     fastergs_config_module,
 ) -> None:
     default_json_path = (
-        REPO_ROOT
-        / "papers"
-        / "fastergs"
-        / "defaults"
-        / "garden_baseline.json"
+        REPO_ROOT / "papers" / "fastergs" / "defaults" / "garden_baseline.json"
     )
 
     loaded = fastergs_config_module.load_experiment_script_config(

@@ -2,11 +2,11 @@
 # dependencies = [
 #     "marimo",
 #     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
-#     "ember-core[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-core",
-#     "ember-native-3dgrt[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-3dgrt",
-#     "ember-native-faster-gs[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-faster-gs",
-#     "ember-native-faster-gs-mojo[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-faster-gs-mojo",
-#     "ember-native-svraster[cu130] @ file:///home/schlack/Repositories/ember-core/packages/ember-native-svraster",
+#     "ember-core[cu130] @ file:///home/schlack/Repositories/ember/packages/ember-core",
+#     "ember-native-3dgrt[cu130] @ file:///home/schlack/Repositories/ember/packages/ember-native-3dgrt",
+#     "ember-native-faster-gs[cu130] @ file:///home/schlack/Repositories/ember/packages/ember-native-faster-gs",
+#     "ember-native-faster-gs-mojo[cu130] @ file:///home/schlack/Repositories/ember/packages/ember-native-faster-gs-mojo",
+#     "ember-native-svraster[cu130] @ file:///home/schlack/Repositories/ember/packages/ember-native-svraster",
 # ]
 # requires-python = ">=3.14"
 #
@@ -35,14 +35,12 @@ with app.setup:
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        """
-        # Local Packaging Sandbox
+    mo.md("""
+    # Local Packaging Sandbox
 
-        This notebook installs `ember-core` native packages from local checkout
-        paths via PEP 723 metadata and verifies that the packages import.
-        """
-    )
+    This notebook installs `ember-core` native packages from local checkout
+    paths via PEP 723 metadata and verifies that the packages import.
+    """)
     return
 
 

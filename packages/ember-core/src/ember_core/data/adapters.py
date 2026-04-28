@@ -14,8 +14,8 @@ from tqdm.auto import tqdm
 
 from ember_core.core.contracts import CameraState
 from ember_core.data.config_contracts import (
-    PreparedFrameDatasetConfig,
     ImagePreparationConfig,
+    PreparedFrameDatasetConfig,
     SplitConfig,
 )
 from ember_core.data.contracts import (
@@ -243,9 +243,13 @@ class PreparedFrameDataset(Dataset[PreparedFrameSample]):
         else:
             dataset_index = self.indices[index]
             frame = self.camera_stream.frames[dataset_index]
-            camera = _select_camera(self.camera_stream.camera, frame.camera_index)
+            camera = _select_camera(
+                self.camera_stream.camera, frame.camera_index
+            )
             image = torch.from_numpy(
-                np.array(self.camera_stream.image_source.load_rgb(frame), copy=True)
+                np.array(
+                    self.camera_stream.image_source.load_rgb(frame), copy=True
+                )
             )
             image, prepared_camera = prepare_decoded_image_and_camera(
                 image,

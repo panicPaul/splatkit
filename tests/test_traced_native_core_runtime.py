@@ -58,15 +58,27 @@ class _FakeOptixTracer:
         device = ray_ori.device
         dtype = ray_ori.dtype
         num_particles = int(particle_density.shape[0])
-        radiance = torch.full((batch_size, height, width, 3), 0.25, device=device, dtype=dtype)
-        density = torch.full((batch_size, height, width, 1), 0.5, device=device, dtype=dtype)
-        hit = torch.zeros((batch_size, height, width, 2), device=device, dtype=dtype)
+        radiance = torch.full(
+            (batch_size, height, width, 3), 0.25, device=device, dtype=dtype
+        )
+        density = torch.full(
+            (batch_size, height, width, 1), 0.5, device=device, dtype=dtype
+        )
+        hit = torch.zeros(
+            (batch_size, height, width, 2), device=device, dtype=dtype
+        )
         hit[..., 0] = 3.0
         normals = ray_dir.clone()
-        hitcounts = torch.full((batch_size, height, width, 1), 2.0, device=device, dtype=dtype)
+        hitcounts = torch.full(
+            (batch_size, height, width, 1), 2.0, device=device, dtype=dtype
+        )
         visibility = torch.ones((num_particles, 1), device=device, dtype=dtype)
-        weights = torch.full((num_particles, 1), 0.75, device=device, dtype=dtype)
-        sample_cache = torch.zeros((batch_size, height, width, 16), device=device, dtype=dtype)
+        weights = torch.full(
+            (num_particles, 1), 0.75, device=device, dtype=dtype
+        )
+        sample_cache = torch.zeros(
+            (batch_size, height, width, 16), device=device, dtype=dtype
+        )
         return (
             radiance,
             density,
@@ -120,7 +132,11 @@ class _FakeOptixTracer:
         return (
             torch.full_like(particle_density, 0.1),
             torch.full_like(particle_radiance, 0.2),
-            torch.zeros((particle_density.shape[0], 1), device=particle_density.device, dtype=particle_density.dtype),
+            torch.zeros(
+                (particle_density.shape[0], 1),
+                device=particle_density.device,
+                dtype=particle_density.dtype,
+            ),
         )
 
 
@@ -133,14 +149,20 @@ def _state_config() -> TraceStateConfig:
     )
 
 
-def _build_rays(camera_state) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def _build_rays(
+    camera_state,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     cam_to_world = camera_state.cam_to_world
     intrinsics = camera_state.get_intrinsics()
     num_cams = int(cam_to_world.shape[0])
     height = int(camera_state.height[0].item())
     width = int(camera_state.width[0].item())
-    x = torch.arange(width, device=cam_to_world.device, dtype=cam_to_world.dtype)
-    y = torch.arange(height, device=cam_to_world.device, dtype=cam_to_world.dtype)
+    x = torch.arange(
+        width, device=cam_to_world.device, dtype=cam_to_world.dtype
+    )
+    y = torch.arange(
+        height, device=cam_to_world.device, dtype=cam_to_world.dtype
+    )
     yy, xx = torch.meshgrid(y, x, indexing="ij")
     xx = xx.view(1, height, width).expand(num_cams, -1, -1)
     yy = yy.view(1, height, width).expand(num_cams, -1, -1)
@@ -152,7 +174,11 @@ def _build_rays(camera_state) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]
         (
             ((xx + 0.5) - cx) / fx,
             ((yy + 0.5) - cy) / fy,
-            torch.ones((num_cams, height, width), device=cam_to_world.device, dtype=cam_to_world.dtype),
+            torch.ones(
+                (num_cams, height, width),
+                device=cam_to_world.device,
+                dtype=cam_to_world.dtype,
+            ),
         ),
         dim=-1,
     )
@@ -174,17 +200,23 @@ def test_traced_runtime_build_update_render_and_backward(
         "ember_native_3dgrt.core.runtime.state._make_tracer_wrapper",
         lambda config: fake_tracer,
     )
-    state_token = acquire_state_token(_state_config(), cuda_scene.center_position.device)
+    state_token = acquire_state_token(
+        _state_config(), cuda_scene.center_position.device
+    )
     particle_density = pack_particle_density(
         cuda_scene.center_position.detach().clone().requires_grad_(True),
-        torch.sigmoid(cuda_scene.logit_opacity[:, None].detach().clone()).requires_grad_(True),
+        torch.sigmoid(
+            cuda_scene.logit_opacity[:, None].detach().clone()
+        ).requires_grad_(True),
         torch.nn.functional.normalize(
             cuda_scene.quaternion_orientation.detach().clone(), dim=1
         ).requires_grad_(True),
         torch.exp(cuda_scene.log_scales.detach().clone()).requires_grad_(True),
     )
     particle_density.retain_grad()
-    particle_radiance = cuda_scene.feature[:, :1, :].reshape(cuda_scene.feature.shape[0], -1)
+    particle_radiance = cuda_scene.feature[:, :1, :].reshape(
+        cuda_scene.feature.shape[0], -1
+    )
     particle_radiance = particle_radiance.detach().clone().requires_grad_(True)
     ray_to_world, ray_ori, ray_dir = _build_rays(cuda_camera)
 
@@ -239,7 +271,9 @@ def test_traced_render_supports_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
             pack_particle_density(
                 cpu_scene.center_position,
                 torch.sigmoid(cpu_scene.logit_opacity[:, None]),
-                torch.nn.functional.normalize(cpu_scene.quaternion_orientation, dim=1),
+                torch.nn.functional.normalize(
+                    cpu_scene.quaternion_orientation, dim=1
+                ),
                 torch.exp(cpu_scene.log_scales),
             )
         )
@@ -249,7 +283,9 @@ def test_traced_render_supports_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
         fake_ray_to_world = mode.from_tensor(ray_to_world)
         fake_ray_ori = mode.from_tensor(ray_ori)
         fake_ray_dir = mode.from_tensor(ray_dir)
-        bg_color = mode.from_tensor(torch.zeros(3, dtype=cpu_scene.center_position.dtype))
+        bg_color = mode.from_tensor(
+            torch.zeros(3, dtype=cpu_scene.center_position.dtype)
+        )
         token = mode.from_tensor(torch.zeros((), dtype=torch.int64))
         result = render(
             token,
@@ -290,18 +326,22 @@ def test_traced_native_code_no_longer_imports_upstream_runtime() -> None:
         / "stoch3dgs"
         / "renderer.py",
     ]
-    forbidden_terms = ("import threedgrut", "from threedgrut", "import threedgrt_tracer", "from threedgrt_tracer")
+    forbidden_terms = (
+        "import threedgrut",
+        "from threedgrut",
+        "import threedgrt_tracer",
+        "from threedgrt_tracer",
+    )
     for path in traced_sources:
         source = path.read_text()
         for term in forbidden_terms:
-            assert term not in source, f"{path} still references upstream runtime import {term!r}."
+            assert term not in source, (
+                f"{path} still references upstream runtime import {term!r}."
+            )
 
 
 def test_native_backends_pyproject_no_longer_declares_threedgrut() -> None:
     pyproject = (
-        _REPO_ROOT
-        / "packages"
-        / "ember-native-3dgrt"
-        / "pyproject.toml"
+        _REPO_ROOT / "packages" / "ember-native-3dgrt" / "pyproject.toml"
     ).read_text()
     assert "threedgrut" not in pyproject

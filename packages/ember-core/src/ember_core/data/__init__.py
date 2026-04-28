@@ -135,7 +135,9 @@ def _load_scene_record_from_config(config: SceneLoadConfig) -> SceneRecord:
     elif isinstance(config, NCoreSceneConfig):
         scene_record = load_ncore_scene_record(config.component_group_paths)
     else:
-        raise ValueError(f"Unsupported scene-load config type {type(config)!r}.")
+        raise ValueError(
+            f"Unsupported scene-load config type {type(config)!r}."
+        )
     for pipe in config.source_pipes:
         scene_record = apply_source_pipe(scene_record, pipe)
     return scene_record

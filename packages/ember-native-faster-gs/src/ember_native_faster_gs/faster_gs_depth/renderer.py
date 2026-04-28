@@ -7,7 +7,6 @@ from typing import Literal, overload
 
 import torch
 from beartype import beartype
-from jaxtyping import Float
 from ember_core.core.capabilities import HasDepth
 from ember_core.core.contracts import (
     CameraState,
@@ -16,6 +15,7 @@ from ember_core.core.contracts import (
     RenderOutput,
 )
 from ember_core.core.registry import register_backend
+from jaxtyping import Float
 from torch import Tensor
 
 from ember_native_faster_gs.faster_gs.renderer import (
@@ -111,9 +111,7 @@ def render_faster_gs_depth(
             "impact scores."
         )
     if return_normals:
-        raise ValueError(
-            "The faster_gs_depth backend does not expose normals."
-        )
+        raise ValueError("The faster_gs_depth backend does not expose normals.")
     if return_2d_projections:
         raise ValueError(
             "The faster_gs_depth backend does not expose 2D projections."

@@ -82,7 +82,9 @@ def _blend_fwd_fake(
         torch.empty((tile_count,), device=device, dtype=torch.int32),
         torch.empty((tile_pixels,), device=device, dtype=torch.int32),
         torch.empty((tile_count,), device=device, dtype=torch.int32),
-        torch.empty((tile_count * BLOCK_SIZE_BLEND, 4), device=device, dtype=dtype),
+        torch.empty(
+            (tile_count * BLOCK_SIZE_BLEND, 4), device=device, dtype=dtype
+        ),
     )
 
 
@@ -200,7 +202,9 @@ def _blend_impl(
     )
 
 
-def _blend_fake(*args: Any) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+def _blend_fake(
+    *args: Any,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """Fake implementation for the autograd blend op."""
     return _blend_fwd_fake(*args)
 
@@ -267,6 +271,7 @@ def _blend_backward(
         None,
         None,
     )
+
 
 blend_op = register_blend_family(
     op_name="faster_gs::blend",

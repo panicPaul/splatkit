@@ -10,20 +10,13 @@ with app.setup:
     import sys
     from pathlib import Path
 
-    import marimo as mo
     import ember_core as sk
+    import marimo as mo
 
     _NOTEBOOK_DIR = Path(__file__).resolve().parent
     if str(_NOTEBOOK_DIR) not in sys.path:
         sys.path.insert(0, str(_NOTEBOOK_DIR))
 
-    from marimo_config_gui import (
-        config_error,
-        config_form,
-        config_json,
-        config_value,
-        create_config_state,
-    )
     from config import (
         FasterGSExperimentConfig,
         build_prepared_frame_dataset_config,
@@ -32,6 +25,13 @@ with app.setup:
         load_default_experiment_config,
         load_experiment_script_config,
         register_fastergs_backends,
+    )
+    from marimo_config_gui import (
+        config_error,
+        config_form,
+        config_json,
+        config_value,
+        create_config_state,
     )
 
     (
@@ -67,19 +67,19 @@ def _():
 @app.cell(hide_code=True)
 def _():
     config_form(
-                experiment_bindings,
-                form_gui_state=experiment_form_state,
-            )
+        experiment_bindings,
+        form_gui_state=experiment_form_state,
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _():
     config_json(
-                experiment_bindings,
-                form_gui_state=experiment_form_state,
-                json_gui_state=experiment_json_state,
-            )
+        experiment_bindings,
+        form_gui_state=experiment_form_state,
+        json_gui_state=experiment_json_state,
+    )
     return
 
 
@@ -239,7 +239,9 @@ def _(
             f"Backend `{experiment_config.backend}` is not registered.",
             kind="warn",
         )
-    elif scene_record is None or frame_dataset is None or training_result is None:
+    elif (
+        scene_record is None or frame_dataset is None or training_result is None
+    ):
         _run_status = mo.callout(
             "Training did not produce a result.",
             kind="warn",

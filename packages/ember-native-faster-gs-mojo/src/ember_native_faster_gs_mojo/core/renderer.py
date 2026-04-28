@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 import torch
 from beartype import beartype
-from jaxtyping import Float
 from ember_core.core.contracts import (
     CameraState,
     GaussianScene3D,
@@ -18,6 +17,7 @@ from ember_native_faster_gs.faster_gs.renderer import (
     _split_sh_coefficients,
     _validate_inputs,
 )
+from jaxtyping import Float
 from torch import Tensor
 
 from ember_native_faster_gs_mojo.core.runtime import render as render_runtime
@@ -79,9 +79,13 @@ def render_faster_gs_mojo(
 ) -> FasterGSMojoRenderOutput:
     """Render a scene with the FasterGS Mojo runtime."""
     if return_alpha:
-        raise ValueError("The faster_gs_mojo backend does not expose alpha output.")
+        raise ValueError(
+            "The faster_gs_mojo backend does not expose alpha output."
+        )
     if return_depth:
-        raise ValueError("The faster_gs_mojo backend does not expose depth output.")
+        raise ValueError(
+            "The faster_gs_mojo backend does not expose depth output."
+        )
     if return_gaussian_impact_score:
         raise ValueError(
             "The faster_gs_mojo backend does not expose Gaussian impact scores."
@@ -153,10 +157,12 @@ def render_faster_gs_mojo(
             )
             image = render_result.image
         else:
-            width_capacity, height_capacity, tile_capacity = _render_image_capacity(
-                device=scene.center_position.device,
-                width=width,
-                height=height,
+            width_capacity, height_capacity, tile_capacity = (
+                _render_image_capacity(
+                    device=scene.center_position.device,
+                    width=width,
+                    height=height,
+                )
             )
             preprocess_outputs = preprocess_fwd_op(
                 center_positions,

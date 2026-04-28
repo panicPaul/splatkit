@@ -212,7 +212,9 @@ def test_render_benchmark_comparison_payload_reports_expected_shape() -> None:
     assert payload["faster_backend"] == "faster_gs.core"
 
 
-def test_render_autograd_benchmark_comparison_payload_reports_expected_shape() -> None:
+def test_render_autograd_benchmark_comparison_payload_reports_expected_shape() -> (
+    None
+):
     primary = RenderAutogradBenchmarkResult(
         backend="faster_gs_mojo.core",
         device="cuda:0",

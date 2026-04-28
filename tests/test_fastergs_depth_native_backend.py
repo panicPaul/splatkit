@@ -4,20 +4,20 @@ from typing import cast
 
 import pytest
 import torch
-from ember_core.core import render
 from ember_adapter_backends.gsplat import GsplatRenderOutput, render_gsplat
-from ember_native_faster_gs.faster_gs_depth import (
-    FasterGSDepthNativeDepthRenderOutput,
-    FasterGSDepthNativeRenderOutput,
-    register,
-    render_faster_gs_depth,
-)
+from ember_core.core import render
 from ember_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     render_faster_gs_native,
 )
 from ember_native_faster_gs.faster_gs import (
     register as register_root,
+)
+from ember_native_faster_gs.faster_gs_depth import (
+    FasterGSDepthNativeDepthRenderOutput,
+    FasterGSDepthNativeRenderOutput,
+    register,
+    render_faster_gs_depth,
 )
 
 register()

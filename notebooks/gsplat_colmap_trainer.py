@@ -11,22 +11,12 @@ with app.setup:
     from pathlib import Path
     from typing import Literal
 
+    import ember_adapter_backends.gsplat as sk_gsplat
+    import ember_core as sk
     import marimo as mo
     import numpy as np
-    import ember_core as sk
-    import ember_adapter_backends.gsplat as sk_gsplat
     import torch
     import torch.nn.functional as F
-    from marimo_config_gui import (
-        config_error,
-        config_form,
-        config_json,
-        config_json_output,
-        config_value,
-        create_config_state,
-    )
-    from PIL import Image
-    from pydantic import BaseModel, Field
     from ember_core.benchmarks import benchmark_dataloader
     from ember_core.data import (
         ColmapSceneConfig,
@@ -38,6 +28,16 @@ with app.setup:
         prepare_frame_dataset,
     )
     from ember_core.io.scene import save_scene
+    from marimo_config_gui import (
+        config_error,
+        config_form,
+        config_json,
+        config_json_output,
+        config_value,
+        create_config_state,
+    )
+    from PIL import Image
+    from pydantic import BaseModel, Field
     from torch.utils.data import DataLoader
     from tqdm import tqdm
 
@@ -288,8 +288,9 @@ def _():
             undistort_output_dir=None,
         )
 
-    def _default_prepared_dataset_config(
-    ) -> MipNerf360IndoorPreparedFrameDatasetConfig:
+    def _default_prepared_dataset_config() -> (
+        MipNerf360IndoorPreparedFrameDatasetConfig
+    ):
         return MipNerf360IndoorPreparedFrameDatasetConfig(
             split=None,
             materialization=MaterializationConfig(
@@ -318,9 +319,7 @@ def _():
 
     class Config(BaseModel):
         execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
-        scene: ColmapSceneConfig = Field(
-            default_factory=_default_scene_config
-        )
+        scene: ColmapSceneConfig = Field(default_factory=_default_scene_config)
         prepared_data: MipNerf360IndoorPreparedFrameDatasetConfig = Field(
             default_factory=_default_prepared_dataset_config
         )
@@ -412,7 +411,6 @@ def _(PreparedFrameSample):
         image = (frame.image * 255).to(torch.uint8).numpy()
         return Image.fromarray(image)
 
-
     return
 
 
@@ -499,7 +497,11 @@ def _(Config):
             run_immediately=True,
         )
 
-    return build_prepared_dataset_config, build_config_from_form, build_scene_record_config
+    return (
+        build_prepared_dataset_config,
+        build_config_from_form,
+        build_scene_record_config,
+    )
 
 
 @app.cell
@@ -564,7 +566,11 @@ def _(Config, build_prepared_dataset_config, build_scene_record_config):
 @app.cell
 def _(Config):
     def _get_scene_record(dataset):
-        return dataset.scene_record if hasattr(dataset, "scene_record") else dataset
+        return (
+            dataset.scene_record
+            if hasattr(dataset, "scene_record")
+            else dataset
+        )
 
     def build_trainer_bundle(config: Config | None, dataset):
         if config is None or dataset is None:

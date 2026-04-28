@@ -6,8 +6,8 @@ from ember_core.densification.collectors import (
     SparseVoxelGradientCollector,
 )
 from ember_core.densification.contracts import (
-    BaseDensificationMethod,
     BaseDensificationComponent,
+    BaseDensificationMethod,
     DensificationCollector,
     DensificationContext,
     DensificationMethod,
@@ -56,8 +56,8 @@ from ember_core.densification.runtime import (
 __all__ = [
     "MCMC",
     "AbsGS",
-    "BaseDensificationMethod",
     "BaseDensificationComponent",
+    "BaseDensificationMethod",
     "ComposedDensificationMethod",
     "DensificationCollector",
     "DensificationContext",

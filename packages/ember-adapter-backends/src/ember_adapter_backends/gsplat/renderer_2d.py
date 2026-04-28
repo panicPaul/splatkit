@@ -4,8 +4,8 @@ from typing import Any, Literal, overload
 
 import torch
 from beartype import beartype
-from gsplat import rasterization_2dgs
 from ember_core.core.contracts import CameraState, GaussianScene2D
+from gsplat import rasterization_2dgs
 
 from ember_adapter_backends.gsplat.shared import (
     GsplatAlphaIntersectionRenderOutput,

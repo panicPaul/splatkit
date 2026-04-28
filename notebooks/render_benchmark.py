@@ -12,8 +12,8 @@ with app.setup:
     from dataclasses import asdict
     from pathlib import Path
 
-    import marimo as mo
     import ember_core as sk
+    import marimo as mo
     import torch
     from ember_core.benchmarks import benchmark_backend_render
     from ember_core.core import BACKEND_REGISTRY, GaussianScene3D
@@ -219,14 +219,10 @@ def _(
                 scene_record = sk.load_colmap_scene_record(root)
                 scene = initialize_gaussian_scene_from_scene_record(
                     scene_record
-                ).to(
-                    resolved_device
-                )
+                ).to(resolved_device)
                 camera = select_first_camera(
                     scene_record.resolve_camera_sensor().camera
-                ).to(
-                    resolved_device
-                )
+                ).to(resolved_device)
                 benchmark_result = benchmark_backend_render(
                     scene,
                     camera,

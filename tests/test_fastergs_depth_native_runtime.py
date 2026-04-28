@@ -5,7 +5,9 @@ import torch
 from ember_native_faster_gs.faster_gs_depth.runtime import render
 
 
-def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
+def _extract_camera_params(
+    camera_state,
+) -> tuple[int, int, float, float, float, float]:
     intrinsics = camera_state.get_intrinsics()[0]
     return (
         int(camera_state.width[0].item()),
@@ -21,14 +23,20 @@ def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float,
 def test_expected_depth_render_returns_depth_and_gradients(
     cuda_scene, cuda_camera
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
-    center_positions = cuda_scene.center_position.detach().clone().requires_grad_(True)
+    center_positions = (
+        cuda_scene.center_position.detach().clone().requires_grad_(True)
+    )
     log_scales = cuda_scene.log_scales.detach().clone().requires_grad_(True)
-    rotations = cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
-    opacities = cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
+    rotations = (
+        cuda_scene.quaternion_orientation.detach().clone().requires_grad_(True)
+    )
+    opacities = (
+        cuda_scene.logit_opacity[:, None].detach().clone().requires_grad_(True)
+    )
     sh0 = cuda_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
     shrest = cuda_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
 

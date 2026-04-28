@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-import inspect
 from typing import Any, Literal, Protocol, runtime_checkable
-from urllib.parse import urlparse, unquote
+from urllib.parse import unquote, urlparse
 
 import numpy as np
 import torch
@@ -144,7 +144,10 @@ class PathCameraImageSource:
         object.__setattr__(
             self,
             "frame_paths",
-            {frame_id: Path(path) for frame_id, path in self.frame_paths.items()},
+            {
+                frame_id: Path(path)
+                for frame_id, path in self.frame_paths.items()
+            },
         )
 
     def path_for_frame(self, frame: DatasetFrame) -> Path:

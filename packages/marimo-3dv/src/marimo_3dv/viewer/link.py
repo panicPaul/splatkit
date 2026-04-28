@@ -68,7 +68,9 @@ def link_viewer_states(
     cleanup_callbacks: list[Callable[[], None]] = []
     active_propagations = 0
 
-    def propagate(source: ViewerState, target: ViewerState) -> Callable[[LinkedViewerStateField], None]:
+    def propagate(
+        source: ViewerState, target: ViewerState
+    ) -> Callable[[LinkedViewerStateField], None]:
         def _listener(field: LinkedViewerStateField) -> None:
             nonlocal active_propagations
             if field not in resolved_fields or active_propagations > 0:

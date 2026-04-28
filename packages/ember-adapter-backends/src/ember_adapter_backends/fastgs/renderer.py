@@ -7,8 +7,6 @@ from typing import Any
 
 import torch
 from beartype import beartype
-from jaxtyping import Bool, Float, Int
-from ember_core.densification.contracts import GaussianMetricAttribution
 from ember_core.core.contracts import (
     CameraState,
     GaussianScene3D,
@@ -16,6 +14,8 @@ from ember_core.core.contracts import (
     RenderOutput,
 )
 from ember_core.core.registry import register_backend
+from ember_core.densification.contracts import GaussianMetricAttribution
+from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 _SUPPORTED_OUTPUTS = frozenset()

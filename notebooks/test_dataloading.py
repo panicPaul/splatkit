@@ -13,11 +13,12 @@ with app.setup:
     from pathlib import Path
 
     import cv2
+    import ember_core as sk
     import marimo as mo
     import numpy as np
-    import ember_core as sk
     import torch
-    from marimo_3dv import CameraState, Viewer, ViewerState, form_gui
+    from marimo_3dv import CameraState, Viewer, ViewerState
+    from marimo_config_gui import form_gui
     from pydantic import BaseModel, ConfigDict, Field, create_model
 
     def install_linux_parent_death_signal() -> None:

@@ -11,19 +11,19 @@ app = marimo.App(
 with app.setup:
     from dataclasses import replace
 
-    import marimo as mo
-    import numpy as np
-    import ember_core as sk
     import ember_adapter_backends.fastergs as sk_fastergs
     import ember_adapter_backends.fastgs as sk_fastgs
     import ember_adapter_backends.gsplat as sk_gsplat
     import ember_adapter_backends.inria as sk_inria
     import ember_adapter_backends.stoch3dgs as sk_stoch
+    import ember_core as sk
     import ember_native_3dgrt.stoch3dgs as skn_stoch
     import ember_native_faster_gs.faster_gs as skn_fastergs
     import ember_native_faster_gs.faster_gs_depth as skn_fastergs_depth
     import ember_native_faster_gs.gaussian_pop as skn_gaussian_pop
     import ember_native_faster_gs_mojo.core as skn_fastergs_mojo
+    import marimo as mo
+    import numpy as np
     import torch
     from marimo_3dv import (
         CameraState,
@@ -291,9 +291,9 @@ def normalize_scalar_field(
     if upper - lower < 1e-6:
         normalized[valid] = 0.5
     else:
-        normalized[valid] = (
-            (values[valid] - lower) / (upper - lower)
-        ).astype(np.float32)
+        normalized[valid] = ((values[valid] - lower) / (upper - lower)).astype(
+            np.float32
+        )
     normalized = np.clip(normalized, 0.0, 1.0)
     if invert:
         normalized[valid] = 1.0 - normalized[valid]

@@ -4,7 +4,6 @@ from typing import cast
 
 import pytest
 import torch
-from ember_core.core import BACKEND_REGISTRY, render
 from ember_adapter_backends.fastergs import (
     FasterGSRenderOutput,
     render_fastergs,
@@ -12,6 +11,7 @@ from ember_adapter_backends.fastergs import (
 from ember_adapter_backends.fastergs import (
     register as register_fastergs,
 )
+from ember_core.core import BACKEND_REGISTRY, render
 from ember_native_faster_gs.faster_gs import (
     FasterGSNativeRenderOutput,
     register,
@@ -76,7 +76,9 @@ def test_native_backend_matches_fastergs_backend(
     )
 
 
-def test_render_faster_gs_native_rejects_cpu_scene(cpu_scene, cpu_camera) -> None:
+def test_render_faster_gs_native_rejects_cpu_scene(
+    cpu_scene, cpu_camera
+) -> None:
     with pytest.raises(ValueError, match="scene tensors on CUDA"):
         render_faster_gs_native(cpu_scene, cpu_camera)
 

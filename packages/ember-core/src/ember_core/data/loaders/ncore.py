@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from importlib import import_module
 from pathlib import Path
-from typing import Any
 
 import torch
 from beartype import beartype

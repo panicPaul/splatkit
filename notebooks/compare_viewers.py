@@ -12,15 +12,15 @@ with app.setup:
     from enum import Enum, StrEnum
     from pathlib import Path
 
-    import marimo as mo
-    import numpy as np
-    import ember_core as sk
     import ember_adapter_backends.fastergs as sk_fastergs
     import ember_adapter_backends.fastgs as sk_fastgs
     import ember_adapter_backends.gsplat as sk_gsplat
     import ember_adapter_backends.inria as sk_inria
     import ember_adapter_backends.stoch3dgs as sk_stoch
+    import ember_core as sk
     import ember_native_svraster.svraster as sk_svraster
+    import marimo as mo
+    import numpy as np
     import torch
     from marimo_3dv import (
         CameraState,

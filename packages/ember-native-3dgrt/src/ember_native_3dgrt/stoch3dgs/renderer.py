@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as torch_f
 from beartype import beartype
-from jaxtyping import Float
 from ember_core.core.capabilities import HasAlpha, HasDepth, HasNormals
 from ember_core.core.contracts import (
     CameraState,
@@ -16,6 +15,7 @@ from ember_core.core.contracts import (
     RenderOutput,
 )
 from ember_core.core.registry import register_backend
+from jaxtyping import Float
 from torch import Tensor
 
 from ember_native_3dgrt.core.runtime import (
@@ -102,7 +102,9 @@ def _validate_inputs(scene: GaussianScene3D, camera: CameraState) -> None:
         raise ValueError(
             "3dgrt.stoch3dgs requires a uniform image width across cameras."
         )
-    if not torch.equal(camera.height, camera.height[:1].expand_as(camera.height)):
+    if not torch.equal(
+        camera.height, camera.height[:1].expand_as(camera.height)
+    ):
         raise ValueError(
             "3dgrt.stoch3dgs requires a uniform image height across cameras."
         )
@@ -241,7 +243,9 @@ def render_stoch3dgs_native(
             max_consecutive_bvh_update=options.max_consecutive_bvh_update,
         )
     state_config = _state_config(scene, options)
-    state_token, created = _get_state_token(state_config, scene.center_position.device)
+    state_token, created = _get_state_token(
+        state_config, scene.center_position.device
+    )
 
     particle_density = pack_particle_density(
         scene.center_position.contiguous(),

@@ -18,8 +18,8 @@ from ember_core.training.config import (
     ModelSpec,
     OptimizationConfig,
     ParameterGroupConfig,
-    ParameterTargetSpec,
     ParameterSpec,
+    ParameterTargetSpec,
     RenderPipelineSpec,
     RuntimeConfig,
     TensorSliceSpec,
@@ -35,7 +35,6 @@ from ember_core.training.protocols import (
     TrainingResult,
     TrainState,
 )
-from ember_core.training.schedules import exponential_decay_to
 from ember_core.training.runtime import (
     build_dataloader,
     build_hooks,
@@ -52,6 +51,7 @@ from ember_core.training.runtime import (
     run_training,
     train_step,
 )
+from ember_core.training.schedules import exponential_decay_to
 
 __all__ = [
     "BatchingConfig",
@@ -68,8 +68,8 @@ __all__ = [
     "ModelSpec",
     "OptimizationConfig",
     "ParameterGroupConfig",
-    "ParameterTargetSpec",
     "ParameterSpec",
+    "ParameterTargetSpec",
     "RenderFn",
     "RenderPipelineSpec",
     "RuntimeConfig",
@@ -89,6 +89,7 @@ __all__ = [
     "build_parameters",
     "build_raw_render_fn",
     "build_render_fn",
+    "exponential_decay_to",
     "initialize_model",
     "instantiate_callable",
     "load_checkpoint_dir",
@@ -97,5 +98,4 @@ __all__ = [
     "run_training",
     "save_checkpoint_dir",
     "train_step",
-    "exponential_decay_to",
 ]

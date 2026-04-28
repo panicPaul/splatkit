@@ -7,17 +7,6 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from ember_native_faster_gs.faster_gs_depth.runtime.blend import (
-    _blend_bwd_fake,
-    _blend_fwd_fake,
-    blend_bwd_op,
-    blend_fwd_op,
-)
-from ember_native_faster_gs.faster_gs_depth.runtime.packing import (
-    make_render_result,
-    pack_render_outputs,
-    parse_render_outputs,
-)
 from ember_native_faster_gs.faster_gs.reuse import (
     preprocess_bwd_op,
     preprocess_fwd_op,
@@ -35,6 +24,17 @@ from ember_native_faster_gs.faster_gs.runtime.ops.preprocess import (
 )
 from ember_native_faster_gs.faster_gs.runtime.ops.sort import (
     _sort_fwd_fake,
+)
+from ember_native_faster_gs.faster_gs_depth.runtime.blend import (
+    _blend_bwd_fake,
+    _blend_fwd_fake,
+    blend_bwd_op,
+    blend_fwd_op,
+)
+from ember_native_faster_gs.faster_gs_depth.runtime.packing import (
+    make_render_result,
+    pack_render_outputs,
+    parse_render_outputs,
 )
 
 RenderOpOutput = tuple[

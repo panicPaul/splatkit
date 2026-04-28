@@ -2,11 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from marimo_config_gui._pydantic import (
-    ConfigBindings,
-    PydanticGui,
-    PydanticJsonGui,
-    ScriptConfigLoader,
+from marimo_config_gui.api import (
     config_commit_button,
     config_committed_value,
     config_error,
@@ -22,6 +18,8 @@ from marimo_config_gui._pydantic import (
     json_gui,
     load_script_config,
 )
+from marimo_config_gui.elements import PydanticGui, PydanticJsonGui
+from marimo_config_gui.state import ConfigBindings, ScriptConfigLoader
 
 try:
     from marimo_config_gui._version import __version__

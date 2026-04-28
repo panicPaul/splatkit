@@ -27,9 +27,16 @@ def pack_particle_density(
 
 def make_trace_result(outputs: RawTraceOutputs) -> TraceResult:
     """Convert raw trace outputs into the public typed result."""
-    radiance, density, hit, normals, hitcounts, visibility, weights, _sample_cache = (
-        outputs
-    )
+    (
+        radiance,
+        density,
+        hit,
+        normals,
+        hitcounts,
+        visibility,
+        weights,
+        _sample_cache,
+    ) = outputs
     return TraceResult(
         radiance=radiance,
         density=density.squeeze(-1),
@@ -41,10 +48,14 @@ def make_trace_result(outputs: RawTraceOutputs) -> TraceResult:
     )
 
 
-def make_render_result(outputs: RawRenderOutputs, bg_color: Tensor) -> RenderResult:
+def make_render_result(
+    outputs: RawRenderOutputs, bg_color: Tensor
+) -> RenderResult:
     """Convert raw render outputs into the public typed result."""
     trace_result = make_trace_result(outputs)
-    bg = bg_color.to(device=trace_result.radiance.device, dtype=trace_result.radiance.dtype)
+    bg = bg_color.to(
+        device=trace_result.radiance.device, dtype=trace_result.radiance.dtype
+    )
     render = trace_result.radiance + bg.view(1, 1, 1, 3) * (
         1.0 - trace_result.density.unsqueeze(-1)
     )

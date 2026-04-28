@@ -412,15 +412,21 @@ def test_link_viewer_states_close_stops_sync() -> None:
     link = link_viewer_states(primary, secondary)
 
     link.close()
-    primary.set_camera(CameraState.default(width=44, height=22, fov_degrees=50.0))
+    primary.set_camera(
+        CameraState.default(width=44, height=22, fov_degrees=50.0)
+    )
 
     assert secondary.camera_state.width != 44
     assert secondary.camera_state.height != 22
 
 
 def test_link_viewer_states_follows_widget_camera_updates() -> None:
-    primary_state = ViewerState(camera_state=CameraState.default(width=64, height=48))
-    secondary_state = ViewerState(camera_state=CameraState.default(width=32, height=24))
+    primary_state = ViewerState(
+        camera_state=CameraState.default(width=64, height=48)
+    )
+    secondary_state = ViewerState(
+        camera_state=CameraState.default(width=32, height=24)
+    )
     primary_viewer = marimo_viewer(
         lambda camera_state: np.zeros(
             (camera_state.height, camera_state.width, 3), dtype=np.uint8

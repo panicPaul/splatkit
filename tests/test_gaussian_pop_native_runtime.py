@@ -5,7 +5,9 @@ import torch
 from ember_native_faster_gs.gaussian_pop.runtime import render
 
 
-def _extract_camera_params(camera_state) -> tuple[int, int, float, float, float, float]:
+def _extract_camera_params(
+    camera_state,
+) -> tuple[int, int, float, float, float, float]:
     intrinsics = camera_state.get_intrinsics()[0]
     return (
         int(camera_state.width[0].item()),
@@ -22,16 +24,20 @@ def test_gaussian_pop_runtime_keeps_rgb_gradients_with_score(
     cuda_visible_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     center_positions = (
         cuda_visible_scene.center_position.detach().clone().requires_grad_(True)
     )
-    log_scales = cuda_visible_scene.log_scales.detach().clone().requires_grad_(True)
+    log_scales = (
+        cuda_visible_scene.log_scales.detach().clone().requires_grad_(True)
+    )
     rotations = (
-        cuda_visible_scene.quaternion_orientation.detach().clone().requires_grad_(True)
+        cuda_visible_scene.quaternion_orientation.detach()
+        .clone()
+        .requires_grad_(True)
     )
     opacities = (
         cuda_visible_scene.logit_opacity[:, None]
@@ -39,9 +45,17 @@ def test_gaussian_pop_runtime_keeps_rgb_gradients_with_score(
         .clone()
         .requires_grad_(True)
     )
-    sh0 = cuda_visible_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
+    sh0 = (
+        cuda_visible_scene.feature[:, :1, :]
+        .detach()
+        .clone()
+        .requires_grad_(True)
+    )
     shrest = (
-        cuda_visible_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
+        cuda_visible_scene.feature[:, 1:, :]
+        .detach()
+        .clone()
+        .requires_grad_(True)
     )
 
     result = render(
@@ -92,16 +106,20 @@ def test_gaussian_pop_runtime_keeps_depth_gradients_with_score(
     cuda_visible_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
     center_positions = (
         cuda_visible_scene.center_position.detach().clone().requires_grad_(True)
     )
-    log_scales = cuda_visible_scene.log_scales.detach().clone().requires_grad_(True)
+    log_scales = (
+        cuda_visible_scene.log_scales.detach().clone().requires_grad_(True)
+    )
     rotations = (
-        cuda_visible_scene.quaternion_orientation.detach().clone().requires_grad_(True)
+        cuda_visible_scene.quaternion_orientation.detach()
+        .clone()
+        .requires_grad_(True)
     )
     opacities = (
         cuda_visible_scene.logit_opacity[:, None]
@@ -109,9 +127,17 @@ def test_gaussian_pop_runtime_keeps_depth_gradients_with_score(
         .clone()
         .requires_grad_(True)
     )
-    sh0 = cuda_visible_scene.feature[:, :1, :].detach().clone().requires_grad_(True)
+    sh0 = (
+        cuda_visible_scene.feature[:, :1, :]
+        .detach()
+        .clone()
+        .requires_grad_(True)
+    )
     shrest = (
-        cuda_visible_scene.feature[:, 1:, :].detach().clone().requires_grad_(True)
+        cuda_visible_scene.feature[:, 1:, :]
+        .detach()
+        .clone()
+        .requires_grad_(True)
     )
 
     result = render(
@@ -160,8 +186,8 @@ def test_gaussian_pop_runtime_can_skip_score_and_depth(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = _extract_camera_params(
-        cuda_camera
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
 

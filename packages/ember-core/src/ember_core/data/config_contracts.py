@@ -150,8 +150,7 @@ class SceneLoadConfig(DataConfigBase, ABC):
 
     source_pipes: tuple[SerializeAsAny[SourcePipeConfig], ...] = Field(
         description=(
-            "Ordered source-phase pipes applied while loading the scene "
-            "record."
+            "Ordered source-phase pipes applied while loading the scene record."
         )
     )
 

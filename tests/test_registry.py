@@ -2,6 +2,11 @@ from typing import Any, Protocol, cast, runtime_checkable
 
 import pytest
 from beartype.roar import BeartypeCallHintParamViolation
+from ember_adapter_backends.gsplat import (
+    GsplatRenderOptions,
+    render_gsplat,
+    render_gsplat_2dgs,
+)
 from ember_core.core import (
     BACKEND_REGISTRY,
     CameraState,
@@ -12,11 +17,6 @@ from ember_core.core import (
     resolve_backend_trait,
 )
 from ember_core.core.registry import register_backend
-from ember_adapter_backends.gsplat import (
-    GsplatRenderOptions,
-    render_gsplat,
-    render_gsplat_2dgs,
-)
 
 
 def test_registry_contains_gsplat() -> None:
@@ -60,9 +60,7 @@ def test_render_rejects_unsupported_output_request(
 def test_render_rejects_unsupported_gaussian_impact_score_request(
     cpu_scene, cpu_camera
 ) -> None:
-    with pytest.raises(
-        ValueError, match="does not support requested outputs"
-    ):
+    with pytest.raises(ValueError, match="does not support requested outputs"):
         render(
             cpu_scene,
             cpu_camera,
