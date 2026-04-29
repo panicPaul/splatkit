@@ -103,6 +103,7 @@ diff-gaussian-rasterization-fastgs = [
     { requirement = "torch", match-runtime = true },
 ]
 FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
+fused_ssim = [{ requirement = "torch", match-runtime = true }]
 new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.sources]
@@ -116,6 +117,7 @@ ember-native-faster-gs-mojo = { path = "packages/ember-native-faster-gs-mojo", e
 ember-native-3dgrt = { path = "packages/ember-native-3dgrt", editable = true }
 ember-native-svraster = { path = "packages/ember-native-svraster", editable = true }
 diff-gaussian-rasterization-fastgs = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
+fused_ssim = { git = "https://github.com/rahul-goel/fused-ssim", rev = "328dc9836f513d00c4b5bc38fe30478b4435cbb5" }
 new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
 max = { index = "modular-nightly" }
 mojo = { index = "modular-nightly" }

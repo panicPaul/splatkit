@@ -25,6 +25,7 @@ dependencies = [
     "jaxtyping>=0.3.9",
     "ember-core",
     "ember-native-faster-gs",
+    "fused_ssim",
     "torch>=2.11.0",
 ]
 
@@ -34,6 +35,10 @@ Issues = "https://github.com/panicPaul/ember/issues"
 
 [project.optional-dependencies]
 all = []
+mojo = [
+    "max==26.3.0.dev2026042305",
+    "mojo==0.26.3.0.dev2026042305",
+]
 cu128 = [
     "torch>=2.11.0",
 ]
@@ -56,10 +61,17 @@ conflicts = [
 [tool.uv.sources]
 ember-core = { path = "../ember-core", editable = true }
 ember-native-faster-gs = { path = "../ember-native-faster-gs", editable = true }
+fused_ssim = { git = "https://github.com/rahul-goel/fused-ssim", rev = "328dc9836f513d00c4b5bc38fe30478b4435cbb5" }
+max = { index = "modular-nightly" }
+mojo = { index = "modular-nightly" }
 torch = [
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },
 ]
+
+[[tool.uv.index]]
+name = "modular-nightly"
+url = "https://whl.modular.com/nightly/simple/"
 
 [[tool.uv.index]]
 name = "pytorch-cu128"

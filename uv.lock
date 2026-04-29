@@ -871,6 +871,7 @@ dependencies = [
     { name = "beartype" },
     { name = "ember-core" },
     { name = "ember-native-faster-gs" },
+    { name = "fused-ssim" },
     { name = "jaxtyping" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-21-ember-dev-environment-cu128' and extra == 'extra-21-ember-dev-environment-cu130') or (extra == 'extra-21-ember-dev-environment-cu128' and extra == 'extra-21-ember-dev-environment-cu130-dev') or (extra == 'extra-21-ember-dev-environment-cu128-dev' and extra == 'extra-21-ember-dev-environment-cu130') or (extra == 'extra-21-ember-dev-environment-cu128-dev' and extra == 'extra-21-ember-dev-environment-cu130-dev') or (extra != 'extra-21-ember-dev-environment-cu128' and extra != 'extra-21-ember-dev-environment-cu128-dev' and extra != 'extra-21-ember-dev-environment-cu130' and extra != 'extra-21-ember-dev-environment-cu130-dev')" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-21-ember-dev-environment-cu128' or extra == 'extra-21-ember-dev-environment-cu128-dev'" },
@@ -882,12 +883,15 @@ requires-dist = [
     { name = "beartype", specifier = ">=0.22.9" },
     { name = "ember-core", editable = "packages/ember-core" },
     { name = "ember-native-faster-gs", editable = "packages/ember-native-faster-gs" },
+    { name = "fused-ssim", git = "https://github.com/rahul-goel/fused-ssim?rev=328dc9836f513d00c4b5bc38fe30478b4435cbb5" },
     { name = "jaxtyping", specifier = ">=0.3.9" },
+    { name = "max", marker = "extra == 'mojo'", specifier = "==26.3.0.dev2026042305", index = "https://whl.modular.com/nightly/simple/" },
+    { name = "mojo", marker = "extra == 'mojo'", specifier = "==0.26.3.0.dev2026042305", index = "https://whl.modular.com/nightly/simple/" },
     { name = "torch", specifier = ">=2.11.0" },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "ember-splatting-training", extra = "cu128" } },
     { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "ember-splatting-training", extra = "cu130" } },
 ]
-provides-extras = ["all", "cu128", "cu130"]
+provides-extras = ["all", "cu128", "cu130", "mojo"]
 
 [[package]]
 name = "executing"
@@ -977,6 +981,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/e1/cf/b50ddf667c15276a9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d5/1f/5f4a3cd9e4440e9d9bc78ad0a91a1c8d46b4d429d5239ebe6793c9fe5c41/fsspec-2026.3.0-py3-none-any.whl", hash = "sha256:d2ceafaad1b3457968ed14efa28798162f1638dbb5d2a6868a2db002a5ee39a4", size = 202595, upload-time = "2026-03-27T19:11:13.595Z" },
 ]
+
+[[package]]
+name = "fused-ssim"
+version = "0.0.0"
+source = { git = "https://github.com/rahul-goel/fused-ssim?rev=328dc9836f513d00c4b5bc38fe30478b4435cbb5#328dc9836f513d00c4b5bc38fe30478b4435cbb5" }
 
 [[package]]
 name = "gsplat"
