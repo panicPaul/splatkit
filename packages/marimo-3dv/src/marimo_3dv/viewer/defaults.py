@@ -135,6 +135,13 @@ class CombinedViewerPipelineControlsHandle(Generic[PipelineConfigT]):
         return value
 
 
+@dataclass(frozen=True)
+class _StaticControls:
+    """Non-notebook controls placeholder exposing a stable value."""
+
+    value: Any
+
+
 def viewer_controls_config(
     viewer_state: ViewerState,
 ) -> ViewerControlsConfig:
@@ -235,21 +242,16 @@ def viewer_controls_handle(
     resolved_default_config = default_config or viewer_controls_config(
         viewer_state
     )
-    if mo.running_in_notebook():
-        gui = form_gui(
+    gui = (
+        form_gui(
             ViewerControlsConfig,
             value=resolved_default_config,
             label=label,
             live_update=True,
         )
-    else:
-        from marimo_3dv.viewer.controls import DesktopPydanticControls
-
-        gui = DesktopPydanticControls(
-            ViewerControlsConfig,
-            value=resolved_default_config,
-            label=label,
-        )
+        if mo.running_in_notebook()
+        else _StaticControls(resolved_default_config)
+    )
     return ViewerControlsHandle(
         config_model=ViewerControlsConfig,
         default_config=resolved_default_config,
@@ -304,21 +306,16 @@ def viewer_pipeline_controls_handle(
         viewer=resolved_viewer_default,
         pipeline=pipeline_result.default_config,
     )
-    if mo.running_in_notebook():
-        gui = form_gui(
+    gui = (
+        form_gui(
             combined_model,
             value=default_config,
             label=label,
             live_update=True,
         )
-    else:
-        from marimo_3dv.viewer.controls import DesktopPydanticControls
-
-        gui = DesktopPydanticControls(
-            combined_model,
-            value=default_config,
-            label=label,
-        )
+        if mo.running_in_notebook()
+        else _StaticControls(default_config)
+    )
     return CombinedViewerPipelineControlsHandle(
         config_model=combined_model,
         default_config=default_config,

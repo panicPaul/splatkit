@@ -38,13 +38,11 @@ with app.setup:
     from pydantic import BaseModel, Field
     from torch import Tensor
 
-    from marimo_3dv import (
-        CameraState,
-        RenderResult,
-        Viewer,
-        ViewerState,
+    from ember_core.viewer import ViewerRenderResult as RenderResult
+    from marimo_3dv import CameraState, Viewer, ViewerState
+    from marimo_3dv.ops.gs import gs_backend_bundle
+    from marimo_3dv.viewer.defaults import (
         apply_viewer_pipeline_config,
-        gs_backend_bundle,
         viewer_pipeline_controls_gui,
     )
 

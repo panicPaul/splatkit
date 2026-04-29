@@ -1,6 +1,7 @@
 """Ember-native FasterGS backend."""
 
 __all__ = [
+    "FasterGSNativeDensificationRenderOutput",
     "FasterGSNativeRenderOptions",
     "FasterGSNativeRenderOutput",
     "register",

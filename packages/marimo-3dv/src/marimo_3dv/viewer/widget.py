@@ -1299,11 +1299,13 @@ class _LatestOnlyRenderer:
             [int, CameraState, np.ndarray, float, bool], None
         ],
         publish_error: Callable[[int, Exception, str], None],
+        complete_revision: Callable[[int, Exception | None], None],
         set_rendering: Callable[[bool], None],
     ) -> None:
         self._render_fn = render_fn
         self._publish_frame = publish_frame
         self._publish_error = publish_error
+        self._complete_revision = complete_revision
         self._set_rendering = set_rendering
         self._condition = threading.Condition()
         self._latest_revision = -1
@@ -1322,6 +1324,7 @@ class _LatestOnlyRenderer:
         with self._condition:
             if self._closed:
                 return
+            previous_latest_revision = self._latest_revision
             self._latest_revision = revision
             self._pending_revision = revision
             self._pending_state = camera_state
@@ -1329,6 +1332,8 @@ class _LatestOnlyRenderer:
             self._pending_requested_at = time.perf_counter()
             self._set_rendering(True)
             self._condition.notify()
+        if 0 <= previous_latest_revision < revision:
+            self._complete_revision(previous_latest_revision, None)
 
     def close(self) -> None:
         """Stop the background render worker."""
@@ -1372,9 +1377,15 @@ class _LatestOnlyRenderer:
                 ).rstrip()
                 with self._condition:
                     is_latest = revision == self._latest_revision
+                    has_pending = self._pending_state is not None
                 if is_latest:
                     self._publish_error(revision, exception, message)
-                    self._set_rendering(False)
+                    if not has_pending:
+                        self._set_rendering(False)
+                else:
+                    self._complete_revision(revision, None)
+                    if not has_pending:
+                        self._set_rendering(False)
                 continue
 
             with self._condition:
@@ -1382,8 +1393,12 @@ class _LatestOnlyRenderer:
                 superseded_by_interaction = (
                     not interaction_active and self._pending_interaction_active
                 )
+                has_pending = self._pending_state is not None
 
             if not is_latest or superseded_by_interaction:
+                self._complete_revision(revision, None)
+                if not has_pending:
+                    self._set_rendering(False)
                 continue
 
             try:
@@ -1558,6 +1573,7 @@ class MarimoViewer(_StableMarimoAnyWidget):
             render_fn=render_fn,
             publish_frame=self._publish_frame,
             publish_error=self._publish_error,
+            complete_revision=self._complete_revision,
             set_rendering=self._set_rendering,
         )
         self.widget.observe(
@@ -1587,7 +1603,7 @@ class MarimoViewer(_StableMarimoAnyWidget):
                 self.set_keyboard_navigation
             )
             self._state._pointer_controls_callback = self.set_pointer_controls
-        self.rerender()
+        self.rerender(wait=True)
 
     def close(self) -> None:
         """Release background resources held by this viewer instance."""
@@ -1839,12 +1855,15 @@ class MarimoViewer(_StableMarimoAnyWidget):
             notify_listeners=True,
         )
 
-    def set_camera_state(self, camera_state: CameraState) -> None:
+    def set_camera_state(
+        self, camera_state: CameraState, *, wait: bool = False
+    ) -> None:
         """Apply a camera state and request a fresh render."""
         self.widget.camera_state_json = camera_state.to_json()
         self.widget.error_text = ""
         self.widget._camera_revision += 1
-        self._wait_for_revision(self.widget._camera_revision)
+        if wait:
+            self._wait_for_revision(self.widget._camera_revision)
 
     def set_viewer_rotation(
         self,
@@ -1924,7 +1943,9 @@ class MarimoViewer(_StableMarimoAnyWidget):
             ]
         )
 
-    def rerender(self, *, interactive: bool = False) -> None:
+    def rerender(
+        self, *, interactive: bool = False, wait: bool = False
+    ) -> None:
         """Request a fresh render without changing the camera pose.
 
         When `interactive` is True the render uses interactive quality and
@@ -1934,7 +1955,8 @@ class MarimoViewer(_StableMarimoAnyWidget):
         if interactive:
             self.widget.interaction_active = True
         self.widget._camera_revision += 1
-        self._wait_for_revision(self.widget._camera_revision)
+        if wait:
+            self._wait_for_revision(self.widget._camera_revision)
 
     def _camera_state_with_max_side(
         self, camera_state: CameraState, max_side: int | None

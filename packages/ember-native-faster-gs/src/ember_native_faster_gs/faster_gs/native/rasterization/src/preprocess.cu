@@ -192,6 +192,7 @@ preprocess_bwd_wrapper(
     const torch::Tensor& grad_conic_opacity,
     const torch::Tensor& grad_colors_rgb,
     const torch::Tensor& grad_primitive_depth,
+    const torch::Tensor& densification_info,
     int width,
     int height,
     float focal_x,
@@ -215,6 +216,18 @@ preprocess_bwd_wrapper(
 
     const int n_primitives = means.size(0);
     const int total_sh_bases = sh_coefficients_rest.size(1);
+    if (densification_info.numel() > 0) {
+        check_cuda_float_tensor(densification_info, "densification_info");
+        TORCH_CHECK(
+            densification_info.is_contiguous(),
+            "densification_info must be contiguous."
+        );
+        TORCH_CHECK(
+            densification_info.dim() == 2 && densification_info.size(0) == 2 &&
+                densification_info.size(1) == n_primitives,
+            "densification_info must have shape (2, n_primitives)."
+        );
+    }
     auto float_options = means.options().dtype(torch::kFloat);
 
     torch::Tensor grad_means = torch::zeros({n_primitives, 3}, float_options);
@@ -245,7 +258,6 @@ preprocess_bwd_wrapper(
     torch::Tensor cam_position_c = cam_position.contiguous();
     torch::Tensor touched_c = num_touched_tiles.contiguous();
     torch::Tensor grad_depth_c = grad_primitive_depth.reshape({n_primitives, 1}).contiguous();
-
     // The backward kernel accumulates gradients into separate geometric and SH
     // buffers, which are then returned in the same order as the Python op
     // expects.
@@ -268,7 +280,9 @@ preprocess_bwd_wrapper(
             grad_opacities.data_ptr<float>(),
             reinterpret_cast<float3*>(grad_sh_coefficients_0.data_ptr<float>()),
             reinterpret_cast<float3*>(grad_sh_coefficients_rest.data_ptr<float>()),
-            nullptr,
+            densification_info.numel() > 0
+                ? densification_info.data_ptr<float>()
+                : nullptr,
             static_cast<uint>(n_primitives),
             static_cast<uint>(active_sh_bases),
             static_cast<uint>(total_sh_bases),

@@ -33,7 +33,7 @@ uv run marimo run papers/fastergs/notebook.py
 Run in script mode with a named default JSON config plus CLI overrides:
 
 ```bash
-uv run papers/fastergs/notebook.py cli \
+uv run papers/fastergs/notebook.py preset \
   --preset garden_baseline \
   --scene.path /path/to/mipnerf360/garden \
   --execution.max-steps 100 \
@@ -46,9 +46,9 @@ Replay an exported resolved config:
 uv run papers/fastergs/notebook.py json checkpoints/papers/fastergs/garden_baseline/adapter.fastergs/config.json
 ```
 
-Python config module:
+The notebook is also the Python config/module surface used by script mode:
 
-- `papers/fastergs/config.py`
+- `papers/fastergs/notebook.py`
 
 Default JSON configs:
 

@@ -138,7 +138,10 @@ def _preprocess_fwd_fake(
     )
 
 
-@torch.library.custom_op("faster_gs::preprocess_bwd", mutates_args=())
+@torch.library.custom_op(
+    "faster_gs::preprocess_bwd",
+    mutates_args=("densification_info",),
+)
 def preprocess_bwd_op(
     center_positions: Tensor,
     log_scales: Tensor,
@@ -153,6 +156,7 @@ def preprocess_bwd_op(
     grad_conic_opacity: Tensor,
     grad_colors_rgb: Tensor,
     grad_primitive_depth: Tensor,
+    densification_info: Tensor,
     width: int,
     height: int,
     focal_x: float,
@@ -177,6 +181,7 @@ def preprocess_bwd_op(
         grad_conic_opacity,
         grad_colors_rgb,
         grad_primitive_depth,
+        densification_info,
         width,
         height,
         focal_x,
@@ -203,6 +208,7 @@ def _preprocess_bwd_fake(
     grad_conic_opacity: Tensor,
     grad_colors_rgb: Tensor,
     grad_primitive_depth: Tensor,
+    densification_info: Tensor,
     width: int,
     height: int,
     focal_x: float,
@@ -220,6 +226,7 @@ def _preprocess_bwd_fake(
         grad_conic_opacity,
         grad_colors_rgb,
         grad_primitive_depth,
+        densification_info,
         width,
         height,
         focal_x,
@@ -367,6 +374,7 @@ def _preprocess_backward(
         grad_conic_opacity,
         grad_colors_rgb,
         grad_primitive_depth,
+        torch.empty(0, device=grad_projected_means.device),
         ctx.width,
         ctx.height,
         ctx.focal_x,

@@ -26,12 +26,21 @@ class FasterGSRenderOutput(RenderOutput):
 
 @beartype
 @dataclass(frozen=True)
+class FasterGSDensificationRenderOutput(FasterGSRenderOutput):
+    """FasterGS render output with densification accumulators."""
+
+    densification_info: Float[Tensor, " 2 num_splats"]
+
+
+@beartype
+@dataclass(frozen=True)
 class FasterGSRenderOptions(RenderOptions):
     """FasterGS-specific render configuration."""
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
     proper_antialiasing: bool = False
+    collect_densification_info: bool = False
 
 
 @beartype
@@ -129,6 +138,15 @@ def render_fastergs(
     options = options or FasterGSRenderOptions()
     sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)
     renders: list[Float[Tensor, "height width 3"]] = []
+    densification_info = (
+        torch.zeros(
+            (2, scene.center_position.shape[0]),
+            dtype=torch.float32,
+            device=scene.center_position.device,
+        )
+        if options.collect_densification_info
+        else torch.empty(0, device=scene.center_position.device)
+    )
 
     for camera_index in range(camera.cam_to_world.shape[0]):
         image = diff_rasterize(
@@ -138,9 +156,7 @@ def render_fastergs(
             opacities=scene.logit_opacity[:, None],
             sh_coefficients_0=sh_coefficients_0.contiguous(),
             sh_coefficients_rest=sh_coefficients_rest.contiguous(),
-            densification_info=torch.empty(
-                0, device=scene.center_position.device
-            ),
+            densification_info=densification_info,
             rasterizer_settings=_build_rasterizer_settings(
                 scene,
                 camera,
@@ -150,7 +166,13 @@ def render_fastergs(
         )
         renders.append(image.permute(1, 2, 0).contiguous().clamp(0.0, 1.0))
 
-    return FasterGSRenderOutput(render=torch.stack(renders, dim=0))
+    render = torch.stack(renders, dim=0)
+    if options.collect_densification_info:
+        return FasterGSDensificationRenderOutput(
+            render=render,
+            densification_info=densification_info,
+        )
+    return FasterGSRenderOutput(render=render)
 
 
 def register() -> None:

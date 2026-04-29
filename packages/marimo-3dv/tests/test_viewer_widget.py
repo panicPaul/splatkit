@@ -10,25 +10,19 @@ import pytest
 import torch
 from marimo._runtime.virtual_file import InMemoryStorage, VirtualFileRegistry
 from marimo_config_gui import PydanticGui
-from pydantic import BaseModel
 
 import marimo_3dv.viewer.defaults as viewer_defaults
 from marimo_3dv import (
     CameraState,
     ViewerClick,
     ViewerControlsConfig,
-    ViewerPipeline,
     ViewerState,
     apply_viewer_config,
-    apply_viewer_pipeline_config,
     link_viewer_states,
     viewer_controls_config,
     viewer_controls_gui,
     viewer_controls_handle,
-    viewer_pipeline_controls_gui,
-    viewer_pipeline_controls_handle,
 )
-from marimo_3dv.viewer.controls import DesktopPydanticControls
 from marimo_3dv.viewer.widget import (
     _cleanup_active_marimo_viewers,
     _convert_cam_to_world_between_conventions,
@@ -247,80 +241,7 @@ def test_viewer_controls_handle_uses_desktop_controls_outside_notebook(
     handle = viewer_controls_handle(ViewerState())
 
     assert handle.config_model is ViewerControlsConfig
-    assert isinstance(handle.gui, DesktopPydanticControls)
     assert handle.value == handle.default_config
-
-
-def test_combined_viewer_pipeline_controls_gui_builds_live_form(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(viewer_defaults.mo, "running_in_notebook", lambda: True)
-
-    pipeline = ViewerPipeline(view_factory=lambda scene: scene)
-    pipeline_result = pipeline.build(
-        source_scene=None, viewer_state=ViewerState()
-    )
-
-    handle = viewer_pipeline_controls_gui(ViewerState(), pipeline_result)
-
-    assert "viewer" in handle.config_model.model_fields
-    assert "pipeline" in handle.config_model.model_fields
-    assert isinstance(handle.gui, PydanticGui)
-
-
-def test_combined_viewer_pipeline_controls_handle_uses_desktop_controls(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        viewer_defaults.mo, "running_in_notebook", lambda: False
-    )
-
-    pipeline = ViewerPipeline(view_factory=lambda scene: scene)
-    pipeline_result = pipeline.build(
-        source_scene=None, viewer_state=ViewerState()
-    )
-
-    handle = viewer_pipeline_controls_handle(ViewerState(), pipeline_result)
-
-    assert "viewer" in handle.config_model.model_fields
-    assert "pipeline" in handle.config_model.model_fields
-    assert isinstance(handle.gui, DesktopPydanticControls)
-    assert handle.value == handle.default_config
-
-
-def test_apply_viewer_pipeline_config_returns_pipeline_subtree() -> None:
-    class _PipelineConfig(BaseModel):
-        value: int = 3
-
-    class _CombinedConfig(BaseModel):
-        viewer: ViewerControlsConfig = ViewerControlsConfig()
-        pipeline: _PipelineConfig = _PipelineConfig()
-
-    state = ViewerState()
-    config = _CombinedConfig(
-        viewer=ViewerControlsConfig(
-            camera={"fov_degrees": 68.0},
-            overlays={"show_axes": False},
-            navigation={"move_speed": 0.2, "sprint_multiplier": 3.0},
-            transform={
-                "rotation": {
-                    "x_degrees": 5.0,
-                    "y_degrees": 0.0,
-                    "z_degrees": 0.0,
-                }
-            },
-        ),
-        pipeline=_PipelineConfig(value=9),
-    )
-
-    pipeline_config = apply_viewer_pipeline_config(state, config)
-
-    assert pipeline_config.value == 9
-    assert state.camera_state.fov_degrees == 68.0
-    assert state.show_axes is False
-    assert state.keyboard_move_speed == 0.2
-    assert state.keyboard_sprint_multiplier == 3.0
-    assert state.viewer_rotation_x_degrees == 5.0
 
 
 def test_set_keyboard_navigation_updates_viewer_state() -> None:
@@ -800,7 +721,8 @@ def test_latest_only_renderer_drops_stale_results() -> None:
     renderer = _LatestOnlyRenderer(
         render_fn=render_fn,
         publish_frame=publish_frame,
-        publish_error=lambda revision, message: None,
+        publish_error=lambda revision, error, message: None,
+        complete_revision=lambda revision, error: None,
         set_rendering=lambda value: None,
     )
 
@@ -810,6 +732,33 @@ def test_latest_only_renderer_drops_stale_results() -> None:
     release_first.set()
 
     _wait_until(lambda: published == [(2, 20)])
+
+
+def test_latest_only_renderer_unsets_rendering_after_error() -> None:
+    errors: list[tuple[int, str]] = []
+    rendering_states: list[bool] = []
+
+    def render_fn(camera_state: CameraState) -> np.ndarray:
+        del camera_state
+        raise RuntimeError("boom")
+
+    renderer = _LatestOnlyRenderer(
+        render_fn=render_fn,
+        publish_frame=lambda *args: None,
+        publish_error=lambda revision, error, message: errors.append(
+            (revision, message)
+        ),
+        complete_revision=lambda revision, error: None,
+        set_rendering=lambda value: rendering_states.append(value),
+    )
+
+    renderer.request(1, CameraState.default(width=10, height=4), False)
+
+    _wait_until(lambda: bool(errors))
+
+    assert errors[0][0] == 1
+    assert "RuntimeError: boom" in errors[0][1]
+    assert rendering_states[-1] is False
 
 
 def test_marimo_viewer_set_camera_state_updates_widget_state() -> None:
@@ -1105,6 +1054,7 @@ def test_latest_only_renderer_close_stops_worker() -> None:
         ),
         publish_frame=lambda *args: None,
         publish_error=lambda revision, error, message: None,
+        complete_revision=lambda revision, error: None,
         set_rendering=lambda value: None,
     )
 

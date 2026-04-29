@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import marimo as mo
 
 from marimo_3dv.viewer.defaults import (
-    CombinedViewerPipelineControlsHandle,
     ViewerCameraConfig,
     ViewerControlsConfig,
     ViewerControlsHandle,
@@ -20,12 +19,9 @@ from marimo_3dv.viewer.defaults import (
     ViewerRotationConfig,
     ViewerTransformConfig,
     apply_viewer_config,
-    apply_viewer_pipeline_config,
     viewer_controls_config,
     viewer_controls_gui,
     viewer_controls_handle,
-    viewer_pipeline_controls_gui,
-    viewer_pipeline_controls_handle,
 )
 from marimo_3dv.viewer.link import ViewerStateLink, link_viewer_states
 from marimo_3dv.viewer.widget import (
@@ -37,16 +33,44 @@ from marimo_3dv.viewer.widget import (
     marimo_viewer,
 )
 
-if TYPE_CHECKING:
-    from marimo_3dv.viewer.controls import DesktopPydanticControls
-    from marimo_3dv.viewer.desktop import DesktopViewer
 
+class NoopViewer:
+    """Non-rendering placeholder returned outside live marimo runtimes."""
 
-def desktop_viewer(*args: Any, **kwargs: Any) -> DesktopViewer:
-    """Create a desktop viewer, importing PySide only when needed."""
-    from marimo_3dv.viewer.desktop import desktop_viewer as _desktop_viewer
+    def __init__(self, *, state: ViewerState) -> None:
+        self.state = state
+        self._closed = False
 
-    return _desktop_viewer(*args, **kwargs)
+    def close(self) -> None:
+        """Mark the placeholder as closed."""
+        self._closed = True
+
+    def rerender(self, *, interactive: bool = False, wait: bool = False) -> None:
+        """No-op render scheduling method matching ``MarimoViewer``."""
+        del interactive, wait
+
+    def set_camera_state(
+        self, camera_state: CameraState, *, wait: bool = False
+    ) -> None:
+        """Update the placeholder state without rendering."""
+        del wait
+        self.state.set_camera(camera_state)
+
+    def get_camera_state(self) -> CameraState:
+        """Return the current placeholder camera state."""
+        return self.state.camera_state
+
+    def get_last_click(self) -> ViewerClick | None:
+        """Return the last click stored on the placeholder state."""
+        return self.state.last_click
+
+    def anywidget(self) -> Any:
+        """Raise because no browser widget exists in script mode."""
+        raise RuntimeError("No marimo widget is available outside a notebook.")
+
+    def get_snapshot(self) -> Any:
+        """Raise because no frame is rendered in script mode."""
+        raise RuntimeError("No rendered frame is available outside a notebook.")
 
 
 def Viewer(
@@ -54,37 +78,26 @@ def Viewer(
     *,
     state: ViewerState | None = None,
     title: str = "marimo-3dv viewer",
-    controls: DesktopPydanticControls[Any] | None = None,
-) -> MarimoViewer | DesktopViewer:
+    controls: Any | None = None,
+) -> MarimoViewer | NoopViewer:
     """Create the appropriate viewer backend for the current runtime.
 
-    In notebook runtimes this returns a marimo-backed viewer widget. In
-    script runtimes it creates and immediately runs the desktop backend.
+    In notebook runtimes this returns a marimo-backed viewer widget. In script
+    runtimes it returns a non-rendering placeholder so notebooks remain
+    executable without opening a desktop window.
     """
+    del title, controls
     viewer_state = state or ViewerState()
     if mo.running_in_notebook():
         return marimo_viewer(render_fn, state=viewer_state)
-
-    window_width = 1280
-    window_height = max(1, round(window_width / viewer_state.aspect_ratio))
-
-    viewer = desktop_viewer(
-        render_fn,
-        state=viewer_state,
-        width=window_width,
-        height=window_height,
-        title=title,
-        controls=controls,
-    )
-    viewer.run()
-    return viewer
+    return NoopViewer(state=viewer_state)
 
 
 __all__ = [
     "CameraState",
-    "CombinedViewerPipelineControlsHandle",
     "LinkedViewerStateField",
     "MarimoViewer",
+    "NoopViewer",
     "Viewer",
     "ViewerCameraConfig",
     "ViewerClick",
@@ -100,11 +113,8 @@ __all__ = [
     "ViewerStateLink",
     "ViewerTransformConfig",
     "apply_viewer_config",
-    "apply_viewer_pipeline_config",
     "link_viewer_states",
     "viewer_controls_config",
     "viewer_controls_gui",
     "viewer_controls_handle",
-    "viewer_pipeline_controls_gui",
-    "viewer_pipeline_controls_handle",
 ]

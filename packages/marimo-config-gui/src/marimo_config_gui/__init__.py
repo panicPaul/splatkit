@@ -10,6 +10,7 @@ from marimo_config_gui.api import (
     config_gui,
     config_json,
     config_json_output,
+    config_preset_selector,
     config_require_valid,
     config_value,
     create_committed_config_state,
@@ -19,6 +20,13 @@ from marimo_config_gui.api import (
     load_script_config,
 )
 from marimo_config_gui.elements import PydanticGui, PydanticJsonGui
+from marimo_config_gui.presets import (
+    ConfigPreset,
+    ConfigPresetCatalog,
+    load_json_config,
+    load_preset_config,
+    merge_config_override,
+)
 from marimo_config_gui.state import ConfigBindings, ScriptConfigLoader
 
 try:
@@ -31,6 +39,8 @@ except ImportError:
 
 __all__ = [
     "ConfigBindings",
+    "ConfigPreset",
+    "ConfigPresetCatalog",
     "PydanticGui",
     "PydanticJsonGui",
     "ScriptConfigLoader",
@@ -42,11 +52,15 @@ __all__ = [
     "config_gui",
     "config_json",
     "config_json_output",
+    "config_preset_selector",
     "config_require_valid",
     "config_value",
     "create_committed_config_state",
     "create_config_state",
     "form_gui",
     "json_gui",
+    "load_json_config",
+    "load_preset_config",
     "load_script_config",
+    "merge_config_override",
 ]

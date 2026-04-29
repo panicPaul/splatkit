@@ -153,8 +153,14 @@ def render(
     bg_color: Tensor,
     proper_antialiasing: bool,
     active_sh_bases: int,
+    densification_info: Tensor | None = None,
 ) -> RenderResult:
     """Run the full native render stage."""
+    resolved_densification_info = (
+        densification_info
+        if densification_info is not None
+        else center_positions.new_empty((0,))
+    )
     return make_render_result(
         render_op(
             center_positions,
@@ -176,6 +182,7 @@ def render(
             bg_color,
             proper_antialiasing,
             active_sh_bases,
+            resolved_densification_info,
         )
     )
 

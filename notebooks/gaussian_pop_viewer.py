@@ -2,7 +2,7 @@
 
 import marimo
 
-__generated_with = "0.23.2"
+__generated_with = "0.23.3"
 app = marimo.App(width="columns")
 
 with app.setup:
@@ -13,20 +13,31 @@ with app.setup:
     import ember_core as sk
     import ember_native_faster_gs.gaussian_pop as skn_gaussian_pop
     import marimo as mo
+    import marimo._output.mpl
     import numpy as np
     import torch
+    from ember_core.viewer import (
+        ViewerRenderResult as RenderResult,
+    )
+    from ember_core.viewer import (
+        ViewerStatsUpdateGate,
+        prepare_viewer_stats_series,
+    )
     from marimo_3dv import (
         CameraState,
-        RenderResult,
-        SplatLoadConfig,
-        SplatScene,
         Viewer,
         ViewerState,
-        apply_viewer_pipeline_config,
+        link_viewer_states,
+    )
+    from marimo_3dv.ops.gs import (
+        SplatLoadConfig,
+        SplatScene,
         cleanup_before_splat_reload,
         gs_backend_bundle,
-        link_viewer_states,
         pick_splat_load_config,
+    )
+    from marimo_3dv.viewer.defaults import (
+        apply_viewer_pipeline_config,
         viewer_pipeline_controls_gui,
     )
     from marimo_config_gui import (
@@ -38,7 +49,14 @@ with app.setup:
 
     skn_gaussian_pop.register()
     active_link = {"handles": []}
-    active_render_observer = {"widget": None, "callback": None}
+    score_plot_update_gate = ViewerStatsUpdateGate(
+        min_interval_seconds=0.75,
+        update_while_active=False,
+    )
+    active_render_observer = {
+        "widget": None,
+        "callback": None,
+    }
     view_mode_options = ["image", "depth"]
     colormap_options = [
         "viridis",
@@ -101,7 +119,7 @@ def _(filter_controls, normalization_controls, selectors, viewer_controls_gui):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(score_plot):
     score_plot
     return
@@ -274,6 +292,7 @@ def render_score_frame(
         f"{selected_colormap}:{selected_antialiasing}:"
         f"{selected_quantile_percent}:{selected_quantile_bias}:"
         f"{selected_invert_colormap}:{selected_log_map}:"
+        f"{id(score_pipeline_result)}:"
         f"{combined_config.model_dump_json()}"
     )
     if (
@@ -346,7 +365,7 @@ def _(
 @app.cell
 def _():
     score_log_map = mo.ui.checkbox(
-        value=False,
+        value=True,
         label="Log score map",
     )
     return (score_log_map,)
@@ -426,7 +445,7 @@ def _(filtered_viewer_state, scene, viewer_pipeline):
 
 @app.cell
 def _():
-    score_store = {"values": None}
+    score_store = {"values": None, "revision": 0}
     score_store_lock = threading.Lock()
     return score_store, score_store_lock
 
@@ -489,13 +508,19 @@ def _(filtered_viewer, score_viewer, set_render_revision_state, viewer):
     widget = viewer.anywidget()
 
     def _on_render_revision(change):
-        set_render_revision_state(int(change["new"]))
         filtered_viewer.rerender()
         score_viewer.rerender()
+        revision = int(change["new"])
+        if score_plot_update_gate.should_update(
+            revision,
+            active=bool(widget.interaction_active),
+        ):
+            set_render_revision_state(revision)
 
     widget.observe(_on_render_revision, names=["render_revision"])
     active_render_observer["widget"] = widget
     active_render_observer["callback"] = _on_render_revision
+    score_plot_update_gate.reset()
     set_render_revision_state(int(widget.render_revision))
     return
 
@@ -507,6 +532,7 @@ def _(
     render_revision_state,
     score_filter_threshold,
     score_plot_points,
+    score_plot_type,
     score_store,
     score_store_lock,
     top_bottom_count,
@@ -520,6 +546,7 @@ def _(
         min_score=score_filter_threshold.value or 0.0,
         keep_mode=keep_mode.value,
         filter_mode=filter_mode.value,
+        plot_kind=score_plot_type.value,
         top_bottom_count=top_bottom_count.value or 0,
     )
     return (score_plot,)
@@ -552,6 +579,7 @@ def render_main_backend(
     )
     with score_store_lock:
         score_store["values"] = score_values
+        score_store["revision"] += 1
     return render_result
 
 
@@ -585,6 +613,7 @@ def render_main_frame(
         f"{selected_view_mode}:{selected_colormap}:{selected_antialiasing}:"
         f"{selected_quantile_percent}:{selected_quantile_bias}:"
         f"{selected_invert_colormap}:"
+        f"{id(pipeline_result)}:"
         f"{combined_config.model_dump_json()}"
     )
     if (
@@ -736,6 +765,7 @@ def render_filtered_frame(
         f"{selected_quantile_percent}:{selected_quantile_bias}:"
         f"{selected_invert_colormap}:{selected_keep_mode}:"
         f"{selected_filter_mode}:{selected_threshold}:{selected_top_bottom_count}:"
+        f"{id(filtered_pipeline_result)}:"
         f"{combined_config.model_dump_json()}"
     )
     if (
@@ -972,90 +1002,99 @@ def score_scatter_chart(
     max_points: int = 5000,
     min_score: float = 1e-3,
     keep_mode: str = "higher",
+    plot_kind: str = "sorted_rank",
     top_bottom_count: int = 0,
 ):
-    """Build a sorted Altair scatterplot for the current impact scores."""
+    """Build a bounded Altair stats plot for the current impact scores."""
     if score_values is None:
         return mo.callout(
             "Move the viewer to render the current POP scores.",
             kind="info",
         )
 
-    flattened_scores, mask, threshold = score_filter_mask(
+    threshold = float(max(0.0, min_score))
+    stats_series = prepare_viewer_stats_series(
         score_values,
-        filter_mode=filter_mode,
-        min_score=min_score,
+        name="Gaussian POP score",
+        plot_kind=plot_kind,
+        max_points=max_points,
+        positive_only=True,
+        min_value=(
+            threshold
+            if filter_mode != "top_bottom" and keep_mode != "lower"
+            else None
+        ),
+        max_value=(
+            threshold
+            if filter_mode != "top_bottom" and keep_mode == "lower"
+            else None
+        ),
         keep_mode=keep_mode,
-        top_bottom_count=top_bottom_count,
-        require_positive=True,
+        top_count=top_bottom_count if filter_mode == "top_bottom" else None,
     )
-    finite_scores = flattened_scores[np.isfinite(flattened_scores)]
-    total_score_count = finite_scores.size
-    selected_scores = flattened_scores[mask]
-    if selected_scores.size == 0:
+    if stats_series.summary.selected_count == 0:
         return mo.callout(
             "The current render did not produce any positive scores matching the filter.",
             kind="warn",
         )
-
-    sorted_scores = np.sort(selected_scores)
-    if keep_mode != "lower":
-        sorted_scores = sorted_scores[::-1]
-    target_points = min(max(1, int(max_points)), int(sorted_scores.size))
-    sampled_indices = np.linspace(
-        0,
-        sorted_scores.size - 1,
-        num=target_points,
-        dtype=np.int64,
-    )
-    sampled_scores = sorted_scores[sampled_indices]
-    rows = [
-        {
-            "rank": int(rank_index) + 1,
-            "score": float(score),
-        }
-        for rank_index, score in zip(
-            sampled_indices,
-            sampled_scores,
-            strict=True,
+    if stats_series.plot_kind == "histogram":
+        chart = (
+            alt.Chart(alt.Data(values=list(stats_series.rows)))
+            .mark_bar(color="#0f766e", opacity=0.7)
+            .encode(
+                x=alt.X(
+                    "bin_start:Q",
+                    title="Score",
+                    scale=alt.Scale(type="log"),
+                ),
+                x2="bin_end:Q",
+                y=alt.Y("count:Q", title="Count"),
+                tooltip=[
+                    alt.Tooltip("bin_start:Q", title="Bin start"),
+                    alt.Tooltip("bin_end:Q", title="Bin end"),
+                    alt.Tooltip("count:Q", title="Count"),
+                ],
+            )
+            .properties(height=260)
         )
-    ]
-    chart = (
-        alt.Chart(alt.Data(values=rows))
-        .mark_circle(color="#0f766e", opacity=0.45, size=16)
-        .encode(
-            x=alt.X(
-                "rank:Q",
-                title="Gaussian rank (sorted by score)",
-            ),
-            y=alt.Y(
-                "score:Q",
-                title="Score",
-                scale=alt.Scale(type="log"),
-            ),
-            tooltip=[
-                alt.Tooltip("rank:Q", title="Gaussian rank"),
-                alt.Tooltip("score:Q", title="Score"),
-            ],
+    else:
+        chart = (
+            alt.Chart(alt.Data(values=list(stats_series.rows)))
+            .mark_circle(color="#0f766e", opacity=0.45, size=16)
+            .encode(
+                x=alt.X(
+                    "rank:Q",
+                    title="Approximate Gaussian rank",
+                ),
+                y=alt.Y(
+                    "value:Q",
+                    title="Score",
+                    scale=alt.Scale(type="log"),
+                ),
+                tooltip=[
+                    alt.Tooltip("rank:Q", title="Approximate rank"),
+                    alt.Tooltip("value:Q", title="Score"),
+                ],
+            )
+            .properties(height=260)
         )
-        .properties(height=320)
-    )
     filter_description = (
         f"Using `{filter_mode}` filter mode with `N = {int(threshold):,}` and "
         f"`Keep` set to `{keep_mode}`."
         if filter_mode == "top_bottom"
         else f"Using score threshold mode with `Keep` set to `{keep_mode}` and threshold `{threshold:.3g}`."
     )
+    plotted_count = len(stats_series.rows)
     return mo.vstack(
         [
             mo.md(
-                f"Showing `{selected_scores.size:,}` filtered Gaussian POP scores "
-                f"out of `{total_score_count:,}` from the latest viewer render. "
+                f"Showing `{stats_series.summary.selected_count:,}` filtered "
+                "Gaussian POP scores out of "
+                f"`{stats_series.summary.finite_count:,}` finite values from "
+                "the latest viewer render. "
                 f"{filter_description} "
-                f"The scatterplot shows `{target_points:,}` sampled points "
-                f"sorted by score "
-                f"{'ascending' if keep_mode == 'lower' else 'descending'} "
-                "on a log-scaled y-axis."
+                f"The `{stats_series.plot_kind}` plot uses `{plotted_count:,}` "
+                "bounded rows."
             ),
             chart,
         ],
@@ -1195,7 +1234,7 @@ def rasterize_scene(
 def _():
     filter_mode = mo.ui.dropdown(
         ["score", "top_bottom"],
-        value="score",
+        value="top_bottom",
         label="Filter mode",
         full_width=True,
     )
@@ -1207,7 +1246,7 @@ def _():
     top_bottom_count = mo.ui.number(
         start=1,
         step=1,
-        value=1000,
+        value=10000,
         label="Top / bottom N primitives",
         full_width=True,
     )
@@ -1226,11 +1265,12 @@ def _(
     score_filter_threshold,
     score_log_map,
     score_plot_points,
+    score_plot_type,
     top_bottom_count,
     view_mode,
 ):
     selectors = mo.hstack(
-        [view_mode, colormap, score_plot_points],
+        [view_mode, colormap, score_plot_type, score_plot_points],
         widths="equal",
         align="start",
         gap=1.0,
@@ -1303,7 +1343,7 @@ def _():
         stop=100,
         step=1,
         value=90,
-        label="Quantile range (%)",
+        label="Colormap quantile range (%)",
     )
     return (normalization_percent,)
 
@@ -1338,6 +1378,17 @@ def _():
         full_width=True,
     )
     return (view_mode,)
+
+
+@app.cell
+def _():
+    score_plot_type = mo.ui.dropdown(
+        ["sorted_rank", "histogram"],
+        value="sorted_rank",
+        label="Stats plot",
+        full_width=True,
+    )
+    return (score_plot_type,)
 
 
 @app.cell

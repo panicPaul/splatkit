@@ -12,24 +12,24 @@ with app.setup:
     from enum import Enum, StrEnum
     from pathlib import Path
 
-    import ember_adapter_backends.fastergs as sk_fastergs
-    import ember_adapter_backends.fastgs as sk_fastgs
-    import ember_adapter_backends.gsplat as sk_gsplat
-    import ember_adapter_backends.inria as sk_inria
-    import ember_adapter_backends.stoch3dgs as sk_stoch
-    import ember_core as sk
-    import ember_native_svraster.svraster as sk_svraster
+    import ember_adapter_backends.fastergs as ember_fastergs_adapter
+    import ember_adapter_backends.fastgs as ember_fastgs_adapter
+    import ember_adapter_backends.gsplat as ember_gsplat_adapter
+    import ember_adapter_backends.inria as ember_inria_adapter
+    import ember_adapter_backends.stoch3dgs as ember_stoch_adapter
+    import ember_core as ember
+    import ember_native_svraster.svraster as ember_svraster_native
     import marimo as mo
     import numpy as np
     import torch
+    from ember_core.viewer import ViewerRenderResult as RenderResult
     from marimo_3dv import (
         CameraState,
-        RenderResult,
         Viewer,
         ViewerState,
-        cleanup_before_splat_reload,
         link_viewer_states,
     )
+    from marimo_3dv.ops.gs import cleanup_before_splat_reload
     from marimo_config_gui import (
         config_commit_button,
         config_committed_value,
@@ -41,12 +41,12 @@ with app.setup:
     )
     from pydantic import BaseModel, Field
 
-    sk_fastgs.register()
-    sk_fastergs.register()
-    sk_gsplat.register()
-    sk_inria.register()
-    sk_stoch.register()
-    sk_svraster.register()
+    ember_fastgs_adapter.register()
+    ember_fastergs_adapter.register()
+    ember_gsplat_adapter.register()
+    ember_inria_adapter.register()
+    ember_stoch_adapter.register()
+    ember_svraster_native.register()
 
     active_link = {"handle": None}
 
@@ -101,18 +101,18 @@ with app.setup:
 
     def scene_class_for_type(
         scene_type: SceneTypeChoice,
-    ) -> type[sk.GaussianScene3D] | type[sk.SparseVoxelScene]:
+    ) -> type[ember.GaussianScene3D] | type[ember.SparseVoxelScene]:
         """Return the scene class associated with a loader selection."""
         if scene_type is SceneTypeChoice.GAUSSIAN:
-            return sk.GaussianScene3D
-        return sk.SparseVoxelScene
+            return ember.GaussianScene3D
+        return ember.SparseVoxelScene
 
     def available_backends(scene_type: SceneTypeChoice) -> list[str]:
         """List registered backends compatible with a scene type."""
         scene_class = scene_class_for_type(scene_type)
         return sorted(
             backend_name
-            for backend_name, registered_backend in sk.BACKEND_REGISTRY.items()
+            for backend_name, registered_backend in ember.BACKEND_REGISTRY.items()
             if any(
                 issubclass(scene_class, accepted_scene_type)
                 for accepted_scene_type in registered_backend.accepted_scene_types
@@ -127,13 +127,13 @@ with app.setup:
             return config.gaussian
         return config.svraster
 
-    def load_scene_artifact(config: SceneLoaderConfig) -> sk.Scene | None:
+    def load_scene_artifact(config: SceneLoaderConfig) -> ember.Scene | None:
         """Load the selected scene artifact and move it to CUDA when available."""
         if config.scene_type is SceneTypeChoice.GAUSSIAN:
             load_value = config.gaussian
             if not load_value.path.exists():
                 return None
-            scene = sk.load_gaussian_ply(load_value.path)
+            scene = ember.load_gaussian_ply(load_value.path)
         else:
             load_value = config.svraster
             if not load_value.run_path.exists():
@@ -141,7 +141,7 @@ with app.setup:
             iteration = (
                 None if load_value.iteration < 0 else load_value.iteration
             )
-            scene = sk.load_svraster_checkpoint(
+            scene = ember.load_svraster_checkpoint(
                 load_value.run_path,
                 iteration=iteration,
             )
@@ -150,11 +150,11 @@ with app.setup:
             scene = scene.to(torch.device("cuda"))
         return scene
 
-    def camera_device_for_scene(scene: sk.Scene) -> torch.device:
+    def camera_device_for_scene(scene: ember.Scene) -> torch.device:
         """Return the device that should own camera tensors for the scene."""
-        if isinstance(scene, sk.GaussianScene3D):
+        if isinstance(scene, ember.GaussianScene3D):
             return scene.center_position.device
-        if isinstance(scene, sk.SparseVoxelScene):
+        if isinstance(scene, ember.SparseVoxelScene):
             return scene.octpath.device
         raise TypeError(f"Unsupported scene type {type(scene).__name__}.")
 
@@ -459,7 +459,7 @@ def _(right_loader_config, right_viewer_state):
 @torch.no_grad()
 def rasterize_scene(
     camera: CameraState,
-    scene: sk.Scene | None,
+    scene: ember.Scene | None,
     *,
     backend: str | None,
 ) -> RenderResult:
@@ -467,7 +467,7 @@ def rasterize_scene(
     if scene is None or not backend:
         return blank_frame(camera)
 
-    backend_camera = sk.CameraState(
+    backend_camera = ember.CameraState(
         width=torch.tensor([camera.width], dtype=torch.int64),
         height=torch.tensor([camera.height], dtype=torch.int64),
         fov_degrees=torch.tensor([camera.fov_degrees], dtype=torch.float32),
@@ -476,7 +476,7 @@ def rasterize_scene(
         ).to(dtype=torch.float32)[None],
         camera_convention="opencv",
     )
-    render_output = sk.render(
+    render_output = ember.render(
         scene,
         backend_camera.to(camera_device_for_scene(scene)),
         backend=backend,

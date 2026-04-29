@@ -12,6 +12,14 @@ from marimo._plugins.ui._core.ui_element import UIElement
 from pydantic import BaseModel
 
 from marimo_config_gui.elements import PydanticGui
+from marimo_config_gui.presets import (
+    ConfigPresetCatalog,
+    load_json_config,
+    load_preset_config,
+    merge_preset_override,
+    override_model_for_catalog,
+    payload_for_config,
+)
 from marimo_config_gui.state import (
     ConfigBindings,
     JsonConfigSource,
@@ -87,17 +95,28 @@ def _initial_config_payload(
     value: ModelT | dict[str, Any] | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> dict[str, Any]:
     if not mo.running_in_notebook():
         if script_loader is None:
-            parsed = load_script_config(
-                model_cls,
-                value=value,
-                args=script_args,
-            )
+            if presets is None:
+                parsed = load_script_config(
+                    model_cls,
+                    value=value,
+                    args=script_args,
+                )
+            else:
+                parsed = load_script_config(
+                    model_cls,
+                    value=value,
+                    args=script_args,
+                    presets=presets,
+                )
         else:
             parsed = script_loader(model_cls, value, script_args)
         resolved_value: ModelT | dict[str, Any] | None = parsed
+    elif value is None and presets is not None:
+        resolved_value = load_preset_config(presets)
     else:
         resolved_value = value
     return _order_payload_for_model(
@@ -121,6 +140,7 @@ def load_script_config(
     *,
     value: ModelT | dict[str, Any] | None = None,
     args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> ModelT:
     """Load a config in script mode via tyro CLI or JSON file.
 
@@ -128,20 +148,38 @@ def load_script_config(
         model_cls: Pydantic model type to load.
         value: Optional default value for the `cli` subcommand.
         args: Optional CLI argument sequence. When omitted, uses `sys.argv`.
+        presets: Optional named JSON preset catalog. When supplied, script mode
+            also supports a `preset` subcommand with sparse dotted overrides.
 
     Returns:
         The validated model instance loaded from either the `cli` or `json`
         tyro subcommand.
     """
-    default = _resolve_cli_default(model_cls, value)
-    script_input_type = (
-        Annotated[model_cls, tyro.conf.subcommand("cli", default=default)]
-        | Annotated[JsonConfigSource, tyro.conf.subcommand("json")]
+    default_value = (
+        load_preset_config(presets) if value is None and presets else value
     )
+    default = _resolve_cli_default(model_cls, default_value)
+    if presets is None:
+        script_input_type = (
+            Annotated[model_cls, tyro.conf.subcommand("cli", default=default)]
+            | Annotated[JsonConfigSource, tyro.conf.subcommand("json")]
+        )
+    else:
+        override_model = override_model_for_catalog(presets)
+        script_input_type = (
+            Annotated[model_cls, tyro.conf.subcommand("cli", default=default)]
+            | Annotated[JsonConfigSource, tyro.conf.subcommand("json")]
+            | Annotated[
+                override_model,
+                tyro.conf.subcommand("preset", default=override_model()),
+            ]
+        )
     parsed = tyro.cli(script_input_type, args=args)
     if isinstance(parsed, JsonConfigSource):
-        json_payload = json.loads(parsed.path.read_text())
-        return model_cls.model_validate(json_payload)
+        return load_json_config(model_cls, parsed.path)
+    if presets is not None and isinstance(parsed, BaseModel):
+        if not isinstance(parsed, model_cls):
+            return merge_preset_override(presets, parsed)
     return parsed
 
 
@@ -152,6 +190,7 @@ def create_config_state(
     value: ModelT | dict[str, Any] | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> tuple[Any, Any, ConfigBindings[ModelT]]: ...
 
 
@@ -161,6 +200,7 @@ def create_config_state(
     value: ModelT | dict[str, Any] | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> Any:
     """Create reactive state for form and JSON config GUIs.
 
@@ -172,6 +212,8 @@ def create_config_state(
         script_args: Optional CLI args forwarded to the script loader in
             script mode. When omitted, loaders should typically fall back to
             `sys.argv`.
+        presets: Optional named JSON preset catalog used for notebook defaults
+            and preset-aware script loading.
 
     Returns:
         A tuple of `(form_gui_state, json_gui_state, config_bindings)`, where
@@ -185,6 +227,7 @@ def create_config_state(
         value=value,
         script_loader=script_loader,
         script_args=script_args,
+        presets=presets,
     )
     payload_state, set_payload_state = mo.state(
         initial_payload,
@@ -212,6 +255,7 @@ def create_committed_config_state(
     value: ModelT | dict[str, Any] | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> tuple[Any, Callable[[dict[str, Any]], None]]: ...
 
 
@@ -221,6 +265,7 @@ def create_committed_config_state(
     value: ModelT | dict[str, Any] | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> tuple[Any, Callable[[dict[str, Any]], None]]:
     """Create reactive state for the last committed config payload."""
     initial_payload = _initial_config_payload(
@@ -228,6 +273,7 @@ def create_committed_config_state(
         value=value,
         script_loader=script_loader,
         script_args=script_args,
+        presets=presets,
     )
     committed_state, set_committed_state = mo.state(
         initial_payload,
@@ -249,6 +295,7 @@ def config_gui(
     nested_models_flat_after_level: int | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> tuple[Any, PydanticGui[ModelT]]: ...
 
 
@@ -265,6 +312,7 @@ def config_gui(
     nested_models_flat_after_level: int | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> tuple[Any, UIElement[Any, Any]]: ...
 
 
@@ -281,6 +329,7 @@ def config_gui(
     nested_models_flat_after_level: int | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> PydanticGui[ModelT]: ...
 
 
@@ -297,6 +346,7 @@ def config_gui(
     nested_models_flat_after_level: int | None = None,
     script_loader: ScriptConfigLoader | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> UIElement[Any, Any]: ...
 
 
@@ -312,6 +362,7 @@ def config_gui(
     nested_models_flat_after_level: int | None = None,
     script_loader: ScriptConfigLoader[ModelT] | None = None,
     script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
 ) -> Any:
     """Create renderable config GUI elements over shared reactive state.
 
@@ -332,6 +383,7 @@ def config_gui(
         value=value,
         script_loader=script_loader,
         script_args=script_args,
+        presets=presets,
     )
 
     outputs: list[Any] = []
@@ -376,6 +428,7 @@ def config_form(
     label: str = "",
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
+    exclude_fields: set[str] | frozenset[str] = frozenset(),
 ) -> PydanticGui[ModelT]:
     """Build the form GUI for a config model.
 
@@ -392,6 +445,8 @@ def config_form(
             sections open.
         nested_models_flat_after_level: Optional nesting depth after which
             nested models render flat.
+        exclude_fields: Top-level fields to keep in state but omit from this
+            form view.
 
     Returns:
         A `PydanticGui` bound to the provided reactive state.
@@ -422,10 +477,62 @@ def config_form(
         bordered=False,
         nested_models_multiple_open=nested_models_multiple_open,
         nested_models_flat_after_level=nested_models_flat_after_level,
+        exclude_fields=exclude_fields,
         on_change=_on_form_change,
     )
     form_ref["form"] = form
     return form
+
+
+def config_preset_selector(
+    state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
+    *,
+    presets: ConfigPresetCatalog[ModelT],
+    form_gui_state: Any,
+    json_gui_state: Any,
+    set_form_gui_state: Callable[[dict[str, Any]], None] | None = None,
+    set_json_gui_state: Callable[[str], None] | None = None,
+    label: str = "Preset",
+) -> Any:
+    """Build a dropdown that replaces the draft config with a named preset."""
+    del json_gui_state
+    if isinstance(state_or_model_cls, ConfigBindings):
+        model_cls = state_or_model_cls.model_cls
+        set_form_gui_state = state_or_model_cls.set_form_gui_state
+        set_json_gui_state = state_or_model_cls.set_json_gui_state
+    else:
+        model_cls = state_or_model_cls
+        if set_form_gui_state is None or set_json_gui_state is None:
+            raise TypeError(
+                "config_preset_selector requires setters when not given "
+                "ConfigBindings."
+            )
+    options = {
+        preset.label or preset.name: name
+        for name, preset in presets.presets.items()
+    }
+    option_label_by_name = {name: label for label, name in options.items()}
+    current_payload = form_gui_state()
+    current_value = current_payload.get(presets.preset_field or "preset")
+    if current_value not in presets.presets:
+        current_value = presets.default
+    current_label = option_label_by_name[current_value]
+
+    def _on_change(name: str) -> None:
+        config = load_preset_config(presets, name)
+        next_payload = _order_payload_for_model(
+            model_cls,
+            payload_for_config(config),
+        )
+        set_form_gui_state(next_payload)
+        set_json_gui_state(_payload_to_json(next_payload))
+
+    return mo.ui.dropdown(
+        options=options,
+        value=current_label,
+        label=label,
+        on_change=_on_change,
+    )
 
 
 def config_json(
@@ -686,6 +793,7 @@ def form_gui(
     live_update: bool = False,
     nested_models_multiple_open: bool = True,
     nested_models_flat_after_level: int | None = None,
+    exclude_fields: set[str] | frozenset[str] = frozenset(),
 ) -> Any:
     """Backwards-compatible form-only wrapper."""
     del submit_label, live_update
@@ -696,6 +804,7 @@ def form_gui(
         include_json_editor=False,
         nested_models_multiple_open=nested_models_multiple_open,
         nested_models_flat_after_level=nested_models_flat_after_level,
+        exclude_fields=exclude_fields,
     )
 
 

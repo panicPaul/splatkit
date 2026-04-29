@@ -25,17 +25,17 @@ with app.setup:
     import torch
     from gsplat import rasterization
 
-    from marimo_3dv import (
-        CameraState,
-        RenderResult,
+    from ember_core.viewer import ViewerRenderResult as RenderResult
+    from marimo_3dv import CameraState, Viewer, ViewerState
+    from marimo_3dv.ops.gs import (
         SplatScene,
-        Viewer,
-        ViewerState,
-        apply_viewer_pipeline_config,
         gs_backend_bundle,
         load_splat_scene_from_config,
         pick_splat_load_config,
         splat_load_form,
+    )
+    from marimo_3dv.viewer.defaults import (
+        apply_viewer_pipeline_config,
         viewer_pipeline_controls_gui,
     )
 

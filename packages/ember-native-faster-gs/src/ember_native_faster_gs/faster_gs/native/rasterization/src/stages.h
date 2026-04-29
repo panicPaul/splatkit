@@ -63,6 +63,7 @@ preprocess_bwd_wrapper(
     const torch::Tensor& grad_conic_opacity,
     const torch::Tensor& grad_colors_rgb,
     const torch::Tensor& grad_primitive_depth,
+    const torch::Tensor& densification_info,
     int width,
     int height,
     float focal_x,

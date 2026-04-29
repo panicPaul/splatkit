@@ -31,12 +31,21 @@ class FasterGSNativeRenderOutput(RenderOutput):
 
 @beartype
 @dataclass(frozen=True)
+class FasterGSNativeDensificationRenderOutput(FasterGSNativeRenderOutput):
+    """Native FasterGS output with densification accumulators."""
+
+    densification_info: Float[Tensor, " 2 num_splats"]
+
+
+@beartype
+@dataclass(frozen=True)
 class FasterGSNativeRenderOptions(RenderOptions):
     """Native FasterGS render configuration."""
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
     proper_antialiasing: bool = True
+    collect_densification_info: bool = False
 
 
 @beartype
@@ -117,6 +126,15 @@ def render_faster_gs_native(
         dtype=scene.center_position.dtype,
     )
     renders: list[Tensor] = []
+    densification_info = (
+        torch.zeros(
+            (2, scene.center_position.shape[0]),
+            dtype=torch.float32,
+            device=scene.center_position.device,
+        )
+        if options.collect_densification_info
+        else torch.empty(0, device=scene.center_position.device)
+    )
 
     for camera_index in range(camera.cam_to_world.shape[0]):
         cam_to_world = camera.cam_to_world[camera_index]
@@ -142,12 +160,17 @@ def render_faster_gs_native(
             bg_color=background_color,
             proper_antialiasing=options.proper_antialiasing,
             active_sh_bases=int(scene.feature.shape[1]),
+            densification_info=densification_info,
         )
         renders.append(render_result.image.permute(1, 2, 0).contiguous())
 
-    return FasterGSNativeRenderOutput(
-        render=torch.stack(renders, dim=0).clamp(0.0, 1.0)
-    )
+    render = torch.stack(renders, dim=0).clamp(0.0, 1.0)
+    if options.collect_densification_info:
+        return FasterGSNativeDensificationRenderOutput(
+            render=render,
+            densification_info=densification_info,
+        )
+    return FasterGSNativeRenderOutput(render=render)
 
 
 def register() -> None:

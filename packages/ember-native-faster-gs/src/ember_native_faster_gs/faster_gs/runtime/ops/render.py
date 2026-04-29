@@ -207,7 +207,10 @@ def _render_fwd_fake(
     )
 
 
-@torch.library.custom_op("faster_gs::render_bwd", mutates_args=())
+@torch.library.custom_op(
+    "faster_gs::render_bwd",
+    mutates_args=("densification_info",),
+)
 def render_bwd_op(
     center_positions: Tensor,
     log_scales: Tensor,
@@ -231,6 +234,7 @@ def render_bwd_op(
     tile_n_processed: Tensor,
     bucket_tile_index: Tensor,
     bucket_color_transmittance: Tensor,
+    densification_info: Tensor,
     grad_image: Tensor,
     proper_antialiasing: bool,
     width: int,
@@ -275,6 +279,7 @@ def render_bwd_op(
         grad_conic_opacity,
         grad_colors_rgb,
         torch.zeros_like(projected_means[:, 0]),
+        densification_info,
         width,
         height,
         focal_x,
@@ -310,6 +315,7 @@ def _render_bwd_fake(
     tile_n_processed: Tensor,
     bucket_tile_index: Tensor,
     bucket_color_transmittance: Tensor,
+    densification_info: Tensor,
     grad_image: Tensor,
     proper_antialiasing: bool,
     width: int,
@@ -365,6 +371,7 @@ def _render_bwd_fake(
         grad_conic_opacity,
         grad_colors_rgb,
         torch.zeros_like(projected_means[:, 0]),
+        densification_info,
         width,
         height,
         focal_x,
@@ -396,8 +403,10 @@ def _render_impl(
     bg_color: Tensor,
     proper_antialiasing: bool,
     active_sh_bases: int,
+    densification_info: Tensor,
 ) -> RenderOpOutput:
     """Autograd-enabled full render op."""
+    del densification_info
     return render_fwd_op(
         center_positions,
         log_scales,
@@ -423,7 +432,7 @@ def _render_impl(
 
 def _render_fake(*args: Any) -> RenderOpOutput:
     """Fake implementation for the autograd render op."""
-    return _render_fwd_fake(*args)
+    return _render_fwd_fake(*args[:-1])
 
 
 def _render_setup_context(
@@ -466,6 +475,7 @@ def _render_setup_context(
         render_result.blend.tile_n_processed,
         render_result.blend.bucket_tile_index,
         render_result.blend.bucket_color_transmittance,
+        inputs[19],
     )
     ctx.width = inputs[10]
     ctx.height = inputs[11]
@@ -484,7 +494,7 @@ def _render_backward(
 ) -> tuple[Tensor | None, ...]:
     del grad_aux
     if not ctx.has_context:
-        return (None,) * 19
+        return (None,) * 20
     grads = render_bwd_op(
         *ctx.saved_tensors,
         grad_image,
@@ -497,7 +507,7 @@ def _render_backward(
         ctx.center_y,
         ctx.active_sh_bases,
     )
-    return (*grads, *(None,) * 13)
+    return (*grads, *(None,) * 14)
 
 
 render_op = register_render_family(

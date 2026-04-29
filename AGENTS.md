@@ -47,26 +47,42 @@ def project(
   show the primary UI elements directly, especially cells that contain only a
   `load_form` or only a `viewer`, plus any short contextual text.
 - For `marimo` notebooks with side columns, distinguish between producer cells
-  and rendered output cells. Keep rendered GUI/output cells in the main flow
-  with no column annotation. This includes cells whose final expression is a
-  widget, form, error display, assembled controls layout, plot, viewer, or
-  other displayed UI element.
+  and rendered output cells. Treat cells with no column annotation as the GUI
+  column / first column / column0, equivalent to column 0. Do not write
+  `column=0` explicitly; marimo filters it away and it should be treated as no
+  annotation. Written column annotations therefore start after the GUI column:
+  `column=1` is the second visual column, `column=2` is the third visual
+  column, and so on. Keep rendered GUI/output cells in this unannotated GUI
+  column. This includes cells whose final expression is a widget, form, error
+  display, assembled controls layout, plot, viewer, or other displayed UI
+  element.
 - For `marimo` notebooks, put each function or class definition in its own
   cell. Do not batch multiple `def` or `class` definitions into one notebook
   cell unless there is a specific reason and the grouping materially improves
   readability. The notebook cell wrapper itself does not count here: the
   `def __(...):` introduced by `@app.cell` is just the cell definition, not a
   user-defined function for this rule.
-- Put producer/support cells in side columns. This includes helper logic,
-  scene-loading helpers, pipeline wiring, `mo.ui.*` constructor cells,
-  `config_form(...)`, `config_error(...)`, `viewer_pipeline_controls_gui(...)`,
-  and other cells that produce values later rendered elsewhere. Use `column=2`
-  for helper/support code by default, and `column=3` for extra GUI-definition
-  or notebook-support cells when the notebook is large enough that the split
+- Explicitly annotate non-GUI cells with columns. This includes
+  `@app.class_definition`, `@app.function`, helper logic, scene-loading
+  helpers, pipeline wiring, `mo.ui.*` constructor cells, config state
+  constructors, and other cells that produce values later rendered elsewhere.
+  Leave config/model definitions and reusable functions unannotated when they
+  should live with the GUI/config flow; otherwise put them in an explicit side
+  column. Use `column=2` for helper/support code by default, and `column=3` for
+  extra notebook-support cells when the notebook is large enough that the split
   keeps the main flow readable.
-- When using `marimo-config-gui`, create config state in `app.setup` rather
-  than in a notebook cell. This keeps a single interactive GUI form and keeps
-  script mode aligned with the `tyro` CLI path.
+- Keep marimo notebook source sorted by column group: unannotated GUI/column0
+  cells first, then `column=1`, then `column=2`, and so on. Prepend each column
+  group with a markdown heading cell describing what that column contains. The
+  column heading must be larger than any subheaders inside that same column, so
+  the same semantic clusters remain clear and collapsible if the notebook is
+  viewed without columns.
+- When using `marimo-config-gui`, prefer creating config state in `app.setup`
+  when the config model is available there. If the notebook is itself the
+  primary artifact and defines the config model in notebook cells, it is fine
+  to create config state in a producer cell near the config definition. Keep
+  script mode aligned with the `tyro` CLI path when the notebook supports CLI
+  execution.
 - For `marimo` notebooks, do not wrap `config_form(...)`, `config_json(...)`,
   `config_error(...)`, or other reactive outputs in `mo.vstack(...)`,
   `mo.hstack(...)`, or similar containers when the wrapped object itself needs

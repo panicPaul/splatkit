@@ -11,31 +11,36 @@ app = marimo.App(
 with app.setup:
     from dataclasses import replace
 
-    import ember_adapter_backends.fastergs as sk_fastergs
-    import ember_adapter_backends.fastgs as sk_fastgs
-    import ember_adapter_backends.gsplat as sk_gsplat
-    import ember_adapter_backends.inria as sk_inria
-    import ember_adapter_backends.stoch3dgs as sk_stoch
-    import ember_core as sk
-    import ember_native_3dgrt.stoch3dgs as skn_stoch
-    import ember_native_faster_gs.faster_gs as skn_fastergs
-    import ember_native_faster_gs.faster_gs_depth as skn_fastergs_depth
-    import ember_native_faster_gs.gaussian_pop as skn_gaussian_pop
-    import ember_native_faster_gs_mojo.core as skn_fastergs_mojo
+    import ember_adapter_backends.fastergs as ember_fastergs_adapter
+    import ember_adapter_backends.fastgs as ember_fastgs_adapter
+    import ember_adapter_backends.gsplat as ember_gsplat_adapter
+    import ember_adapter_backends.inria as ember_inria_adapter
+    import ember_adapter_backends.stoch3dgs as ember_stoch_adapter
+    import ember_core as ember
+    import ember_native_3dgrt.stoch3dgs as ember_stoch_native
+    import ember_native_faster_gs.faster_gs as ember_fastergs_native
+    import ember_native_faster_gs.faster_gs_depth as ember_fastergs_depth_native
+    import ember_native_faster_gs.gaussian_pop as ember_gaussian_pop_native
+    import ember_native_faster_gs_mojo.core as ember_fastergs_mojo_native
     import marimo as mo
+    import marimo._output.mpl
     import numpy as np
     import torch
+    from ember_core.viewer import ViewerRenderResult as RenderResult
     from marimo_3dv import (
         CameraState,
-        RenderResult,
-        SplatLoadConfig,
-        SplatScene,
         Viewer,
         ViewerState,
-        apply_viewer_pipeline_config,
+    )
+    from marimo_3dv.ops.gs import (
+        SplatLoadConfig,
+        SplatScene,
         cleanup_before_splat_reload,
         gs_backend_bundle,
         pick_splat_load_config,
+    )
+    from marimo_3dv.viewer.defaults import (
+        apply_viewer_pipeline_config,
         viewer_pipeline_controls_gui,
     )
     from marimo_config_gui import (
@@ -45,16 +50,16 @@ with app.setup:
         create_config_state,
     )
 
-    sk_fastgs.register()
-    sk_fastergs.register()
-    sk_gsplat.register()
-    sk_stoch.register()
-    sk_inria.register()
-    skn_fastergs_depth.register()
-    skn_fastergs.register()
-    skn_fastergs_mojo.register()
-    skn_gaussian_pop.register()
-    skn_stoch.register()
+    ember_fastgs_adapter.register()
+    ember_fastergs_adapter.register()
+    ember_gsplat_adapter.register()
+    ember_stoch_adapter.register()
+    ember_inria_adapter.register()
+    ember_fastergs_depth_native.register()
+    ember_fastergs_native.register()
+    ember_fastergs_mojo_native.register()
+    ember_gaussian_pop_native.register()
+    ember_stoch_native.register()
 
 
 @app.cell(hide_code=True)
@@ -146,9 +151,9 @@ def available_gaussian_backends(
     """List registered backends that accept GaussianScene3D."""
     return sorted(
         backend_name
-        for backend_name, registered_backend in sk.BACKEND_REGISTRY.items()
+        for backend_name, registered_backend in ember.BACKEND_REGISTRY.items()
         if any(
-            issubclass(sk.GaussianScene3D, accepted_scene_type)
+            issubclass(ember.GaussianScene3D, accepted_scene_type)
             for accepted_scene_type in registered_backend.accepted_scene_types
         )
         and required_outputs.issubset(registered_backend.supported_outputs)
@@ -195,7 +200,7 @@ def _(load_bindings, load_form_gui_state, load_json_gui_state):
 @app.function
 def load_gaussian_scene(path):
     """Load a Gaussian scene and move it to CUDA when available."""
-    backend_scene = sk.load_gaussian_ply(path)
+    backend_scene = ember.load_gaussian_ply(path)
     if torch.cuda.is_available():
         backend_scene = backend_scene.to(torch.device("cuda"))
     if backend_scene.feature.ndim != 3:
@@ -349,31 +354,31 @@ def render_options_for_backend(
     backend: str,
     *,
     antialiasing: bool,
-) -> sk.RenderOptions | None:
+) -> ember.RenderOptions | None:
     """Build backend-specific viewer render options."""
     if backend == "adapter.fastergs":
         return replace(
-            sk_fastergs.FasterGSRenderOptions(),
+            ember_fastergs_adapter.FasterGSRenderOptions(),
             proper_antialiasing=antialiasing,
         )
     if backend == "faster_gs.core":
         return replace(
-            skn_fastergs.FasterGSNativeRenderOptions(),
+            ember_fastergs_native.FasterGSNativeRenderOptions(),
             proper_antialiasing=antialiasing,
         )
     if backend == "faster_gs.depth":
         return replace(
-            skn_fastergs_depth.FasterGSDepthNativeRenderOptions(),
+            ember_fastergs_depth_native.FasterGSDepthNativeRenderOptions(),
             proper_antialiasing=antialiasing,
         )
     if backend == "faster_gs.gaussian_pop":
         return replace(
-            skn_gaussian_pop.GaussianPopNativeRenderOptions(),
+            ember_gaussian_pop_native.GaussianPopNativeRenderOptions(),
             proper_antialiasing=antialiasing,
         )
     if backend == "faster_gs_mojo.core":
         return replace(
-            skn_fastergs_mojo.FasterGSMojoRenderOptions(),
+            ember_fastergs_mojo_native.FasterGSMojoRenderOptions(),
             proper_antialiasing=antialiasing,
         )
     return None
@@ -403,7 +408,7 @@ def rasterize_scene(
             )
         )
 
-    backend_camera = sk.CameraState(
+    backend_camera = ember.CameraState(
         width=torch.tensor([camera.width], dtype=torch.int64),
         height=torch.tensor([camera.height], dtype=torch.int64),
         fov_degrees=torch.tensor([camera.fov_degrees], dtype=torch.float32),
@@ -412,7 +417,7 @@ def rasterize_scene(
         ).to(dtype=torch.float32)[None],
         camera_convention="opencv",
     )
-    backend_scene = sk.GaussianScene3D(
+    backend_scene = ember.GaussianScene3D(
         center_position=scene.center_positions,
         log_scales=scene.log_half_extents,
         quaternion_orientation=scene.quaternion_orientation,
@@ -434,7 +439,7 @@ def rasterize_scene(
     )
     if render_options is not None:
         render_kwargs["options"] = render_options
-    render_output = sk.render(
+    render_output = ember.render(
         backend_scene,
         backend_camera.to(scene.center_positions.device),
         **render_kwargs,

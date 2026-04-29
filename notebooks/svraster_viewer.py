@@ -9,18 +9,18 @@ with app.setup:
     import importlib
     from pathlib import Path
 
-    import ember_core as sk
-    import ember_native_svraster.svraster as sk_svraster
+    import ember_core as ember
+    import ember_native_svraster.svraster as ember_svraster_native
     import marimo as mo
     import numpy as np
     import torch
+    from ember_core.viewer import ViewerRenderResult as RenderResult
     from marimo_3dv import (
         CameraState,
-        RenderResult,
         Viewer,
         ViewerState,
-        cleanup_before_splat_reload,
     )
+    from marimo_3dv.ops.gs import cleanup_before_splat_reload
     from marimo_config_gui import form_gui
     from pydantic import BaseModel
 
@@ -32,7 +32,7 @@ with app.setup:
             "new_svraster_cuda.renderer"
         )
 
-    sk_svraster.register()
+    ember_svraster_native.register()
 
 
 @app.cell(hide_code=True)
@@ -147,9 +147,9 @@ def blank_frame(camera: CameraState) -> RenderResult:
 
 
 @app.function
-def build_backend_camera(camera: CameraState) -> sk.CameraState:
+def build_backend_camera(camera: CameraState) -> ember.CameraState:
     """Convert a viewer camera into the ember-core camera contract."""
-    return sk.CameraState(
+    return ember.CameraState(
         width=torch.tensor([camera.width], dtype=torch.int64),
         height=torch.tensor([camera.height], dtype=torch.int64),
         fov_degrees=torch.tensor([camera.fov_degrees], dtype=torch.float32),
@@ -162,8 +162,8 @@ def build_backend_camera(camera: CameraState) -> sk.CameraState:
 
 @app.function
 def build_adapter_raster_settings(
-    scene: sk.SparseVoxelScene,
-    camera: sk.CameraState,
+    scene: ember.SparseVoxelScene,
+    camera: ember.CameraState,
 ) -> object:
     """Build low-level SVRaster settings for the adapter path."""
     if raw_svraster_renderer is None:
@@ -199,8 +199,8 @@ def build_adapter_raster_settings(
 @app.function
 @torch.no_grad()
 def render_adapter_scene(
-    scene: sk.SparseVoxelScene,
-    camera: sk.CameraState,
+    scene: ember.SparseVoxelScene,
+    camera: ember.CameraState,
 ) -> torch.Tensor:
     """Render through the low-level SVRaster adapter path."""
     if raw_svraster_renderer is None:
@@ -246,7 +246,7 @@ def render_adapter_scene(
 @torch.no_grad()
 def rasterize_scene(
     camera: CameraState,
-    scene: sk.SparseVoxelScene | None,
+    scene: ember.SparseVoxelScene | None,
     *,
     backend: str,
 ) -> RenderResult:
@@ -258,7 +258,7 @@ def rasterize_scene(
     if backend == "adapter.svraster":
         image = render_adapter_scene(scene, backend_camera).cpu().numpy()
     else:
-        render_output = sk.render(
+        render_output = ember.render(
             scene,
             backend_camera,
             backend="svraster.core",
@@ -277,7 +277,7 @@ def _(load_form, viewer_state):
         close_existing_viewer=True,
         empty_cuda_cache=True,
     )
-    scene = sk.load_svraster_checkpoint(
+    scene = ember.load_svraster_checkpoint(
         load_form.value.run_path,
         iteration=iteration,
     )

@@ -5,6 +5,8 @@ __pycache__/
 *.ply
 todays-todos.md
 
+*/checkpoints/*
+
 tmp
 debug
 .codex

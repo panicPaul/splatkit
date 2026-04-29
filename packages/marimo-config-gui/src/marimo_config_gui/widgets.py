@@ -164,6 +164,7 @@ def _build_model_gui(
     *,
     model_cls: type[BaseModel],
     payload: dict[str, Any],
+    exclude_fields: frozenset[str] = frozenset(),
     nested_models_multiple_open: bool,
     nested_models_flat_after_level: int | None,
     current_level: int,
@@ -176,6 +177,8 @@ def _build_model_gui(
     nested_sections: list[tuple[str, Any]] = []
 
     for name, info in model_cls.model_fields.items():
+        if name in exclude_fields:
+            continue
         spec = _make_field_spec(model_cls, name, info, gui_mode="form")
         field_value = payload[name]
         element = _build_field_element(

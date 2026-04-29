@@ -531,6 +531,7 @@ class PydanticGui(
         bordered: bool = False,
         nested_models_multiple_open: bool = True,
         nested_models_flat_after_level: int | None = None,
+        exclude_fields: set[str] | frozenset[str] = frozenset(),
         current_level: int = 0,
         on_change: Any | None = None,
     ) -> None:
@@ -540,6 +541,7 @@ class PydanticGui(
         self._bordered = bordered
         self._nested_models_multiple_open = nested_models_multiple_open
         self._nested_models_flat_after_level = nested_models_flat_after_level
+        self._exclude_fields = frozenset(exclude_fields)
         self._current_level = current_level
         self._last_active_tab = FORM_TAB if include_json_editor else ""
         self._last_json_error: str | None = None
@@ -550,6 +552,7 @@ class PydanticGui(
         field_specs, field_elements, form_layout = _build_model_gui(
             model_cls=model_cls,
             payload=self._last_payload,
+            exclude_fields=self._exclude_fields,
             nested_models_multiple_open=nested_models_multiple_open,
             nested_models_flat_after_level=nested_models_flat_after_level,
             current_level=current_level,
@@ -626,6 +629,7 @@ class PydanticGui(
             bordered=self._bordered,
             nested_models_multiple_open=self._nested_models_multiple_open,
             nested_models_flat_after_level=self._nested_models_flat_after_level,
+            exclude_fields=self._exclude_fields,
             current_level=self._current_level,
             on_change=self._on_change,
         )
@@ -693,7 +697,7 @@ class PydanticGui(
             update_children=update_children,
         )
         if not self._include_json_editor:
-            return payload, None
+            return self._restore_excluded_fields(payload), None
 
         active_tab = self._active_tab_name(value)
         should_use_json = (
@@ -702,8 +706,20 @@ class PydanticGui(
             or self._last_active_tab == JSON_TAB
         )
         if not should_use_json:
-            return payload, None
+            return self._restore_excluded_fields(payload), None
         return self._merge_json_payload(value[JSON_EDITOR_KEY], payload)
+
+    def _restore_excluded_fields(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self._exclude_fields:
+            return payload
+        restored = dict(payload)
+        for name in self._exclude_fields:
+            if name in self._last_payload:
+                restored[name] = self._last_payload[name]
+        return restored
 
     def _field_payload_from_frontend(
         self,
@@ -1419,5 +1435,13 @@ def _apply_structural_child_frontend(*args: Any, **kwargs: Any) -> Any:
 
 def _parse_nested_json_value(*args: Any, **kwargs: Any) -> Any:
     from marimo_config_gui.widgets import _parse_nested_json_value as impl
+
+    return impl(*args, **kwargs)
+
+
+def _parse_structural_frontend_value(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import (
+        _parse_structural_frontend_value as impl,
+    )
 
     return impl(*args, **kwargs)

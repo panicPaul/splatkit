@@ -9,6 +9,8 @@ import marimo_config_gui.widgets as widgets
 import pytest
 from marimo_config_gui import (
     ConfigBindings,
+    ConfigPreset,
+    ConfigPresetCatalog,
     PydanticGui,
     config_commit_button,
     config_committed_value,
@@ -17,12 +19,15 @@ from marimo_config_gui import (
     config_gui,
     config_json,
     config_json_output,
+    config_preset_selector,
     config_require_valid,
     config_value,
     create_committed_config_state,
     create_config_state,
     form_gui,
     json_gui,
+    load_json_config,
+    load_preset_config,
     load_script_config,
 )
 from pydantic import BaseModel, Field
@@ -50,6 +55,17 @@ class _NestedRootModel(BaseModel):
 
 class _PathModel(BaseModel):
     source: Path = Path("README.md")
+
+
+class _OptionalModel(BaseModel):
+    source: Path | None = Path("README.md")
+
+
+class _PresetModel(BaseModel):
+    preset: str = "base"
+    title: str = "demo"
+    count: int = Field(0, ge=0)
+    path: Path = Path("data/input")
 
 
 class _EnumMode(Enum):
@@ -552,6 +568,183 @@ def test_load_script_config_supports_json_subcommand(tmp_path: Path) -> None:
     assert loaded == _RequiredModel(title="json", count=7)
 
 
+def test_load_json_config_resolves_relative_paths(tmp_path: Path) -> None:
+    config_path = tmp_path / "configs" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        '{"preset": "file", "title": "json", "count": 2, "path": "data"}'
+    )
+
+    loaded = load_json_config(_PresetModel, config_path)
+
+    assert loaded == _PresetModel(
+        preset="file",
+        title="json",
+        count=2,
+        path=config_path.parent / "data",
+    )
+
+
+def test_preset_catalog_loads_default_and_sets_preset_field(
+    tmp_path: Path,
+) -> None:
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(
+        '{"preset": "ignored", "title": "preset", "count": 4, "path": "scene"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "demo": ConfigPreset(
+                name="demo",
+                path=preset_path,
+                base_dir=tmp_path,
+            )
+        },
+        default="demo",
+    )
+
+    loaded = load_preset_config(catalog)
+
+    assert loaded == _PresetModel(
+        preset="demo",
+        title="preset",
+        count=4,
+        path=tmp_path / "scene",
+    )
+
+
+def test_config_state_initializes_from_preset_catalog(
+    notebook_runtime: None,
+    tmp_path: Path,
+) -> None:
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(
+        '{"preset": "ignored", "title": "preset", "count": 4, "path": "scene"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "demo": ConfigPreset(
+                name="demo",
+                path=preset_path,
+                base_dir=tmp_path,
+            )
+        },
+        default="demo",
+    )
+
+    form_gui_state, json_gui_state, _bindings = create_config_state(
+        _PresetModel,
+        presets=catalog,
+    )
+
+    assert form_gui_state()["preset"] == "demo"
+    assert form_gui_state()["path"] == tmp_path / "scene"
+    assert '"preset": "demo"' in json_gui_state()
+
+
+def test_load_script_config_supports_preset_subcommand(
+    tmp_path: Path,
+) -> None:
+    base_path = tmp_path / "base.json"
+    quality_path = tmp_path / "quality.json"
+    base_path.write_text(
+        '{"preset": "ignored", "title": "base", "count": 1, "path": "base"}'
+    )
+    quality_path.write_text(
+        '{"preset": "ignored", "title": "quality", "count": 2, "path": "q"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "base": ConfigPreset(
+                name="base",
+                path=base_path,
+                label="Base preset",
+                base_dir=tmp_path,
+            ),
+            "quality": ConfigPreset(
+                name="quality",
+                path=quality_path,
+                label="Quality preset",
+                base_dir=tmp_path,
+            ),
+        },
+        default="base",
+    )
+
+    loaded = load_script_config(
+        _PresetModel,
+        presets=catalog,
+        args=[
+            "preset",
+            "--preset",
+            "quality",
+            "--title",
+            "overridden",
+            "--count",
+            "8",
+        ],
+    )
+
+    assert loaded == _PresetModel(
+        preset="quality",
+        title="overridden",
+        count=8,
+        path=tmp_path / "q",
+    )
+
+
+def test_config_preset_selector_updates_form_and_json(
+    notebook_runtime: None,
+    tmp_path: Path,
+) -> None:
+    base_path = tmp_path / "base.json"
+    quality_path = tmp_path / "quality.json"
+    base_path.write_text(
+        '{"preset": "ignored", "title": "base", "count": 1, "path": "base"}'
+    )
+    quality_path.write_text(
+        '{"preset": "ignored", "title": "quality", "count": 2, "path": "q"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "base": ConfigPreset(
+                name="base",
+                path=base_path,
+                label="Base preset",
+                base_dir=tmp_path,
+            ),
+            "quality": ConfigPreset(
+                name="quality",
+                path=quality_path,
+                label="Quality preset",
+                base_dir=tmp_path,
+            ),
+        },
+        default="base",
+    )
+    form_gui_state, json_gui_state, bindings = create_config_state(
+        _PresetModel,
+        presets=catalog,
+    )
+
+    selector = config_preset_selector(
+        bindings,
+        presets=catalog,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+    )
+    assert selector.value == "base"
+    selector._on_change("quality")
+
+    assert form_gui_state()["preset"] == "quality"
+    assert form_gui_state()["title"] == "quality"
+    assert '"preset": "quality"' in json_gui_state()
+
+
 def test_form_gui_returns_raw_form(notebook_runtime: None) -> None:
     generated = form_gui(_RequiredModel)
 
@@ -564,13 +757,31 @@ def test_json_gui_returns_raw_json_editor(notebook_runtime: None) -> None:
     assert '"count": 0' in generated.value
 
 
-def test_form_builder_keeps_path_and_enum_widgets() -> None:
+def test_form_generation_keeps_path_and_enum_widgets() -> None:
     path_gui = PydanticGui(_PathModel, include_json_editor=False)
     enum_gui = PydanticGui(_EnumModel, include_json_editor=False)
 
     assert type(path_gui.elements["source"]).__name__ == "file_browser"
     assert type(enum_gui.elements["mode"]).__name__ == "dropdown"
     assert type(enum_gui.elements["enum_mode"]).__name__ == "dropdown"
+
+
+def test_form_generation_parses_enabled_nullable_field() -> None:
+    generated = PydanticGui(_OptionalModel, include_json_editor=False)
+
+    assert generated.value == _OptionalModel(source=Path("README.md"))
+
+
+def test_form_generation_can_exclude_top_level_fields() -> None:
+    generated = PydanticGui(
+        _RequiredModel,
+        value=_RequiredModel(title="kept", count=3),
+        include_json_editor=False,
+        exclude_fields=frozenset({"count"}),
+    )
+
+    assert "count" not in generated.elements
+    assert generated.value == _RequiredModel(title="kept", count=3)
 
 
 def test_nested_models_use_accordion_until_flat_level() -> None:
