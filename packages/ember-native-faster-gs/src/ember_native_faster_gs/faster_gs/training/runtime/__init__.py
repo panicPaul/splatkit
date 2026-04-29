@@ -8,6 +8,9 @@ from torch import Tensor
 from ember_native_faster_gs.faster_gs.training.runtime._extension import (
     load_extension,
 )
+from ember_native_faster_gs.faster_gs.training.runtime.ops import (
+    morton_codes_op,
+)
 
 
 def relocation_adjustment(
@@ -39,6 +42,73 @@ def add_noise(
         random_samples,
         means,
         current_lr,
+    )
+
+
+def morton_codes(
+    positions: Tensor,
+    *,
+    scene_min: Tensor | None = None,
+    scene_extent: float | None = None,
+) -> Tensor:
+    """Return Morton codes for CUDA 3D Gaussian center positions."""
+    if positions.device.type != "cuda":
+        raise ValueError("morton_codes requires CUDA positions.")
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError(
+            "morton_codes expects positions with shape (num_points, 3)."
+        )
+    positions = positions.contiguous()
+    if scene_min is None:
+        scene_min = positions.amin(dim=0)
+    else:
+        scene_min = scene_min.to(device=positions.device, dtype=positions.dtype)
+    if scene_extent is None:
+        scene_max = positions.amax(dim=0)
+        scene_extent = float((scene_max - scene_min).amax().clamp_min(1e-12))
+    return morton_codes_op(
+        positions,
+        scene_min.contiguous(),
+        float(scene_extent),
+    )
+
+
+def morton_order(positions: Tensor) -> Tensor:
+    """Return indices that sort 3D positions by Morton code."""
+    return torch.argsort(morton_codes(positions), stable=True)
+
+
+def update_3d_filter(
+    positions: Tensor,
+    w2c: Tensor,
+    filter_3d: Tensor,
+    visibility_mask: Tensor,
+    *,
+    width: int,
+    height: int,
+    focal_x: float,
+    focal_y: float,
+    center_x: float,
+    center_y: float,
+    near_plane: float,
+    clipping_tolerance: float,
+    distance2filter: float,
+) -> None:
+    """Update Mip-Splatting 3D filter buffers in-place for one camera."""
+    load_extension().update_3d_filter(
+        positions.contiguous(),
+        w2c.contiguous(),
+        filter_3d,
+        visibility_mask,
+        width,
+        height,
+        focal_x,
+        focal_y,
+        center_x,
+        center_y,
+        near_plane,
+        clipping_tolerance,
+        distance2filter,
     )
 
 
@@ -82,5 +152,8 @@ class FusedAdam(torch.optim.Adam):
 __all__ = [
     "FusedAdam",
     "add_noise",
+    "morton_codes",
+    "morton_order",
     "relocation_adjustment",
+    "update_3d_filter",
 ]

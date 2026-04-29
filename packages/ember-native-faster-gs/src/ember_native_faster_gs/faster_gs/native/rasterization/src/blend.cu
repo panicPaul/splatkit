@@ -98,6 +98,8 @@ blend_fwd_wrapper(
         reinterpret_cast<uint*>(tile_n_processed.data_ptr<int>()),
         reinterpret_cast<uint*>(bucket_tile_index.data_ptr<int>()),
         reinterpret_cast<float4*>(bucket_color_transmittance.data_ptr<float>()),
+        nullptr,
+        nullptr,
         static_cast<uint>(width),
         static_cast<uint>(height),
         static_cast<uint>(grid_width)
@@ -112,6 +114,97 @@ blend_fwd_wrapper(
         bucket_tile_index,
         bucket_color_transmittance,
     };
+}
+
+// Runs the vendored blend kernel with metric-map accumulation enabled and
+// returns per-primitive counts without changing the normal render output.
+torch::Tensor blend_metric_counts_fwd_wrapper(
+    const torch::Tensor& instance_primitive_indices,
+    const torch::Tensor& tile_instance_ranges,
+    const torch::Tensor& tile_bucket_offsets,
+    const torch::Tensor& bucket_count,
+    const torch::Tensor& projected_means,
+    const torch::Tensor& conic_opacity,
+    const torch::Tensor& colors_rgb,
+    const torch::Tensor& bg_color,
+    const torch::Tensor& metric_map,
+    bool proper_antialiasing,
+    int width,
+    int height) {
+    check_cuda_int_tensor(instance_primitive_indices, "instance_primitive_indices");
+    check_cuda_int_tensor(tile_instance_ranges, "tile_instance_ranges");
+    check_cuda_int_tensor(tile_bucket_offsets, "tile_bucket_offsets");
+    check_cuda_int_tensor(bucket_count, "bucket_count");
+    check_cuda_float_tensor(projected_means, "projected_means");
+    check_cuda_float_tensor(conic_opacity, "conic_opacity");
+    check_cuda_float_tensor(colors_rgb, "colors_rgb");
+    check_cuda_float_tensor(bg_color, "bg_color");
+    check_cuda_int_tensor(metric_map, "metric_map");
+
+    TORCH_CHECK(
+        metric_map.numel() == static_cast<int64_t>(width) * static_cast<int64_t>(height),
+        "metric_map must have width * height elements."
+    );
+
+    const int n_primitives = projected_means.size(0);
+    const int tile_count = tile_instance_ranges.size(0);
+    const int bucket_total = bucket_count.item<int>();
+    const int grid_width = div_round_up(width, config::tile_width);
+    const int grid_height = div_round_up(height, config::tile_height);
+    auto float_options = projected_means.options().dtype(torch::kFloat);
+    auto int_options = projected_means.options().dtype(torch::kInt32);
+
+    torch::Tensor image = torch::empty({3, height, width}, float_options);
+    torch::Tensor tile_final_transmittances = torch::empty(
+        {tile_count * config::block_size_blend},
+        float_options
+    );
+    torch::Tensor tile_max_n_processed = torch::empty({tile_count}, int_options);
+    torch::Tensor tile_n_processed = torch::empty(
+        {tile_count * config::block_size_blend},
+        int_options
+    );
+    torch::Tensor bucket_tile_index = torch::empty({bucket_total}, int_options);
+    torch::Tensor bucket_color_transmittance = torch::empty(
+        {bucket_total * config::block_size_blend, 4},
+        float_options
+    );
+    torch::Tensor metric_counts = torch::zeros({n_primitives}, int_options);
+
+    torch::Tensor instance_indices_c = instance_primitive_indices.contiguous();
+    torch::Tensor tile_ranges_c = tile_instance_ranges.contiguous();
+    torch::Tensor tile_offsets_c = tile_bucket_offsets.contiguous();
+    torch::Tensor projected_means_c = projected_means.contiguous();
+    torch::Tensor conic_opacity_c = conic_opacity.contiguous();
+    torch::Tensor colors_rgb_c = colors_rgb.contiguous();
+    torch::Tensor bg_color_c = bg_color.contiguous();
+    torch::Tensor metric_map_c = metric_map.contiguous();
+    (void)proper_antialiasing;
+
+    forward_kernels::blend_cu<<<dim3(grid_width, grid_height, 1),
+                                dim3(config::tile_width, config::tile_height, 1)>>>(
+        reinterpret_cast<const uint2*>(tile_ranges_c.data_ptr<int>()),
+        reinterpret_cast<const uint*>(tile_offsets_c.data_ptr<int>()),
+        reinterpret_cast<const uint*>(instance_indices_c.data_ptr<int>()),
+        reinterpret_cast<const float2*>(projected_means_c.data_ptr<float>()),
+        reinterpret_cast<const float4*>(conic_opacity_c.data_ptr<float>()),
+        reinterpret_cast<const float3*>(colors_rgb_c.data_ptr<float>()),
+        reinterpret_cast<const float3*>(bg_color_c.data_ptr<float>()),
+        image.data_ptr<float>(),
+        tile_final_transmittances.data_ptr<float>(),
+        reinterpret_cast<uint*>(tile_max_n_processed.data_ptr<int>()),
+        reinterpret_cast<uint*>(tile_n_processed.data_ptr<int>()),
+        reinterpret_cast<uint*>(bucket_tile_index.data_ptr<int>()),
+        reinterpret_cast<float4*>(bucket_color_transmittance.data_ptr<float>()),
+        metric_map_c.data_ptr<int>(),
+        metric_counts.data_ptr<int>(),
+        static_cast<uint>(width),
+        static_cast<uint>(height),
+        static_cast<uint>(grid_width)
+    );
+    CHECK_CUDA(config::debug, "blend_metric_counts_fwd")
+
+    return metric_counts;
 }
 
 // Runs the vendored blend backward kernel and repacks its split opacity/conic

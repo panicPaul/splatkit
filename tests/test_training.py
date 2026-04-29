@@ -28,25 +28,38 @@ from ember_core.data.contracts import (
 )
 from ember_core.densification import (
     DensificationContext,
+    DensificationLifecycleContext,
     DensificationRenderRequirements,
 )
 from ember_core.densification.runtime import merge_densification_requirements
 from ember_core.initialization import InitializedModel
+from ember_core.initialization import (
+    initialize_gaussian_model_from_scene_record as ember_core_initialize,
+)
 from ember_core.training import (
     CallableSpec,
     DensificationConfig,
     LoadedCheckpoint,
     LossResult,
     TrainingConfig,
+    build_densification_for_context,
     build_inference_pipeline,
     build_loss_fn,
     build_optimizer_set,
     build_raw_render_fn,
     build_render_fn,
+    build_training_render_fn,
+    build_training_run_context,
+    compute_frame_camera_extent,
+    cycle_dataloader,
+    ensure_checkpoint_output_writable,
     initialize_model,
     load_checkpoint_dir,
+    materialize_optimization_config,
+    resolve_backend_options,
     run_training,
     save_checkpoint_dir,
+    set_torch_seed,
     train_step,
 )
 from ember_core.training.checkpoints import build_checkpoint_metadata
@@ -121,8 +134,8 @@ def register_test_backend() -> None:
             return_normals,
             return_2d_projections,
             return_projective_intersection_transforms,
-            options,
         )
+        options = options or RenderOptions()
         mean_color = scene.feature[:, 0, :].mean(dim=0)
         num_cams = int(camera.width.shape[0])
         height = int(camera.height[0].item())
@@ -132,7 +145,7 @@ def register_test_backend() -> None:
             height,
             width,
             3,
-        )
+        ) + options.background_color.view(1, 1, 1, 3)
         return RenderOutput(render=render)
 
 
@@ -197,6 +210,51 @@ def one_render_postprocess(
     return replace(render_output, render=torch.ones_like(render_output.render))
 
 
+def training_backend_options_builder(
+    state: TrainState,
+    *,
+    offset: float,
+) -> dict[str, list[float]]:
+    value = offset + state.step
+    return {"background_color": [value, value, value]}
+
+
+def context_optimization_builder(
+    *,
+    lr: float,
+    max_steps: int,
+) -> OptimizationConfig:
+    return OptimizationConfig(
+        parameter_groups=[
+            ParameterGroupConfig(
+                target=scene_target("feature"),
+                lr=lr,
+                scheduler=CallableSpec(
+                    target="ember_core.training.exponential_decay_to",
+                    kwargs={"final_lr": lr / 10.0},
+                    context_kwargs={"max_steps": "max_steps"},
+                ),
+            )
+        ]
+    )
+
+
+def context_device_initializer(
+    scene_record: SceneRecord,
+    *,
+    modules: dict[str, nn.Module],
+    parameters: dict[str, nn.Parameter],
+    device: torch.device,
+) -> InitializedModel:
+    model = ember_core_initialize(
+        scene_record,
+        modules=modules,
+        parameters=parameters,
+    )
+    model.metadata["initializer_device"] = str(device)
+    return model
+
+
 class CountingHook:
     def __init__(self) -> None:
         self.pre_count = 0
@@ -250,7 +308,11 @@ class CloneFirstSplatDensification:
         self._family_ops = None
         self.post_optimizer_count = 0
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        del state
         return DensificationRenderRequirements()
 
     def bind(
@@ -263,6 +325,9 @@ class CloneFirstSplatDensification:
         self._family_ops = family_ops
 
     def pre_backward(self, context: DensificationContext) -> None:
+        del context
+
+    def before_training(self, context: DensificationLifecycleContext) -> None:
         del context
 
     def post_backward(self, context: DensificationContext) -> None:
@@ -280,6 +345,30 @@ class CloneFirstSplatDensification:
         metrics: dict[str, float],
     ) -> None:
         del context, metrics
+
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        del context
+
+
+class ContextCameraExtentDensification(CloneFirstSplatDensification):
+    def __init__(self, *, camera_extent: float) -> None:
+        super().__init__()
+        self.camera_extent = camera_extent
+
+
+class LifecycleRecordingDensification(CloneFirstSplatDensification):
+    def post_optimizer_step(self, context: DensificationContext) -> None:
+        del context
+
+    def before_training(self, context: DensificationLifecycleContext) -> None:
+        context.state.model.metadata["before_training_step"] = (
+            context.state.step
+        )
+
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        context.state.model.metadata["after_training_step"] = (
+            context.state.step
+        )
 
 
 def build_sparse_voxel_model(
@@ -410,6 +499,96 @@ def test_run_training_writes_checkpoint_directory(tmp_path: Path) -> None:
     assert (checkpoint_dir / "config.json").exists()
     assert (checkpoint_dir / "metadata.json").exists()
     assert (checkpoint_dir / "model.ckpt").exists()
+
+
+def test_training_utilities_cover_common_notebook_loop_needs(
+    tmp_path: Path,
+) -> None:
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    dataloader = build_dataset_loader(dataset, config)
+    iterator = cycle_dataloader(dataloader)
+
+    first = next(iterator)
+    second = next(iterator)
+
+    assert tuple(frame.frame_id for frame in second.frames) == tuple(
+        frame.frame_id for frame in first.frames
+    )
+    assert compute_frame_camera_extent(dataset) == 0.0
+    set_torch_seed(123)
+    sample_a = torch.rand(1)
+    set_torch_seed(123)
+    sample_b = torch.rand(1)
+    torch.testing.assert_close(sample_a, sample_b)
+
+
+def test_resolve_backend_options_applies_updates(tmp_path: Path) -> None:
+    register_test_backend()
+    config = build_config(tmp_path / "run")
+
+    options = resolve_backend_options(
+        config,
+        updates={"background_color": [1.0, 0.0, 0.0]},
+    )
+
+    assert isinstance(options, RenderOptions)
+    torch.testing.assert_close(
+        options.background_color,
+        torch.tensor([1.0, 0.0, 0.0]),
+    )
+
+
+def test_context_kwargs_materialize_optimization_builder(
+    tmp_path: Path,
+) -> None:
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.optimization = OptimizationConfig(
+        builder=CallableSpec(
+            target=f"{MODULE_NAME}.context_optimization_builder",
+            kwargs={"lr": 0.2},
+            context_kwargs={"max_steps": "max_steps"},
+        )
+    )
+    context = build_training_run_context(dataset, config)
+
+    optimization = materialize_optimization_config(
+        config.optimization,
+        context=context,
+    )
+
+    assert context.max_steps == config.runtime.max_steps
+    assert optimization.parameter_groups[0].lr == 0.2
+    assert optimization.parameter_groups[0].scheduler.kwargs == {
+        "final_lr": 0.02,
+    }
+    assert optimization.parameter_groups[0].scheduler.context_kwargs == {
+        "max_steps": "max_steps",
+    }
+
+
+def test_context_kwargs_materialize_densification_builder(
+    tmp_path: Path,
+) -> None:
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.densification = DensificationConfig(
+        builders=[
+            CallableSpec(
+                target=f"{MODULE_NAME}.ContextCameraExtentDensification",
+                context_kwargs={"camera_extent": "camera_extent"},
+            )
+        ]
+    )
+
+    densification = build_densification_for_context(
+        config,
+        context=build_training_run_context(dataset, config),
+    )
+
+    assert isinstance(densification, ContextCameraExtentDensification)
+    assert densification.camera_extent == 0.0
 
 
 def test_train_step_supports_modules_parameters_and_hooks(
@@ -727,6 +906,45 @@ def test_build_raw_render_fn_skips_postprocess(tmp_path: Path) -> None:
     )
 
 
+def test_initialize_model_resolves_context_kwargs(tmp_path: Path) -> None:
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.initialization.initializer = CallableSpec(
+        target=f"{MODULE_NAME}.context_device_initializer",
+        context_kwargs={"device": "device"},
+    )
+    run_context = build_training_run_context(dataset, config)
+
+    model = initialize_model(
+        dataset.scene_record,
+        config,
+        context=run_context,
+    )
+
+    assert model.metadata["initializer_device"] == "cpu"
+
+
+def test_run_training_calls_densification_lifecycle_hooks(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.runtime.max_steps = 1
+    config.densification = DensificationConfig(
+        builders=[
+            CallableSpec(
+                target=f"{MODULE_NAME}.LifecycleRecordingDensification"
+            )
+        ]
+    )
+
+    result = run_training(dataset, config)
+
+    assert result.state.model.metadata["before_training_step"] == 0
+    assert result.state.model.metadata["after_training_step"] == 1
+
+
 def test_run_training_merges_densification_render_requirements(
     tmp_path: Path,
 ) -> None:
@@ -734,7 +952,9 @@ def test_run_training_merges_densification_render_requirements(
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
     config.densification = DensificationConfig(
-        builder=CallableSpec(target="ember_core.densification.Vanilla3DGS")
+        builders=[
+            CallableSpec(target="ember_core.densification.Vanilla3DGS")
+        ]
     )
 
     with pytest.raises(ValueError, match="2d_projections"):
@@ -789,6 +1009,88 @@ def test_checkpoint_roundtrip_rebuilds_render_pipeline(tmp_path: Path) -> None:
     assert loaded.metadata.backend_name == "unit_test_backend"
 
 
+def test_run_training_uses_training_backend_options_builder(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.runtime.max_steps = 1
+    config.render.training_backend_options_builder = CallableSpec(
+        target=f"{MODULE_NAME}.training_backend_options_builder",
+        kwargs={"offset": 0.5},
+    )
+
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
+    state = TrainState(
+        model=model,
+        step=0,
+        seed=config.runtime.seed,
+        device=torch.device("cpu"),
+    )
+    training_render_fn = build_training_render_fn(config, state)
+    regular_render_fn = build_render_fn(config)
+    batch = next(iter(build_dataset_loader(dataset, config)))
+
+    training_output = training_render_fn(model, batch.camera)
+    regular_output = regular_render_fn(model, batch.camera)
+    result = run_training(dataset, config)
+
+    torch.testing.assert_close(
+        training_output.render,
+        regular_output.render + 0.5,
+    )
+    assert result.state.step == 1
+
+
+def test_checkpoint_metadata_records_training_backend_options_builder(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.render.training_backend_options_builder = CallableSpec(
+        target=f"{MODULE_NAME}.training_backend_options_builder",
+        kwargs={"offset": 0.5},
+    )
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
+    state = TrainState(
+        model=model,
+        step=0,
+        seed=config.runtime.seed,
+        device=torch.device("cpu"),
+    )
+
+    metadata = build_checkpoint_metadata(
+        state,
+        config,
+        frame_dataset=dataset,
+        run_context=build_training_run_context(dataset, config),
+    )
+
+    assert (
+        f"{MODULE_NAME}.training_backend_options_builder"
+        in metadata.import_paths
+    )
+
+
+def test_checkpoint_overwrite_guard_rejects_existing_artifacts(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "checkpoint"
+    output_dir.mkdir()
+    (output_dir / "model.ckpt").write_text("existing")
+
+    with pytest.raises(FileExistsError, match=r"checkpoint\.overwrite=true"):
+        ensure_checkpoint_output_writable(output_dir, overwrite=False)
+
+    ensure_checkpoint_output_writable(output_dir, overwrite=True)
+
+
 def test_checkpoint_metadata_records_reproducibility_fields(
     tmp_path: Path,
 ) -> None:
@@ -813,6 +1115,7 @@ def test_checkpoint_metadata_records_reproducibility_fields(
         state,
         config,
         frame_dataset=dataset,
+        run_context=build_training_run_context(dataset, config),
     )
 
     assert metadata.seed == config.runtime.seed
@@ -827,6 +1130,11 @@ def test_checkpoint_metadata_records_reproducibility_fields(
     assert metadata.dataset_summary["source_uris"] == [str(tmp_path)]
     assert metadata.dataset_summary["available_camera_sensor_ids"] == ["camera"]
     assert metadata.dataset_summary["default_camera_sensor_id"] == "camera"
+    assert metadata.run_summary["camera_extent"] == 0.0
+    assert metadata.run_summary["backend"] == "unit_test_backend"
+    assert "ember_core" in metadata.provenance
+    assert f"target:{MODULE_NAME}.rgb_l2_loss" in metadata.provenance
+    assert "backend:unit_test_backend" in metadata.provenance
 
 
 def test_export_ply_omits_scene_payload_for_gaussian_scene(

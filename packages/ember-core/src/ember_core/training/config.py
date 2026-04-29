@@ -21,6 +21,7 @@ class CallableSpec(TrainingConfigBase):
 
     target: str
     kwargs: dict[str, Any] = Field(default_factory=dict)
+    context_kwargs: dict[str, str] = Field(default_factory=dict)
 
 
 class ParameterSpec(TrainingConfigBase):
@@ -75,6 +76,7 @@ class RenderPipelineSpec(TrainingConfigBase):
     backend_options: dict[str, Any] = Field(default_factory=dict)
     feature_fn: CallableSpec | None = None
     postprocess_fn: CallableSpec | None = None
+    training_backend_options_builder: CallableSpec | None = None
     return_alpha: bool = True
     return_depth: bool = False
     return_gaussian_impact_score: bool = False
@@ -137,6 +139,7 @@ class ParameterGroupConfig(TrainingConfigBase):
 class OptimizationConfig(TrainingConfigBase):
     """Optimizer group declarations."""
 
+    builder: CallableSpec | None = None
     parameter_groups: list[ParameterGroupConfig] = Field(default_factory=list)
 
 
@@ -156,7 +159,7 @@ class HookConfig(TrainingConfigBase):
 class DensificationConfig(TrainingConfigBase):
     """Declarative densification builder configuration."""
 
-    builder: CallableSpec | None = None
+    builders: list[CallableSpec] = Field(default_factory=list)
 
 
 class CheckpointExportConfig(TrainingConfigBase):
@@ -164,6 +167,7 @@ class CheckpointExportConfig(TrainingConfigBase):
 
     output_dir: Path = Path("checkpoints/latest")
     export_ply: bool = False
+    overwrite: bool = False
 
 
 class TrainingConfig(TrainingConfigBase):
@@ -197,6 +201,8 @@ class CheckpointMetadata(TrainingConfigBase):
     export_ply: bool
     import_paths: list[str] = Field(default_factory=list)
     package_versions: dict[str, str] = Field(default_factory=dict)
+    provenance: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    run_summary: dict[str, Any] = Field(default_factory=dict)
     dataset_summary: dict[str, Any] = Field(default_factory=dict)
 
 

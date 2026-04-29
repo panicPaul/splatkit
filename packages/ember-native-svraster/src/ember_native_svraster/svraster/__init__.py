@@ -8,8 +8,6 @@ from ember_native_svraster.svraster.renderer import (
     render_svraster,
 )
 
-register()
-
 __all__ = [
     "SVRasterDepthRenderOutput",
     "SVRasterRenderOptions",

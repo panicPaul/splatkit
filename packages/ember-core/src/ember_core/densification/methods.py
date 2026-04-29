@@ -16,6 +16,7 @@ from ember_core.densification.collectors import (
 from ember_core.densification.contracts import (
     BaseDensificationMethod,
     DensificationContext,
+    DensificationLifecycleContext,
     DensificationRenderRequirements,
     DensificationSignals,
     GaussianMetricAttribution,
@@ -45,11 +46,14 @@ class ComposedDensificationMethod:
         default_factory=DensificationSignals, init=False
     )
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
         requirements = DensificationRenderRequirements()
         for component in [*self.collectors, *self.passes]:
             requirements = requirements.merge(
-                component.get_render_requirements()
+                component.get_render_requirements(state)
             )
         return requirements
 
@@ -71,6 +75,12 @@ class ComposedDensificationMethod:
         self.signals = DensificationSignals()
         for component in [*self.collectors, *self.passes]:
             component.bind(state, optimizers, family_ops)
+
+    def before_training(self, context: DensificationLifecycleContext) -> None:
+        for component in self.collectors:
+            component.before_training(context)
+        for component in self.passes:
+            component.before_training(context)
 
     def pre_backward(self, context: DensificationContext) -> None:
         for component in self.collectors:
@@ -99,6 +109,12 @@ class ComposedDensificationMethod:
             component.after_step(context, self.signals, metrics)
         for component in self.passes:
             component.after_step(context, self.signals, metrics)
+
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        for component in self.collectors:
+            component.after_training(context)
+        for component in self.passes:
+            component.after_training(context)
 
 
 def compose_densification(
@@ -275,7 +291,11 @@ class FastGS(BaseDensificationMethod):
         self.grad_count = None
         self.max_screen_radii = None
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        del state
         return DensificationRenderRequirements()
 
     def pre_backward(self, context: DensificationContext) -> None:

@@ -10,8 +10,20 @@ import torch
 from torch import Tensor
 
 from ember_core.core.contracts import CameraState
+from ember_core.data.adapters import PreparedFrameDataset
 from ember_core.initialization import InitializedModel
 from ember_core.training.config import CheckpointMetadata, TrainingConfig
+
+
+@dataclass(frozen=True)
+class TrainingRunContext:
+    """Runtime-only values available while materializing training config."""
+
+    frame_dataset: PreparedFrameDataset
+    camera_extent: float
+    max_steps: int
+    backend: str
+    device: torch.device
 
 
 @dataclass
@@ -101,4 +113,5 @@ __all__ = [
     "TrainState",
     "TrainingHook",
     "TrainingResult",
+    "TrainingRunContext",
 ]

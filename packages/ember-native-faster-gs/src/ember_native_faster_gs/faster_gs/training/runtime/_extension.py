@@ -23,6 +23,8 @@ def load_extension() -> Any:
                 training_root / "densification" / "src" / "densification_api.cu"
             ),
             str(training_root / "densification" / "src" / "mcmc.cu"),
+            str(training_root / "filter3d" / "src" / "filter3d.cu"),
+            str(training_root / "morton" / "src" / "morton.cu"),
         ],
         extra_include_paths=[
             str(faster_gs_root / "native" / "utils"),
@@ -30,6 +32,10 @@ def load_extension() -> Any:
             str(training_root / "adam" / "src"),
             str(training_root / "densification" / "include"),
             str(training_root / "densification" / "src"),
+            str(training_root / "filter3d" / "include"),
+            str(training_root / "filter3d" / "src"),
+            str(training_root / "morton" / "include"),
+            str(training_root / "morton" / "src"),
         ],
         extra_cflags=[
             "-O3",

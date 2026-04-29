@@ -173,6 +173,73 @@ def _blend_bwd_fake(
     )
 
 
+@torch.library.custom_op("faster_gs::blend_metric_counts_fwd", mutates_args=())
+def blend_metric_counts_fwd_op(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    metric_map: Tensor,
+    proper_antialiasing: bool,
+    width: int,
+    height: int,
+) -> Tensor:
+    """Low-level native blend metric-count attribution op."""
+    return backend().blend_metric_counts_fwd(
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bucket_count,
+        projected_means,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        metric_map,
+        proper_antialiasing,
+        width,
+        height,
+    )
+
+
+@blend_metric_counts_fwd_op.register_fake
+def _blend_metric_counts_fwd_fake(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    metric_map: Tensor,
+    proper_antialiasing: bool,
+    width: int,
+    height: int,
+) -> Tensor:
+    del (
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bucket_count,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        metric_map,
+        proper_antialiasing,
+        width,
+        height,
+    )
+    return torch.empty(
+        (projected_means.shape[0],),
+        device=projected_means.device,
+        dtype=torch.int32,
+    )
+
+
 def _blend_impl(
     instance_primitive_indices: Tensor,
     tile_instance_ranges: Tensor,

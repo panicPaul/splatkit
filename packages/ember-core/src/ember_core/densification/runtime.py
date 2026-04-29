@@ -7,11 +7,67 @@ from typing import Any
 
 from ember_core.densification.contracts import (
     DensificationContext,
+    DensificationLifecycleContext,
     DensificationMethod,
     DensificationRenderRequirements,
     DensificationRuntime,
 )
 from ember_core.densification.families import build_family_ops
+
+
+class DensificationMethodSequence:
+    """Run multiple densification methods as one method."""
+
+    def __init__(self, methods: list[DensificationMethod]) -> None:
+        self.methods = methods
+        self.expected_scene_families = tuple(
+            family
+            for method in methods
+            for family in getattr(method, "expected_scene_families", ())
+        )
+
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        requirements = DensificationRenderRequirements()
+        for method in self.methods:
+            requirements = requirements.merge(
+                method.get_render_requirements(state)
+            )
+        return requirements
+
+    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+        for method in self.methods:
+            method.bind(state, optimizers, family_ops)
+
+    def before_training(self, context: DensificationLifecycleContext) -> None:
+        for method in self.methods:
+            method.before_training(context)
+
+    def pre_backward(self, context: DensificationContext) -> None:
+        for method in self.methods:
+            method.pre_backward(context)
+
+    def post_backward(self, context: DensificationContext) -> None:
+        for method in self.methods:
+            method.post_backward(context)
+
+    def post_optimizer_step(self, context: DensificationContext) -> None:
+        for method in self.methods:
+            method.post_optimizer_step(context)
+
+    def after_step(
+        self,
+        context: DensificationContext,
+        metrics: dict[str, float],
+    ) -> None:
+        for method in self.methods:
+            method.after_step(context, metrics)
+
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        for method in self.methods:
+            method.after_training(context)
 
 
 def _resolve_target(target: str) -> Any:
@@ -31,19 +87,25 @@ def build_densification(
     config: Any | None,
 ) -> DensificationMethod | None:
     """Instantiate an unbound densification method."""
-    if config is None or config.builder is None:
+    if config is None or not config.builders:
         return None
-    builder = _resolve_target(config.builder.target)
-    if not callable(builder):
-        raise TypeError(
-            f"Densification builder {config.builder.target!r} is not callable."
-        )
-    method = builder(**config.builder.kwargs)
-    if not hasattr(method, "get_render_requirements"):
-        raise TypeError(
-            "Densification builder must return a densification method."
-        )
-    return method
+    methods: list[DensificationMethod] = []
+    for builder_spec in config.builders:
+        builder = _resolve_target(builder_spec.target)
+        if not callable(builder):
+            raise TypeError(
+                f"Densification builder {builder_spec.target!r} is not "
+                "callable."
+            )
+        method = builder(**builder_spec.kwargs)
+        if not hasattr(method, "get_render_requirements"):
+            raise TypeError(
+                "Densification builder must return a densification method."
+            )
+        methods.append(method)
+    if len(methods) == 1:
+        return methods[0]
+    return DensificationMethodSequence(methods)
 
 
 def bind_densification(
@@ -107,9 +169,25 @@ def make_context(
     )
 
 
+def make_lifecycle_context(
+    *,
+    state: Any,
+    optimizers: list[Any],
+    runtime: DensificationRuntime | None = None,
+) -> DensificationLifecycleContext:
+    """Create a densification context for training-level lifecycle hooks."""
+    return DensificationLifecycleContext(
+        state=state,
+        optimizers=optimizers,
+        runtime=runtime,
+    )
+
+
 __all__ = [
+    "DensificationMethodSequence",
     "bind_densification",
     "build_densification",
     "make_context",
+    "make_lifecycle_context",
     "merge_densification_requirements",
 ]

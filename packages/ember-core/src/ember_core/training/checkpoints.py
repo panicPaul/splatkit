@@ -5,7 +5,12 @@ from __future__ import annotations
 import platform
 import subprocess
 from datetime import UTC, datetime
-from importlib.metadata import PackageNotFoundError, version
+from importlib import import_module
+from importlib.metadata import (
+    PackageNotFoundError,
+    packages_distributions,
+    version,
+)
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +18,17 @@ import torch
 from torch import nn
 
 from ember_core.core.contracts import GaussianScene3D, Scene
+from ember_core.core.registry import BACKEND_REGISTRY
 from ember_core.data.adapters import PreparedFrameDataset
 from ember_core.data.contracts import SceneRecord
 from ember_core.initialization import InitializedModel
 from ember_core.io import load_gaussian_ply, save_gaussian_ply
 from ember_core.training.config import CheckpointMetadata, TrainingConfig
-from ember_core.training.protocols import LoadedCheckpoint, TrainState
+from ember_core.training.protocols import (
+    LoadedCheckpoint,
+    TrainingRunContext,
+    TrainState,
+)
 from ember_core.training.runtime import (
     build_modules,
     build_parameters,
@@ -31,13 +41,14 @@ def _json_write(path: Path, value: str) -> None:
     path.write_text(value + "\n")
 
 
-def _safe_git_output(args: list[str]) -> str | None:
+def _safe_git_output(args: list[str], *, cwd: Path | None = None) -> str | None:
     try:
         return subprocess.run(
             args,
             check=True,
             capture_output=True,
             text=True,
+            cwd=cwd,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -54,12 +65,28 @@ def _git_dirty() -> bool | None:
     return bool(output)
 
 
+def _git_commit_for_path(path: Path) -> str | None:
+    return _safe_git_output(["git", "rev-parse", "HEAD"], cwd=path.parent)
+
+
+def _git_dirty_for_path(path: Path) -> bool | None:
+    output = _safe_git_output(["git", "status", "--porcelain"], cwd=path.parent)
+    if output is None:
+        return None
+    return bool(output)
+
+
 def _package_versions() -> dict[str, str]:
     versions = {
         "python": platform.python_version(),
         "torch": torch.__version__,
     }
-    for package in ("ember-core",):
+    for package in (
+        "ember-core",
+        "ember-splatting-training",
+        "ember-adapter-backends",
+        "ember-native-faster-gs",
+    ):
         try:
             versions[package] = version(package)
         except PackageNotFoundError:
@@ -79,18 +106,140 @@ def _import_paths(config: TrainingConfig) -> list[str]:
         import_paths.append(config.render.feature_fn.target)
     if config.render.postprocess_fn is not None:
         import_paths.append(config.render.postprocess_fn.target)
-    if (
-        config.densification is not None
-        and config.densification.builder is not None
-    ):
-        import_paths.append(config.densification.builder.target)
+    if config.render.training_backend_options_builder is not None:
+        import_paths.append(config.render.training_backend_options_builder.target)
+    if config.densification is not None:
+        import_paths.extend(
+            builder.target for builder in config.densification.builders
+        )
+    if config.optimization.builder is not None:
+        import_paths.append(config.optimization.builder.target)
     import_paths.extend(builder.target for builder in config.hooks.builders)
     import_paths.extend(
         group.scheduler.target
         for group in config.optimization.parameter_groups
         if group.scheduler is not None
     )
+    import_paths.extend(
+        group.optimizer
+        for group in config.optimization.parameter_groups
+        if "." in group.optimizer
+    )
     return sorted(set(import_paths))
+
+
+def _module_name_for_target(target: str) -> str | None:
+    module_name, _, attr_path = target.rpartition(".")
+    while module_name:
+        try:
+            import_module(module_name)
+            return module_name
+        except Exception:
+            module_name, _, tail = module_name.rpartition(".")
+            if not tail:
+                return None
+            attr_path = f"{tail}.{attr_path}"
+    return None
+
+
+def _package_names_for_module(module_name: str) -> list[str]:
+    root_name = module_name.split(".", maxsplit=1)[0]
+    distribution_names = packages_distributions().get(root_name, [])
+    return sorted(distribution_names)
+
+
+def _provenance_for_module(module_name: str) -> dict[str, Any]:
+    module = import_module(module_name)
+    module_file = getattr(module, "__file__", None)
+    package_names = _package_names_for_module(module_name)
+    package_versions: dict[str, str] = {}
+    for package_name in package_names:
+        try:
+            package_versions[package_name] = version(package_name)
+        except PackageNotFoundError:
+            continue
+    path = None if module_file is None else Path(module_file).resolve()
+    return {
+        "module": module_name,
+        "file": None if path is None else str(path),
+        "packages": package_versions,
+        "git_commit": None if path is None else _git_commit_for_path(path),
+        "git_dirty": None if path is None else _git_dirty_for_path(path),
+    }
+
+
+def _provenance_for_target(target: str) -> dict[str, Any]:
+    module_name = _module_name_for_target(target)
+    if module_name is None:
+        return {"target": target, "module": None}
+    provenance = _provenance_for_module(module_name)
+    provenance["target"] = target
+    return provenance
+
+
+def _provenance(config: TrainingConfig) -> dict[str, dict[str, Any]]:
+    entries = {
+        "ember_core": _provenance_for_module("ember_core"),
+    }
+    for optional_module in (
+        "ember_splatting_training",
+        "ember_adapter_backends",
+        "ember_native_faster_gs",
+    ):
+        try:
+            entries[optional_module] = _provenance_for_module(optional_module)
+        except Exception:
+            continue
+    backend = BACKEND_REGISTRY.get(config.render.backend)
+    if backend is not None:
+        entries[f"backend:{config.render.backend}"] = _provenance_for_target(
+            f"{backend.render_fn.__module__}.{backend.render_fn.__qualname__}"
+        )
+    for import_path in _import_paths(config):
+        entries[f"target:{import_path}"] = _provenance_for_target(import_path)
+    return entries
+
+
+def _run_summary(
+    config: TrainingConfig,
+    run_context: TrainingRunContext | None,
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "backend": config.render.backend,
+        "checkpoint_output_dir": str(config.checkpoint.output_dir),
+        "max_steps": config.runtime.max_steps,
+    }
+    if run_context is not None:
+        summary.update(
+            {
+                "camera_extent": run_context.camera_extent,
+                "context_max_steps": run_context.max_steps,
+                "context_backend": run_context.backend,
+            }
+        )
+    return summary
+
+
+def ensure_checkpoint_output_writable(
+    output_dir: str | Path,
+    *,
+    overwrite: bool,
+    artifacts: tuple[str, ...] = (
+        "config.json",
+        "metadata.json",
+        "model.ckpt",
+        "scene.ply",
+    ),
+) -> None:
+    """Fail before overwriting an existing checkpoint artifact."""
+    if overwrite:
+        return
+    checkpoint_dir = Path(output_dir)
+    if any((checkpoint_dir / artifact).exists() for artifact in artifacts):
+        raise FileExistsError(
+            "Checkpoint output directory already contains training artifacts: "
+            f"{checkpoint_dir}. Set checkpoint.overwrite=true to replace them."
+        )
 
 
 def _scene_record_summary(scene_record: SceneRecord) -> dict[str, Any]:
@@ -113,6 +262,7 @@ def build_checkpoint_metadata(
     config: TrainingConfig,
     *,
     frame_dataset: PreparedFrameDataset | None = None,
+    run_context: TrainingRunContext | None = None,
 ) -> CheckpointMetadata:
     """Build reproducibility metadata for a checkpoint directory."""
     dataset_summary = (
@@ -130,6 +280,8 @@ def build_checkpoint_metadata(
         export_ply=config.checkpoint.export_ply,
         import_paths=_import_paths(config),
         package_versions=_package_versions(),
+        provenance=_provenance(config),
+        run_summary=_run_summary(config, run_context),
         dataset_summary=dataset_summary,
     )
 
@@ -173,9 +325,14 @@ def save_checkpoint_dir(
     config: TrainingConfig,
     *,
     frame_dataset: PreparedFrameDataset | None = None,
+    run_context: TrainingRunContext | None = None,
 ) -> Path:
     """Save a reproducible checkpoint directory."""
     checkpoint_dir = Path(path)
+    ensure_checkpoint_output_writable(
+        checkpoint_dir,
+        overwrite=config.checkpoint.overwrite,
+    )
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     _json_write(
         checkpoint_dir / "config.json",
@@ -185,6 +342,7 @@ def save_checkpoint_dir(
         state,
         config,
         frame_dataset=frame_dataset,
+        run_context=run_context,
     )
     _json_write(
         checkpoint_dir / "metadata.json",

@@ -4,13 +4,16 @@ import pytest
 import torch
 from ember_native_faster_gs.faster_gs.runtime import (
     blend,
+    blend_metric_counts,
     preprocess,
     render,
     sort,
 )
 from ember_native_faster_gs.faster_gs.runtime.ops import (
+    blend_metric_counts_fwd_op,
     preprocess_fwd_op,
     render_fwd_op,
+    sort_fwd_op,
 )
 from torch._subclasses.fake_tensor import FakeTensorMode
 
@@ -89,6 +92,88 @@ def test_preprocess_sort_blend_return_expected_shapes(
     assert sort_result.tile_instance_ranges.shape[1] == 2
     assert blend_result.image.shape == (3, 32, 32)
     assert torch.isfinite(blend_result.image).all()
+
+
+@pytest.mark.cuda
+def test_blend_metric_counts_returns_per_gaussian_counts(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
+    )
+    cam_to_world = cuda_camera.cam_to_world[0]
+    preprocess_result = preprocess(
+        cuda_scene.center_position,
+        cuda_scene.log_scales,
+        cuda_scene.quaternion_orientation,
+        cuda_scene.logit_opacity[:, None],
+        cuda_scene.feature[:, :1, :],
+        cuda_scene.feature[:, 1:, :],
+        torch.linalg.inv(cam_to_world),
+        cam_to_world[:3, 3],
+        near_plane=0.01,
+        far_plane=1000.0,
+        width=width,
+        height=height,
+        focal_x=focal_x,
+        focal_y=focal_y,
+        center_x=center_x,
+        center_y=center_y,
+        proper_antialiasing=False,
+        active_sh_bases=int(cuda_scene.feature.shape[1]),
+    )
+    sort_result = sort(
+        preprocess_result.depth_keys,
+        preprocess_result.primitive_indices,
+        preprocess_result.num_touched_tiles,
+        preprocess_result.screen_bounds,
+        preprocess_result.projected_means,
+        preprocess_result.conic_opacity,
+        preprocess_result.visible_count,
+        preprocess_result.instance_count,
+        width=width,
+        height=height,
+    )
+    metric_map = torch.ones(
+        (height, width),
+        device=cuda_scene.center_position.device,
+        dtype=torch.int32,
+    )
+    metric_counts = blend_metric_counts(
+        sort_result.instance_primitive_indices,
+        sort_result.tile_instance_ranges,
+        sort_result.tile_bucket_offsets,
+        sort_result.bucket_count,
+        preprocess_result.projected_means,
+        preprocess_result.conic_opacity,
+        preprocess_result.colors_rgb,
+        torch.zeros(3, device=cuda_scene.center_position.device),
+        metric_map.reshape(-1),
+        False,
+        width=width,
+        height=height,
+    )
+    zero_counts = blend_metric_counts(
+        sort_result.instance_primitive_indices,
+        sort_result.tile_instance_ranges,
+        sort_result.tile_bucket_offsets,
+        sort_result.bucket_count,
+        preprocess_result.projected_means,
+        preprocess_result.conic_opacity,
+        preprocess_result.colors_rgb,
+        torch.zeros(3, device=cuda_scene.center_position.device),
+        torch.zeros_like(metric_map).reshape(-1),
+        False,
+        width=width,
+        height=height,
+    )
+
+    assert metric_counts.shape == (cuda_scene.center_position.shape[0],)
+    assert metric_counts.dtype == torch.int32
+    assert torch.all(metric_counts >= 0)
+    assert torch.all(metric_counts >= zero_counts)
+    assert torch.equal(zero_counts, torch.zeros_like(zero_counts))
 
 
 @pytest.mark.cuda
@@ -286,10 +371,37 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
             False,
             int(cpu_scene.feature.shape[1]),
         )
+        sort_result = sort_fwd_op(
+            preprocess_result[4],
+            preprocess_result[5],
+            preprocess_result[6],
+            preprocess_result[7],
+            preprocess_result[0],
+            preprocess_result[1],
+            preprocess_result[8],
+            preprocess_result[9],
+            width,
+            height,
+        )
+        metric_counts = blend_metric_counts_fwd_op(
+            sort_result[0],
+            sort_result[1],
+            sort_result[2],
+            sort_result[3],
+            preprocess_result[0],
+            preprocess_result[1],
+            preprocess_result[2],
+            bg_color,
+            mode.from_tensor(torch.ones((width * height,), dtype=torch.int32)),
+            False,
+            width,
+            height,
+        )
 
     assert preprocess_result[0].shape == (3, 2)
     assert render_result[0].shape == (3, 32, 32)
     assert render_result[1].shape == (3, 2)
+    assert metric_counts.shape == (3,)
 
 
 @pytest.mark.cuda

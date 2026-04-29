@@ -80,6 +80,72 @@ def test_add_noise_matches_reference_cuda_backend() -> None:
     torch.testing.assert_close(actual_means, expected_means)
 
 
+def test_morton_order_sorts_simple_cuda_points() -> None:
+    _require_cuda()
+    from ember_native_faster_gs.faster_gs.training import (
+        morton_codes,
+        morton_order,
+    )
+
+    positions = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.1, 0.0, 0.0],
+            [0.0, 0.1, 0.0],
+            [0.0, 0.0, 0.1],
+        ],
+        dtype=torch.float32,
+        device="cuda",
+    )
+
+    codes = morton_codes(
+        positions,
+        scene_min=torch.zeros(3, dtype=torch.float32, device="cuda"),
+        scene_extent=1.0,
+    )
+
+    torch.testing.assert_close(
+        codes.cpu(),
+        torch.tensor([0, 294984, 589968, 1179936], dtype=torch.int64),
+    )
+    torch.testing.assert_close(
+        morton_order(positions).cpu(),
+        torch.tensor([0, 1, 2, 3], dtype=torch.int64),
+    )
+
+
+def test_update_3d_filter_marks_visible_cuda_point() -> None:
+    _require_cuda()
+    from ember_native_faster_gs.faster_gs.training import update_3d_filter
+
+    positions = torch.tensor(
+        [[0.0, 0.0, 1.0]],
+        dtype=torch.float32,
+        device="cuda",
+    )
+    filter_3d = torch.full((1, 1), float("inf"), device="cuda")
+    visibility_mask = torch.zeros((1, 1), dtype=torch.bool, device="cuda")
+
+    update_3d_filter(
+        positions,
+        torch.eye(4, dtype=torch.float32, device="cuda"),
+        filter_3d,
+        visibility_mask,
+        width=10,
+        height=10,
+        focal_x=10.0,
+        focal_y=10.0,
+        center_x=5.0,
+        center_y=5.0,
+        near_plane=0.01,
+        clipping_tolerance=0.15,
+        distance2filter=0.1,
+    )
+
+    torch.testing.assert_close(filter_3d.cpu(), torch.tensor([[0.1]]))
+    assert visibility_mask.item() is True
+
+
 def test_fused_adam_matches_reference_cuda_backend() -> None:
     _require_cuda()
     reference_backend = pytest.importorskip("FasterGSCudaBackend")

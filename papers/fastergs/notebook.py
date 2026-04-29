@@ -12,7 +12,9 @@ with app.setup:
     from pathlib import Path
     from typing import Any, Literal, Protocol, runtime_checkable
 
+    import ember_adapter_backends.fastergs as ember_fastergs_adapter
     import ember_core as ember
+    import ember_native_faster_gs.faster_gs as ember_fastergs_native
     import marimo as mo
     import torch
     from ember_core.densification import (
@@ -49,6 +51,8 @@ with app.setup:
     FasterGSBackendName = Literal["adapter.fastergs", "faster_gs.core"]
     FasterGSDefaultName = Literal["garden_baseline", "garden_mcmc"]
     sys.modules.setdefault("papers.fastergs.notebook", sys.modules[__name__])
+    ember_fastergs_adapter.register()
+    ember_fastergs_native.register()
 
 
 @app.cell(hide_code=True)
@@ -241,7 +245,7 @@ def fastergs_preset_catalog() -> ConfigPresetCatalog[FasterGSExperimentConfig]:
 
 
 @app.function
-def _resolve_fastergs_point_cloud(
+def resolve_fastergs_point_cloud(
     scene_record: ember.SceneRecord,
 ) -> ember.PointCloudState:
     """Return the SfM point cloud required by FasterGS initialization."""
@@ -310,7 +314,7 @@ def initialize_fastergs_model_from_scene_record(
     device: torch.device | None = None,
 ) -> ember.InitializedModel:
     """Initialize Gaussians exactly like the FasterGS paper implementation."""
-    point_cloud = _resolve_fastergs_point_cloud(scene_record)
+    point_cloud = resolve_fastergs_point_cloud(scene_record)
     target_device = device or torch.device("cpu")
     centers = point_cloud.points.to(device=target_device, dtype=torch.float32)
     num_points = int(centers.shape[0])
@@ -416,22 +420,6 @@ def resolve_training_config(
 
 
 @app.cell
-def _(register_fastergs_backends):
-    def run_fastergs_training(
-        frame_dataset: ember.PreparedFrameDataset,
-        experiment_config: FasterGSExperimentConfig,
-    ) -> TrainingResult:
-        """Run FasterGS training from a native Ember training config."""
-        register_fastergs_backends()
-        return ember.run_training(
-            frame_dataset,
-            resolve_training_config(experiment_config),
-        )
-
-    return (run_fastergs_training,)
-
-
-@app.cell
 def _(current_config, train_button):
     should_prepare = bool(train_button.value)
     scene_record = (
@@ -456,7 +444,7 @@ def _(current_config, scene_record):
 
 
 @app.cell
-def _(current_config, frame_dataset, run_fastergs_training, train_button):
+def _(current_config, frame_dataset, train_button):
     should_train = bool(train_button.value)
     training_result = (
         run_fastergs_training(frame_dataset, current_config)
@@ -677,6 +665,18 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
         self.grad_sum = None
 
 
+@app.function
+def run_fastergs_training(
+    frame_dataset: ember.PreparedFrameDataset,
+    experiment_config: FasterGSExperimentConfig,
+) -> TrainingResult:
+    """Run FasterGS training from a native Ember training config."""
+    return ember.run_training(
+        frame_dataset,
+        resolve_training_config(experiment_config),
+    )
+
+
 @app.class_definition
 class FasterGSFinalCleanup(BaseDensificationMethod):
     """Notebook-local FasterGS checkpoint cleanup before export."""
@@ -725,24 +725,6 @@ def _():
     # Support
     """)
     return
-
-
-@app.cell
-def _(importlib):
-    def register_fastergs_backends() -> tuple[str, ...]:
-        """Register FasterGS backends used by the paper notebook."""
-        registered: list[str] = []
-        for module_name in (
-            "ember_adapter_backends.fastergs",
-            "ember_native_faster_gs.faster_gs",
-        ):
-            module = importlib.import_module(module_name)
-            register = module.register
-            register()
-            registered.append(module_name)
-        return tuple(registered)
-
-    return (register_fastergs_backends,)
 
 
 @app.function

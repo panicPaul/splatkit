@@ -22,7 +22,11 @@ class ImagePlaneGradientCollector(BaseDensificationComponent):
 
     use_absolute_gradients: bool = False
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        del state
         return DensificationRenderRequirements(
             return_2d_projections=True,
             backend_options={

@@ -45,6 +45,8 @@ class FasterGSNativeRenderOptions(RenderOptions):
     near_plane: float = 0.01
     far_plane: float = 1000.0
     proper_antialiasing: bool = True
+    active_sh_bases: int | None = None
+    clamp_output: bool = True
     collect_densification_info: bool = False
 
 
@@ -119,6 +121,11 @@ def render_faster_gs_native(
 
     _validate_inputs(scene, camera)
     options = options or FasterGSNativeRenderOptions()
+    active_sh_bases = (
+        int(scene.feature.shape[1])
+        if options.active_sh_bases is None
+        else options.active_sh_bases
+    )
     sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)
     intrinsics = camera.get_intrinsics()
     background_color = options.background_color.to(
@@ -159,12 +166,14 @@ def render_faster_gs_native(
             center_y=float(camera_intrinsics[1, 2].item()),
             bg_color=background_color,
             proper_antialiasing=options.proper_antialiasing,
-            active_sh_bases=int(scene.feature.shape[1]),
+            active_sh_bases=active_sh_bases,
             densification_info=densification_info,
         )
         renders.append(render_result.image.permute(1, 2, 0).contiguous())
 
-    render = torch.stack(renders, dim=0).clamp(0.0, 1.0)
+    render = torch.stack(renders, dim=0)
+    if options.clamp_output:
+        render = render.clamp(0.0, 1.0)
     if options.collect_densification_info:
         return FasterGSNativeDensificationRenderOutput(
             render=render,

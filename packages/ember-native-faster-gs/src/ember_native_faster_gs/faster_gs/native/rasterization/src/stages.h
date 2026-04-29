@@ -110,6 +110,22 @@ blend_fwd_wrapper(
     int width,
     int height);
 
+// Runs the FasterGS blend forward stage with metric-map attribution enabled
+// and returns per-primitive metric counts.
+torch::Tensor blend_metric_counts_fwd_wrapper(
+    const torch::Tensor& instance_primitive_indices,
+    const torch::Tensor& tile_instance_ranges,
+    const torch::Tensor& tile_bucket_offsets,
+    const torch::Tensor& bucket_count,
+    const torch::Tensor& projected_means,
+    const torch::Tensor& conic_opacity,
+    const torch::Tensor& colors_rgb,
+    const torch::Tensor& bg_color,
+    const torch::Tensor& metric_map,
+    bool proper_antialiasing,
+    int width,
+    int height);
+
 // Runs the FasterGS blend backward stage and returns gradients with respect to
 // projected means, conic-opacities, and RGB colors.
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>

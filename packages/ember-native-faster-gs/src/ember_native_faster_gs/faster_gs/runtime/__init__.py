@@ -5,6 +5,7 @@ from __future__ import annotations
 from torch import Tensor
 
 from ember_native_faster_gs.faster_gs.runtime.ops import (
+    blend_metric_counts_fwd_op,
     blend_op,
     preprocess_op,
     render_op,
@@ -132,6 +133,38 @@ def blend(
     )
 
 
+def blend_metric_counts(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    metric_map: Tensor,
+    proper_antialiasing: bool,
+    *,
+    width: int,
+    height: int,
+) -> Tensor:
+    """Attribute a binary/int metric map to native blend contributors."""
+    return blend_metric_counts_fwd_op(
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bucket_count,
+        projected_means,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        metric_map,
+        proper_antialiasing,
+        width,
+        height,
+    )
+
+
 def render(
     center_positions: Tensor,
     log_scales: Tensor,
@@ -193,6 +226,7 @@ __all__ = [
     "RenderResult",
     "SortResult",
     "blend",
+    "blend_metric_counts",
     "preprocess",
     "render",
     "sort",

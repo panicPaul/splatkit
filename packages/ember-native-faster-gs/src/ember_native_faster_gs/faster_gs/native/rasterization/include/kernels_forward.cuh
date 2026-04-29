@@ -374,6 +374,8 @@ namespace faster_gs::rasterization::kernels::forward {
         uint* __restrict__ tile_n_processed,
         uint* __restrict__ bucket_tile_index,
         float4* __restrict__ bucket_color_transmittance,
+        const int* __restrict__ metric_map,
+        int* __restrict__ metric_counts,
         const uint width,
         const uint height,
         const uint grid_width)
@@ -399,6 +401,7 @@ namespace faster_gs::rasterization::kernels::forward {
         __shared__ float2 collected_mean2d[config::block_size_blend];
         __shared__ float4 collected_conic_opacity[config::block_size_blend];
         __shared__ float3 collected_color[config::block_size_blend];
+        __shared__ uint collected_primitive_idx[config::block_size_blend];
         // initialize local storage
         float3 color_pixel = make_float3(0.0f);
         float transmittance = 1.0f;
@@ -410,6 +413,7 @@ namespace faster_gs::rasterization::kernels::forward {
             if (__syncthreads_count(done) == config::block_size_blend) break;
             if (current_fetch_idx < tile_range.y) {
                 const uint primitive_idx = instance_primitive_indices[current_fetch_idx];
+                collected_primitive_idx[thread_rank] = primitive_idx;
                 collected_mean2d[thread_rank] = primitive_mean2d[primitive_idx];
                 collected_conic_opacity[thread_rank] = primitive_conic_opacity[primitive_idx];
                 const float3 color = fmaxf(primitive_color[primitive_idx], 0.0f);
@@ -441,6 +445,13 @@ namespace faster_gs::rasterization::kernels::forward {
 
                 // blend fragment into pixel color
                 color_pixel += transmittance * alpha * collected_color[j];
+
+                if (metric_map != nullptr && metric_counts != nullptr) {
+                    const uint pixel_idx = width * pixel_coords.y + pixel_coords.x;
+                    if (metric_map[pixel_idx] != 0) {
+                        atomicAdd(&metric_counts[collected_primitive_idx[j]], 1);
+                    }
+                }
 
                 // update transmittance
                 transmittance *= 1.0f - alpha;

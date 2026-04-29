@@ -13,6 +13,7 @@ from torch import nn
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 
+from ember_core.core.contracts import CameraState
 from ember_core.core.registry import (
     BACKEND_REGISTRY,
     render,
@@ -24,16 +25,22 @@ from ember_core.data.contracts import (
     PreparedFrameSample,
     SceneRecord,
 )
-from ember_core.densification.contracts import DensificationRuntime
+from ember_core.densification.contracts import (
+    DensificationMethod,
+    DensificationRenderRequirements,
+    DensificationRuntime,
+)
 from ember_core.densification.runtime import (
+    DensificationMethodSequence,
     bind_densification,
     build_densification,
     make_context,
-    merge_densification_requirements,
+    make_lifecycle_context,
 )
 from ember_core.initialization import InitializedModel
 from ember_core.training.config import (
     CallableSpec,
+    OptimizationConfig,
     ParameterGroupConfig,
     ParameterSpec,
     ParameterTargetSpec,
@@ -46,6 +53,7 @@ from ember_core.training.protocols import (
     RenderFn,
     TrainingHook,
     TrainingResult,
+    TrainingRunContext,
     TrainState,
 )
 
@@ -306,22 +314,57 @@ def resolve_target(target: str) -> Any:
     return value
 
 
-def resolve_callable(spec: CallableSpec | None) -> Callable[..., Any] | None:
+def _resolve_context_value(
+    context: TrainingRunContext,
+    path: str,
+) -> Any:
+    value: Any = context
+    for name in path.split("."):
+        value = getattr(value, name)
+    return value
+
+
+def callable_kwargs(
+    spec: CallableSpec,
+    context: TrainingRunContext | None = None,
+) -> dict[str, Any]:
+    """Resolve static and runtime-bound kwargs for a callable spec."""
+    kwargs = dict(spec.kwargs)
+    if not spec.context_kwargs:
+        return kwargs
+    if context is None:
+        raise ValueError(
+            f"CallableSpec {spec.target!r} requires a TrainingRunContext."
+        )
+    for kwarg_name, context_path in spec.context_kwargs.items():
+        kwargs[kwarg_name] = _resolve_context_value(context, context_path)
+    return kwargs
+
+
+def resolve_callable(
+    spec: CallableSpec | None,
+    *,
+    context: TrainingRunContext | None = None,
+) -> Callable[..., Any] | None:
     """Resolve a callable spec and bind its kwargs."""
     if spec is None:
         return None
     value = resolve_target(spec.target)
     if not callable(value):
         raise TypeError(f"Resolved target {spec.target!r} is not callable.")
-    return partial(value, **spec.kwargs)
+    return partial(value, **callable_kwargs(spec, context))
 
 
-def instantiate_callable(spec: CallableSpec) -> Any:
+def instantiate_callable(
+    spec: CallableSpec,
+    *,
+    context: TrainingRunContext | None = None,
+) -> Any:
     """Instantiate a class or builder function from a callable spec."""
     value = resolve_target(spec.target)
     if not callable(value):
         raise TypeError(f"Resolved target {spec.target!r} is not callable.")
-    return value(**spec.kwargs)
+    return value(**callable_kwargs(spec, context))
 
 
 def build_modules(config: TrainingConfig) -> dict[str, nn.Module]:
@@ -362,9 +405,14 @@ def build_parameters(config: TrainingConfig) -> dict[str, nn.Parameter]:
 def initialize_model(
     scene_record: SceneRecord,
     config: TrainingConfig,
+    *,
+    context: TrainingRunContext | None = None,
 ) -> InitializedModel:
     """Run the configured initializer."""
-    initializer = resolve_callable(config.initialization.initializer)
+    initializer = resolve_callable(
+        config.initialization.initializer,
+        context=context,
+    )
     assert initializer is not None
     model = initializer(
         scene_record,
@@ -400,6 +448,15 @@ def _build_dataloader_from_frame_dataset(
 
 
 def _build_backend_options(config: TrainingConfig) -> Any:
+    return resolve_backend_options(config)
+
+
+def resolve_backend_options(
+    config: TrainingConfig,
+    *,
+    updates: dict[str, Any] | None = None,
+) -> Any:
+    """Resolve render backend options against registered dataclass defaults."""
     backend = BACKEND_REGISTRY.get(config.render.backend)
     if backend is None:
         raise ValueError(
@@ -411,9 +468,10 @@ def _build_backend_options(config: TrainingConfig) -> Any:
             "Registered backend default options must be dataclass instances."
         )
     valid_option_names = {field.name for field in fields(default_options)}
-    unknown_option_names = sorted(
-        set(config.render.backend_options) - valid_option_names
-    )
+    option_updates = dict(config.render.backend_options)
+    if updates is not None:
+        option_updates.update(updates)
+    unknown_option_names = sorted(set(option_updates) - valid_option_names)
     if unknown_option_names:
         raise ValueError(
             f"Backend {config.render.backend!r} does not support render "
@@ -421,9 +479,9 @@ def _build_backend_options(config: TrainingConfig) -> Any:
         )
     resolved_options: dict[str, Any] = {}
     for field in fields(default_options):
-        if field.name not in config.render.backend_options:
+        if field.name not in option_updates:
             continue
-        value = config.render.backend_options[field.name]
+        value = option_updates[field.name]
         default_value = getattr(default_options, field.name)
         if isinstance(default_value, torch.Tensor) and not isinstance(
             value,
@@ -438,7 +496,25 @@ def _build_backend_options(config: TrainingConfig) -> Any:
     return replace(default_options, **resolved_options)
 
 
-def _validate_requested_outputs(config: TrainingConfig) -> None:
+def _merge_backend_option_updates(
+    *updates: dict[str, Any],
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for update in updates:
+        for name, value in update.items():
+            if name in merged and merged[name] != value:
+                raise ValueError(
+                    f"Conflicting render backend option {name!r}: "
+                    f"{merged[name]!r} vs {value!r}."
+                )
+            merged[name] = value
+    return merged
+
+
+def _validate_requested_outputs(
+    config: TrainingConfig,
+    requirements: DensificationRenderRequirements | None = None,
+) -> None:
     backend = BACKEND_REGISTRY.get(config.render.backend)
     if backend is None:
         raise ValueError(
@@ -462,6 +538,25 @@ def _validate_requested_outputs(config: TrainingConfig) -> None:
         )
         if enabled
     }
+    if requirements is not None:
+        requested_outputs.update(
+            name
+            for name, enabled in (
+                ("alpha", requirements.return_alpha),
+                ("depth", requirements.return_depth),
+                (
+                    "gaussian_impact_score",
+                    requirements.return_gaussian_impact_score,
+                ),
+                ("normals", requirements.return_normals),
+                ("2d_projections", requirements.return_2d_projections),
+                (
+                    "projective_intersection_transforms",
+                    requirements.return_projective_intersection_transforms,
+                ),
+            )
+            if enabled
+        )
     unsupported_outputs = sorted(
         requested_outputs - backend.supported_outputs - {"alpha"}
     )
@@ -522,6 +617,113 @@ def build_render_fn(config: TrainingConfig) -> RenderFn:
     return render_fn
 
 
+RenderFnWithRequirements = Callable[
+    [InitializedModel, CameraState, DensificationRenderRequirements],
+    Any,
+]
+
+
+def build_render_fn_with_requirements(
+    config: TrainingConfig,
+    *,
+    state: TrainState | None = None,
+    context: TrainingRunContext | None = None,
+) -> RenderFnWithRequirements:
+    """Build a render pipeline accepting per-step densification requirements."""
+    _validate_requested_outputs(config)
+    feature_fn = resolve_callable(config.render.feature_fn)
+    postprocess_fn = resolve_callable(config.render.postprocess_fn)
+    static_options = _build_backend_options(config)
+    training_options_fn = resolve_callable(
+        config.render.training_backend_options_builder,
+        context=context,
+    )
+
+    def render_fn(
+        model: InitializedModel,
+        camera: CameraState,
+        requirements: DensificationRenderRequirements,
+    ) -> Any:
+        _validate_requested_outputs(config, requirements)
+        resolved_camera = camera
+        if not hasattr(resolved_camera, "cam_to_world"):
+            raise TypeError("Render camera must provide cam_to_world.")
+        scene = (
+            model.scene
+            if feature_fn is None
+            else feature_fn(model, resolved_camera)
+        )
+        training_updates = (
+            {}
+            if training_options_fn is None
+            else dict(training_options_fn(state))
+        )
+        backend_updates = _merge_backend_option_updates(
+            training_updates,
+            requirements.backend_options,
+        )
+        options = (
+            static_options
+            if not backend_updates
+            else resolve_backend_options(
+                config,
+                updates=backend_updates,
+            )
+        )
+        render_output = render(
+            scene,
+            resolved_camera,
+            backend=config.render.backend,
+            return_alpha=config.render.return_alpha
+            or requirements.return_alpha,
+            return_depth=config.render.return_depth
+            or requirements.return_depth,
+            return_gaussian_impact_score=(
+                config.render.return_gaussian_impact_score
+                or requirements.return_gaussian_impact_score
+            ),
+            return_normals=config.render.return_normals
+            or requirements.return_normals,
+            return_2d_projections=(
+                config.render.return_2d_projections
+                or requirements.return_2d_projections
+            ),
+            return_projective_intersection_transforms=(
+                config.render.return_projective_intersection_transforms
+                or requirements.return_projective_intersection_transforms
+            ),
+            options=options,
+        )
+        if postprocess_fn is None:
+            return render_output
+        return postprocess_fn(model, resolved_camera, render_output)
+
+    return render_fn
+
+
+def build_training_render_fn(
+    config: TrainingConfig,
+    state: TrainState,
+    *,
+    context: TrainingRunContext | None = None,
+) -> RenderFn:
+    """Build the render function used by the training loop."""
+    render_with_requirements = build_render_fn_with_requirements(
+        config,
+        state=state,
+        context=context,
+    )
+
+    def render_fn(model: InitializedModel, camera: CameraState) -> Any:
+        return render_with_requirements(
+            model,
+            camera,
+            DensificationRenderRequirements(),
+        )
+
+    return render_fn
+
+
 class _TrainingDensificationRuntime(DensificationRuntime):
     """Typed runtime services shared with densification methods."""
 
@@ -550,6 +752,12 @@ class _TrainingDensificationRuntime(DensificationRuntime):
         indices = torch.randperm(dataset_size)[:sample_count].tolist()
         return tuple(
             self._frame_dataset[index].to(self._device) for index in indices
+        )
+
+    def all_views(self) -> tuple[PreparedFrameSample, ...]:
+        return tuple(
+            self._frame_dataset[index].to(self._device)
+            for index in range(len(self._frame_dataset))
         )
 
     def render_raw(self, model: InitializedModel, camera: Any) -> Any:
@@ -622,9 +830,36 @@ def build_hooks(config: TrainingConfig) -> list[TrainingHook]:
 
 def build_densification_from_config(
     config: TrainingConfig,
-) -> Any | None:
+) -> DensificationMethod | None:
     """Instantiate an unbound densification method from config."""
     return build_densification(config.densification)
+
+
+def build_densification_for_context(
+    config: TrainingConfig,
+    *,
+    context: TrainingRunContext,
+) -> DensificationMethod | None:
+    """Instantiate densification with runtime-bound kwargs resolved."""
+    if config.densification is None or not config.densification.builders:
+        return None
+    methods: list[DensificationMethod] = []
+    for builder_spec in config.densification.builders:
+        builder = resolve_target(builder_spec.target)
+        if not callable(builder):
+            raise TypeError(
+                f"Densification builder {builder_spec.target!r} is not "
+                "callable."
+            )
+        method = builder(**callable_kwargs(builder_spec, context))
+        if not hasattr(method, "get_render_requirements"):
+            raise TypeError(
+                "Densification builder must return a densification method."
+            )
+        methods.append(method)
+    if len(methods) == 1:
+        return methods[0]
+    return DensificationMethodSequence(methods)
 
 
 def _resolve_target(
@@ -708,13 +943,15 @@ def _build_optimizer(
 def _build_scheduler(
     spec: CallableSpec | None,
     optimizer: torch.optim.Optimizer,
+    *,
+    context: TrainingRunContext | None = None,
 ) -> LRScheduler | None:
     if spec is None:
         return None
     scheduler_factory = resolve_target(spec.target)
     if not callable(scheduler_factory):
         raise TypeError(f"Resolved scheduler {spec.target!r} is not callable.")
-    scheduler = scheduler_factory(optimizer, **spec.kwargs)
+    scheduler = scheduler_factory(optimizer, **callable_kwargs(spec, context))
     if not isinstance(scheduler, LRScheduler):
         raise TypeError(
             f"Scheduler builder {spec.target!r} returned "
@@ -737,6 +974,39 @@ def _build_binding_view(
         f"{target.scope}.{target.name}",
         target.view,
         base_parameter,
+    )
+
+
+def materialize_optimization_config(
+    config: OptimizationConfig,
+    *,
+    context: TrainingRunContext | None = None,
+) -> OptimizationConfig:
+    """Resolve optional runtime-bound optimization recipe builders."""
+    if config.builder is None:
+        return config
+    builder = resolve_target(config.builder.target)
+    if not callable(builder):
+        raise TypeError(
+            f"Optimization builder {config.builder.target!r} is not callable."
+        )
+    built = builder(**callable_kwargs(config.builder, context))
+    if isinstance(built, OptimizationConfig):
+        builder_config = built
+    elif isinstance(built, list):
+        builder_config = OptimizationConfig(parameter_groups=built)
+    else:
+        raise TypeError(
+            f"Optimization builder {config.builder.target!r} returned "
+            f"{type(built).__name__}, expected OptimizationConfig or list."
+        )
+    return config.model_copy(
+        update={
+            "parameter_groups": [
+                *builder_config.parameter_groups,
+                *config.parameter_groups,
+            ]
+        }
     )
 
 
@@ -769,9 +1039,15 @@ def _reject_overlapping_bindings(
 def build_optimizer_set(
     state: TrainState,
     config: TrainingConfig,
+    *,
+    context: TrainingRunContext | None = None,
 ) -> list[OptimizerBinding]:
     """Build one optimizer per declared parameter group."""
-    if not config.optimization.parameter_groups:
+    optimization = materialize_optimization_config(
+        config.optimization,
+        context=context,
+    )
+    if not optimization.parameter_groups:
         raise ValueError(
             "TrainingConfig.optimization.parameter_groups must not be empty."
         )
@@ -779,7 +1055,7 @@ def build_optimizer_set(
     seen_targets: dict[
         int, list[tuple[ParameterTargetSpec, _BindingView | None]]
     ] = {}
-    for group in config.optimization.parameter_groups:
+    for group in optimization.parameter_groups:
         resolved = _resolve_target(state.model, group.target)
         view = _build_binding_view(group.target, resolved.base_parameter)
         _reject_overlapping_bindings(
@@ -798,7 +1074,11 @@ def build_optimizer_set(
             OptimizerBinding(
                 target=group.target,
                 optimizer=optimizer,
-                scheduler=_build_scheduler(group.scheduler, optimizer),
+                scheduler=_build_scheduler(
+                    group.scheduler,
+                    optimizer,
+                    context=context,
+                ),
                 base_parameter=resolved.base_parameter,
                 field_name=resolved.field_name,
                 view=view,
@@ -868,9 +1148,10 @@ def train_step(
     batch: Any,
     *,
     render_fn: RenderFn,
+    render_fn_with_requirements: RenderFnWithRequirements | None = None,
     loss_fn: LossFn,
     optimizers: Sequence[OptimizerBinding],
-    densification: Any | None = None,
+    densification: DensificationMethod | None = None,
     probe_runtime: DensificationRuntime | None = None,
     hooks: Sequence[TrainingHook] = (),
 ) -> dict[str, float]:
@@ -878,7 +1159,15 @@ def train_step(
     resolved_batch = _move_batch_to_device(batch, state.device)
     for optimizer_binding in optimizers:
         optimizer_binding.zero_grad()
-    render_output = render_fn(state.model, resolved_batch.camera)
+    render_output = (
+        render_fn(state.model, resolved_batch.camera)
+        if densification is None or render_fn_with_requirements is None
+        else render_fn_with_requirements(
+            state.model,
+            resolved_batch.camera,
+            densification.get_render_requirements(state),
+        )
+    )
     loss_result = loss_fn(state, resolved_batch, render_output)
     densification_context = None
     if densification is not None:
@@ -940,17 +1229,64 @@ def train_step(
     return metrics
 
 
-def _set_seed(seed: int) -> None:
+def set_torch_seed(seed: int) -> None:
+    """Seed PyTorch RNGs, including CUDA when available."""
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
 
+def _set_seed(seed: int) -> None:
+    set_torch_seed(seed)
+
+
+def cycle_dataloader(
+    loader: DataLoader[PreparedFrameBatch],
+) -> Iterator[PreparedFrameBatch]:
+    """Repeat a dataloader forever."""
+    while True:
+        yield from loader
+
+
 def _cycle(
     loader: DataLoader[PreparedFrameBatch],
 ) -> Iterator[PreparedFrameBatch]:
-    while True:
-        yield from loader
+    return cycle_dataloader(loader)
+
+
+def compute_frame_camera_extent(
+    frame_dataset: PreparedFrameDataset,
+    *,
+    scale: float = 1.1,
+) -> float:
+    """Compute a scene extent estimate from prepared-frame camera centers."""
+    if len(frame_dataset) == 0:
+        return 0.0
+    centers = [
+        frame_dataset[index].camera.cam_to_world[..., :3, 3].reshape(-1, 3)
+        for index in range(len(frame_dataset))
+    ]
+    camera_centers = torch.cat(centers, dim=0).to(torch.float32)
+    mean_center = camera_centers.mean(dim=0, keepdim=True)
+    return float(
+        scale * (camera_centers - mean_center).norm(dim=-1).max().item()
+    )
+
+
+def build_training_run_context(
+    frame_dataset: PreparedFrameDataset,
+    config: TrainingConfig,
+    *,
+    device: torch.device | None = None,
+) -> TrainingRunContext:
+    """Build runtime-only values used to materialize training recipes."""
+    return TrainingRunContext(
+        frame_dataset=frame_dataset,
+        camera_extent=compute_frame_camera_extent(frame_dataset),
+        max_steps=config.runtime.max_steps,
+        backend=config.render.backend,
+        device=device or torch.device(config.runtime.device),
+    )
 
 
 def run_training(
@@ -958,27 +1294,51 @@ def run_training(
     config: TrainingConfig,
 ) -> TrainingResult:
     """Run the declarative training loop and export a checkpoint directory."""
+    from ember_core.training.checkpoints import (
+        ensure_checkpoint_output_writable,
+    )
+
+    ensure_checkpoint_output_writable(
+        config.checkpoint.output_dir,
+        overwrite=config.checkpoint.overwrite,
+    )
     _set_seed(config.runtime.seed)
     device = torch.device(config.runtime.device)
-    model = initialize_model(frame_dataset.scene_record, config).to(device)
+    run_context = build_training_run_context(
+        frame_dataset,
+        config,
+        device=device,
+    )
+    model = initialize_model(
+        frame_dataset.scene_record,
+        config,
+        context=run_context,
+    ).to(device)
     state = TrainState(
         model=model,
         step=0,
         seed=config.runtime.seed,
         device=device,
     )
-    densification = build_densification_from_config(config)
-    if densification is not None:
-        merge_densification_requirements(
-            config,
-            densification.get_render_requirements(),
-        )
+    densification = build_densification_for_context(
+        config,
+        context=run_context,
+    )
     dataloader = _build_dataloader_from_frame_dataset(frame_dataset, config)
     raw_render_fn = build_raw_render_fn(config)
-    render_fn = build_render_fn(config)
+    render_fn = build_training_render_fn(
+        config,
+        state,
+        context=run_context,
+    )
+    render_fn_with_requirements = build_render_fn_with_requirements(
+        config,
+        state=state,
+        context=run_context,
+    )
     loss_fn = build_loss_fn(config)
     hooks = build_hooks(config)
-    optimizers = build_optimizer_set(state, config)
+    optimizers = build_optimizer_set(state, config, context=run_context)
     densification = bind_densification(densification, state, optimizers)
     probe_runtime: DensificationRuntime | None = None
     if densification is not None:
@@ -989,6 +1349,13 @@ def run_training(
             raw_render_fn=raw_render_fn,
             device=device,
         )
+        densification.before_training(
+            make_lifecycle_context(
+                state=state,
+                optimizers=optimizers,
+                runtime=probe_runtime,
+            )
+        )
     history: list[dict[str, float]] = []
     iterator = _cycle(dataloader)
     for _ in range(config.runtime.max_steps):
@@ -997,6 +1364,7 @@ def run_training(
                 state,
                 next(iterator),
                 render_fn=render_fn,
+                render_fn_with_requirements=render_fn_with_requirements,
                 loss_fn=loss_fn,
                 optimizers=optimizers,
                 densification=densification,
@@ -1006,11 +1374,21 @@ def run_training(
         )
     from ember_core.training.checkpoints import save_checkpoint_dir
 
+    if densification is not None:
+        densification.after_training(
+            make_lifecycle_context(
+                state=state,
+                optimizers=optimizers,
+                runtime=probe_runtime,
+            )
+        )
+
     checkpoint_dir = save_checkpoint_dir(
         config.checkpoint.output_dir,
         state,
         config,
         frame_dataset=frame_dataset,
+        run_context=run_context,
     )
     return TrainingResult(
         state=state,
@@ -1021,6 +1399,7 @@ def run_training(
 
 __all__ = [
     "build_dataloader",
+    "build_densification_for_context",
     "build_densification_from_config",
     "build_hooks",
     "build_loss_fn",
@@ -1028,10 +1407,18 @@ __all__ = [
     "build_optimizer_set",
     "build_parameters",
     "build_render_fn",
+    "build_render_fn_with_requirements",
+    "build_training_render_fn",
+    "build_training_run_context",
+    "compute_frame_camera_extent",
+    "cycle_dataloader",
     "initialize_model",
     "instantiate_callable",
+    "materialize_optimization_config",
+    "resolve_backend_options",
     "resolve_callable",
     "resolve_target",
     "run_training",
+    "set_torch_seed",
     "train_step",
 ]

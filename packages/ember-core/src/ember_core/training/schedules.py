@@ -13,6 +13,7 @@ def exponential_decay_to(
     *,
     final_lr: float,
     max_steps: int,
+    step_offset: int = 0,
     last_epoch: int = -1,
 ) -> LambdaLR:
     """Build a step-wise exponential decay schedule to a target final LR."""
@@ -25,7 +26,7 @@ def exponential_decay_to(
         raise ValueError("All optimizer learning rates must be > 0.")
 
     def lr_lambda(step: int) -> float:
-        bounded_step = min(max(step, 0), max_steps)
+        bounded_step = min(max(step + step_offset, 0), max_steps)
         if bounded_step == 0:
             return 1.0
         ratio = bounded_step / max_steps

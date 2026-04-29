@@ -285,9 +285,9 @@ class GaussianFamilyOps:
             rotations,
             offsets.unsqueeze(-1),
         ).squeeze(-1)
-        scale_factor = torch.log(
+        child_scale_multiplier = torch.log(
             torch.tensor(
-                scale_shrink * num_children,
+                scale_shrink,
                 dtype=scene.log_scales.dtype,
                 device=scene.log_scales.device,
             )
@@ -321,7 +321,7 @@ class GaussianFamilyOps:
                     [
                         value[~mask],
                         value[mask].repeat_interleave(num_children, dim=0)
-                        - scale_factor,
+                        + child_scale_multiplier,
                     ],
                     dim=0,
                 )
@@ -449,6 +449,19 @@ class GaussianFamilyOps:
                 old_value[local_order]
             )
         self._replace_scene(scene, updates, state_transforms)
+
+    def replace_fields(self, updates: dict[str, Tensor]) -> None:
+        """Replace scene tensor fields while preserving optimizer state."""
+        scene = self.scene
+        replaced = {
+            name: value.detach().requires_grad_(getattr(scene, name).requires_grad)
+            for name, value in updates.items()
+        }
+        self._replace_scene(
+            scene,
+            replaced,
+            {name: lambda _key, old_value: old_value for name in replaced},
+        )
 
     def reset_optimizer_state(
         self,

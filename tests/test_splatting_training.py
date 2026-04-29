@@ -40,7 +40,47 @@ from ember_native_faster_gs.faster_gs_depth.renderer import (
 from ember_native_faster_gs.gaussian_pop.renderer import (
     GaussianPopNativeRenderOptions,
 )
+from ember_splatting_training.fastergs import (
+    GaussianMipSplattingAntialiasing,
+    active_sh_bases_for_step,
+    fastergs_training_backend_options,
+)
+from ember_splatting_training.recipes import (
+    Gaussian3DGSOptimizationRecipe,
+    gaussian_3dgs_optimization_config,
+)
 from torch.optim import Optimizer
+
+
+def test_fastergs_active_sh_schedule() -> None:
+    assert active_sh_bases_for_step(0) == 1
+    assert active_sh_bases_for_step(999) == 1
+    assert active_sh_bases_for_step(1000) == 4
+    assert active_sh_bases_for_step(2000) == 9
+    assert active_sh_bases_for_step(3000) == 16
+    assert active_sh_bases_for_step(30_000) == 16
+
+
+def test_fastergs_training_backend_options_use_state_step() -> None:
+    state = TrainState(
+        model=None,
+        step=2_000,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+
+    assert fastergs_training_backend_options(state) == {
+        "active_sh_bases": 9,
+        "clamp_output": False,
+    }
+
+
+def test_gaussian_mip_splatting_antialiasing_requests_proper_aa() -> None:
+    method = GaussianMipSplattingAntialiasing()
+
+    requirements = method.get_render_requirements(object())
+
+    assert requirements.backend_options == {"proper_antialiasing": True}
 
 
 class RecordingOptimizer(Optimizer):
@@ -93,15 +133,15 @@ def _register_unit_test_backend() -> None:
             return_normals,
             return_2d_projections,
             return_projective_intersection_transforms,
-            options,
         )
+        options = options or RenderOptions()
         color = scene.feature[:, 0, :].mean(dim=0)
         render = color.view(1, 1, 1, 3).expand(
             camera.width.shape[0],
             int(camera.height[0].item()),
             int(camera.width[0].item()),
             3,
-        )
+        ) + options.background_color.view(1, 1, 1, 3)
         return RenderOutput(render=render)
 
 
@@ -136,6 +176,49 @@ def _training_config(
         ),
         checkpoint=CheckpointExportConfig(output_dir=Path("unused")),
     )
+
+
+def test_gaussian_3dgs_optimization_recipe_accepts_paper_aliases() -> None:
+    recipe = Gaussian3DGSOptimizationRecipe.model_validate(
+        {
+            "optimizer": "unit.Optimizer",
+            "means_lr_init": 0.1,
+            "means_lr_final": 0.01,
+            "means_lr_max_steps": 50,
+            "center_position_lr_step_offset": 1,
+            "sh_dc_lr": 0.2,
+            "sh_rest_lr": 0.3,
+            "opacity_lr": 0.4,
+            "scale_lr": 0.5,
+            "rotation_lr": 0.6,
+        }
+    )
+    config = gaussian_3dgs_optimization_config(
+        recipe,
+        position_lr_scale=2.0,
+        max_steps=100,
+    )
+    payload = recipe.model_dump(mode="json")
+
+    assert payload["center_position_lr_init"] == 0.1
+    assert "means_lr_init" not in payload
+    assert [
+        group.target.name for group in config.parameter_groups
+    ] == [
+        "center_position",
+        "feature",
+        "feature",
+        "logit_opacity",
+        "log_scales",
+        "quaternion_orientation",
+    ]
+    assert config.parameter_groups[0].lr == 0.2
+    assert config.parameter_groups[0].scheduler.kwargs == {
+        "final_lr": 0.02,
+        "max_steps": 50,
+        "step_offset": 1,
+    }
+    assert config.parameter_groups[3].lr == 0.4
 
 
 def _state_for_scene(scene: GaussianScene3D) -> TrainState:

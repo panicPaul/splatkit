@@ -40,6 +40,8 @@ class FasterGSRenderOptions(RenderOptions):
     near_plane: float = 0.01
     far_plane: float = 1000.0
     proper_antialiasing: bool = False
+    active_sh_bases: int | None = None
+    clamp_output: bool = True
     collect_densification_info: bool = False
 
 
@@ -78,7 +80,11 @@ def _build_rasterizer_settings(
             device=scene.center_position.device,
             dtype=scene.center_position.dtype,
         ),
-        active_sh_bases=int(scene.feature.shape[1]),
+        active_sh_bases=(
+            int(scene.feature.shape[1])
+            if options.active_sh_bases is None
+            else options.active_sh_bases
+        ),
         width=width,
         height=height,
         focal_x=float(intrinsics[0, 0].item()),
@@ -164,7 +170,10 @@ def render_fastergs(
                 options,
             ),
         )
-        renders.append(image.permute(1, 2, 0).contiguous().clamp(0.0, 1.0))
+        image = image.permute(1, 2, 0).contiguous()
+        if options.clamp_output:
+            image = image.clamp(0.0, 1.0)
+        renders.append(image)
 
     render = torch.stack(renders, dim=0)
     if options.collect_densification_info:

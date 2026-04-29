@@ -10,6 +10,7 @@ from ember_core.densification.contracts import (
     BaseDensificationMethod,
     DensificationCollector,
     DensificationContext,
+    DensificationLifecycleContext,
     DensificationMethod,
     DensificationPass,
     DensificationRenderRequirements,
@@ -47,9 +48,11 @@ from ember_core.densification.passes import (
     SparseVoxelSubdividePass,
 )
 from ember_core.densification.runtime import (
+    DensificationMethodSequence,
     bind_densification,
     build_densification,
     make_context,
+    make_lifecycle_context,
     merge_densification_requirements,
 )
 
@@ -61,7 +64,9 @@ __all__ = [
     "ComposedDensificationMethod",
     "DensificationCollector",
     "DensificationContext",
+    "DensificationLifecycleContext",
     "DensificationMethod",
+    "DensificationMethodSequence",
     "DensificationPass",
     "DensificationRenderRequirements",
     "DensificationRuntime",
@@ -92,6 +97,7 @@ __all__ = [
     "copy_field",
     "custom_field",
     "make_context",
+    "make_lifecycle_context",
     "merge_densification_requirements",
     "zero_field",
 ]

@@ -88,6 +88,15 @@ class DensificationContext:
     runtime: DensificationRuntime | None = None
 
 
+@dataclass(frozen=True)
+class DensificationLifecycleContext:
+    """Context passed to training-level densification lifecycle stages."""
+
+    state: Any
+    optimizers: Sequence[Any]
+    runtime: DensificationRuntime | None = None
+
+
 @dataclass
 class DensificationSignals:
     """Mutable signal buffers shared across collectors and passes."""
@@ -118,6 +127,9 @@ class DensificationRuntime(Protocol):
     backend_name: str
     render_options: Any
 
+    def all_views(self) -> tuple[Any, ...]:
+        """Return all prepared training views."""
+
     def sample_views(self, count: int) -> tuple[Any, ...]:
         """Sample prepared probe views from the active training dataset."""
 
@@ -131,7 +143,10 @@ class DensificationRuntime(Protocol):
 class DensificationCollector(Protocol):
     """Protocol for signal collectors."""
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
         """Return extra render requirements."""
 
     def bind(
@@ -181,7 +196,10 @@ class DensificationMethod(Protocol):
 
     expected_scene_families: tuple[str, ...]
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
         """Return extra render requirements."""
 
     def bind(
@@ -191,6 +209,9 @@ class DensificationMethod(Protocol):
         family_ops: Any,
     ) -> None:
         """Bind stateful resources for training."""
+
+    def before_training(self, context: DensificationLifecycleContext) -> None:
+        """Run after binding and before the first training step."""
 
     def pre_backward(self, context: DensificationContext) -> None:
         """Run before backward."""
@@ -208,11 +229,18 @@ class DensificationMethod(Protocol):
     ) -> None:
         """Run after metrics update."""
 
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        """Run after the final training step and before checkpoint export."""
+
 
 class BaseDensificationComponent:
     """Convenience base class with no-op lifecycle hooks."""
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        del state
         return DensificationRenderRequirements()
 
     def bind(
@@ -222,6 +250,12 @@ class BaseDensificationComponent:
         family_ops: Any,
     ) -> None:
         del state, optimizers, family_ops
+
+    def before_training(
+        self,
+        context: DensificationLifecycleContext,
+    ) -> None:
+        del context
 
     def pre_backward(
         self,
@@ -252,13 +286,23 @@ class BaseDensificationComponent:
     ) -> None:
         del context, signals, metrics
 
+    def after_training(
+        self,
+        context: DensificationLifecycleContext,
+    ) -> None:
+        del context
+
 
 class BaseDensificationMethod:
     """Convenience base class with no-op lifecycle hooks for full methods."""
 
     expected_scene_families: tuple[str, ...] = ()
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        del state
         return DensificationRenderRequirements()
 
     def bind(
@@ -268,6 +312,12 @@ class BaseDensificationMethod:
         family_ops: Any,
     ) -> None:
         del state, optimizers, family_ops
+
+    def before_training(
+        self,
+        context: DensificationLifecycleContext,
+    ) -> None:
+        del context
 
     def pre_backward(self, context: DensificationContext) -> None:
         del context
@@ -284,6 +334,12 @@ class BaseDensificationMethod:
         metrics: dict[str, float],
     ) -> None:
         del context, metrics
+
+    def after_training(
+        self,
+        context: DensificationLifecycleContext,
+    ) -> None:
+        del context
 
     def require_runtime_trait(
         self,
