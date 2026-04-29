@@ -46,6 +46,8 @@ with app.setup:
         viewer_pipeline_controls_gui,
     )
 
+    NOTEBOOK_PATH = Path(__file__).resolve()
+
 
 @app.cell(hide_code=True)
 def _():
@@ -261,7 +263,7 @@ def _():
         """Configuration for loading a PLY file."""
 
         ply_path: Path = Field(
-            default=Path.cwd() / "point_cloud.ply",
+            default=Path("point_cloud.ply"),
             description="Path to a 3DGS-style `.ply` file.",
         )
         gpu: GpuLoadOptions = Field(
@@ -270,7 +272,11 @@ def _():
         )
 
     load_form_gui_state, _load_json_gui_state, load_bindings = (
-        create_config_state(LoadConfig, value=LoadConfig())
+        create_config_state(
+            LoadConfig,
+            value=LoadConfig(),
+            path_defaults_source=NOTEBOOK_PATH,
+        )
     )
     load_form = config_gui_panel(
         load_bindings,

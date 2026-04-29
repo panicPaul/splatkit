@@ -15,6 +15,7 @@ with app.setup:
     import ember_adapter_backends.fastergs as ember_fastergs_adapter
     import ember_core as ember
     import ember_native_faster_gs.faster_gs as ember_fastergs_native
+    import ember_splatting_training as ember_splatting
     import marimo as mo
     import torch
     from ember_core.densification import (
@@ -195,13 +196,351 @@ class FasterGSDataConfig(FasterGSConfigBase):
 
 
 @app.class_definition
+class FasterGSScheduleConfig(FasterGSConfigBase):
+    """Serializable step schedule config."""
+
+    start_iteration: int = Field(default=0, ge=0)
+    end_iteration: int = -1
+    frequency: int = Field(default=1, ge=1)
+
+    def to_schedule(self) -> Schedule:
+        """Build the runtime densification schedule."""
+        return Schedule(
+            start_iteration=self.start_iteration,
+            end_iteration=self.end_iteration,
+            frequency=self.frequency,
+        )
+
+
+@app.class_definition
+class FasterGSInitializationConfig(FasterGSConfigBase):
+    """Typed FasterGS Gaussian initialization config."""
+
+    sh_degree: int = Field(default=3, ge=0)
+    use_mcmc: bool = False
+    default_color: tuple[float, float, float] = (0.5, 0.5, 0.5)
+
+    def build(
+        self,
+        context: ember.TrainingRunContext,
+    ) -> ember.InitializationSpec:
+        """Build the runtime initializer spec."""
+        del context
+        return ember.InitializationSpec(
+            initializer=ember.CallableSpec(
+                target=(
+                    "papers.fastergs.notebook."
+                    "initialize_fastergs_model_from_scene_record"
+                ),
+                kwargs={
+                    "sh_degree": self.sh_degree,
+                    "use_mcmc": self.use_mcmc,
+                    "default_color": self.default_color,
+                },
+                context_kwargs={"device": "device"},
+            )
+        )
+
+
+@app.class_definition
+class FasterGSTrainingBackendOptionsConfig(FasterGSConfigBase):
+    """Typed per-step FasterGS training render options."""
+
+    max_sh_degree: int = Field(default=3, ge=0)
+    sh_start_step: int = Field(default=1000, ge=0)
+    sh_step_interval: int = Field(default=1000, ge=1)
+    clamp_output: bool = False
+
+    def build(self) -> ember.CallableSpec:
+        """Build the runtime training backend options builder."""
+        return ember.CallableSpec(
+            target="ember_splatting_training.fastergs_training_backend_options",
+            kwargs=self.model_dump(mode="python"),
+        )
+
+
+@app.class_definition
+class FasterGSRenderConfig(FasterGSConfigBase):
+    """Typed FasterGS render pipeline config."""
+
+    backend: FasterGSBackendName = "adapter.fastergs"
+    near_plane: float = Field(default=0.2, gt=0.0)
+    far_plane: float = Field(default=10_000.0, gt=0.0)
+    proper_antialiasing: bool = True
+    background_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    return_alpha: bool = False
+    training_backend_options: FasterGSTrainingBackendOptionsConfig = Field(
+        default_factory=FasterGSTrainingBackendOptionsConfig
+    )
+
+    def build(
+        self, context: ember.TrainingRunContext
+    ) -> ember.RenderPipelineSpec:
+        """Build the runtime render pipeline spec."""
+        del context
+        return ember.RenderPipelineSpec(
+            backend=self.backend,
+            return_alpha=self.return_alpha,
+            training_backend_options_builder=(
+                self.training_backend_options.build()
+            ),
+            backend_options={
+                "near_plane": self.near_plane,
+                "far_plane": self.far_plane,
+                "proper_antialiasing": self.proper_antialiasing,
+                "background_color": list(self.background_color),
+            },
+        )
+
+
+@app.class_definition
+class FasterGSOptimizationConfig(FasterGSConfigBase):
+    """Typed Gaussian 3DGS optimization config."""
+
+    recipe: ember_splatting.Gaussian3DGSOptimizationRecipe = Field(
+        default_factory=ember_splatting.Gaussian3DGSOptimizationRecipe
+    )
+
+    def build(
+        self, context: ember.TrainingRunContext
+    ) -> ember.OptimizationConfig:
+        """Build runtime optimizer groups from the typed recipe."""
+        return ember_splatting.gaussian_3dgs_optimization_config(
+            self.recipe,
+            position_lr_scale=context.camera_extent,
+            max_steps=context.max_steps,
+        )
+
+
+@app.class_definition
+class FasterGSLossConfig(FasterGSConfigBase):
+    """Typed FasterGS training loss config."""
+
+    lambda_l1: float = Field(default=0.8, ge=0.0)
+    lambda_dssim: float = Field(default=0.2, ge=0.0)
+    lambda_opacity_regularization: float = Field(default=0.0, ge=0.0)
+    lambda_scale_regularization: float = Field(default=0.0, ge=0.0)
+
+    def build(self, context: ember.TrainingRunContext) -> ember.LossConfig:
+        """Build the runtime loss config."""
+        del context
+        return ember.LossConfig(
+            target=ember.CallableSpec(
+                target="ember_splatting_training.losses.rgb_l1_dssim_loss",
+                kwargs=self.model_dump(mode="python"),
+            )
+        )
+
+
+@app.class_definition
+class FasterGSVanillaDensificationConfig(FasterGSConfigBase):
+    """Typed notebook-local FasterGS adaptive density config."""
+
+    refine_every: int = Field(default=100, ge=1)
+    start_iter: int = Field(default=600, ge=0)
+    stop_iter: int = Field(default=14_900, ge=0)
+    grad_threshold: float = Field(default=2e-4, gt=0.0)
+    dense_fraction: float = Field(default=0.01, gt=0.0)
+    prune_opacity_threshold: float = Field(default=0.005, gt=0.0)
+    opacity_reset_every: int = Field(default=3_000, ge=1)
+    extra_opacity_reset_iter: int | None = Field(default=None, ge=0)
+    max_reset_opacity: float = Field(default=0.01, gt=0.0, lt=1.0)
+
+    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
+        """Build the runtime vanilla FasterGS densification spec."""
+        kwargs = self.model_dump(mode="python")
+        kwargs["camera_extent"] = context.camera_extent
+        return ember.CallableSpec(
+            target="papers.fastergs.notebook.FasterGSVanillaDensification",
+            kwargs=kwargs,
+        )
+
+
+@app.class_definition
+class FasterGSMCMCDensificationConfig(FasterGSConfigBase):
+    """Typed FasterGS MCMC densification config."""
+
+    refine_every: int = Field(default=100, ge=1)
+    start_iter: int = Field(default=600, ge=0)
+    stop_iter: int = Field(default=24_900, ge=0)
+    min_opacity: float = Field(default=0.005, gt=0.0, lt=1.0)
+    max_primitives: int = Field(default=1_000_000, ge=1)
+    noise_lr_scale: float = Field(default=500_000.0, gt=0.0)
+
+    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
+        """Build the runtime MCMC densification spec."""
+        del context
+        return ember.CallableSpec(
+            target="papers.fastergs.notebook.build_fastergs_mcmc_densification",
+            kwargs=self.model_dump(mode="python"),
+        )
+
+
+@app.class_definition
+class FasterGSMortonOrderingConfig(FasterGSConfigBase):
+    """Typed scheduled Morton ordering config."""
+
+    schedule: FasterGSScheduleConfig = Field(
+        default_factory=lambda: FasterGSScheduleConfig(
+            end_iteration=15_000,
+            frequency=5_000,
+        )
+    )
+
+    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
+        """Build the runtime Morton ordering spec."""
+        del context
+        return ember.CallableSpec(
+            target="ember_splatting_training.GaussianMortonOrdering",
+            kwargs={"schedule": self.schedule.model_dump(mode="python")},
+        )
+
+
+@app.class_definition
+class FasterGSAntialiasingConfig(FasterGSConfigBase):
+    """Typed FasterGS/Mip-Splatting antialiasing config."""
+
+    recompute_schedule: FasterGSScheduleConfig = Field(
+        default_factory=lambda: FasterGSScheduleConfig(
+            start_iteration=15_000,
+            end_iteration=29_899,
+            frequency=100,
+        )
+    )
+    near_plane: float | None = Field(default=0.2, gt=0.0)
+    filter_variance: float = Field(default=0.2, gt=0.0)
+    clipping_tolerance: float = Field(default=0.15, ge=0.0)
+
+    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
+        """Build the runtime 3D filter antialiasing spec."""
+        del context
+        return ember.CallableSpec(
+            target="ember_splatting_training.GaussianMipSplattingAntialiasing",
+            kwargs={
+                "recompute_schedule": self.recompute_schedule.model_dump(
+                    mode="python"
+                ),
+                "near_plane": self.near_plane,
+                "filter_variance": self.filter_variance,
+                "clipping_tolerance": self.clipping_tolerance,
+            },
+        )
+
+
+@app.class_definition
+class FasterGSFinalCleanupConfig(FasterGSConfigBase):
+    """Typed FasterGS checkpoint cleanup config."""
+
+    min_opacity: float = Field(default=1.0 / 255.0, gt=0.0, lt=1.0)
+
+    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
+        """Build the runtime final cleanup spec."""
+        del context
+        return ember.CallableSpec(
+            target="papers.fastergs.notebook.FasterGSFinalCleanup",
+            kwargs=self.model_dump(mode="python"),
+        )
+
+
+@app.class_definition
+class FasterGSDensificationConfig(FasterGSConfigBase):
+    """Typed FasterGS densification stack config."""
+
+    mode: Literal["vanilla", "mcmc"] = "vanilla"
+    vanilla: FasterGSVanillaDensificationConfig = Field(
+        default_factory=FasterGSVanillaDensificationConfig
+    )
+    mcmc: FasterGSMCMCDensificationConfig = Field(
+        default_factory=FasterGSMCMCDensificationConfig
+    )
+    morton: FasterGSMortonOrderingConfig = Field(
+        default_factory=FasterGSMortonOrderingConfig
+    )
+    antialiasing: FasterGSAntialiasingConfig = Field(
+        default_factory=FasterGSAntialiasingConfig
+    )
+    final_cleanup: FasterGSFinalCleanupConfig = Field(
+        default_factory=FasterGSFinalCleanupConfig
+    )
+
+    def build(
+        self,
+        context: ember.TrainingRunContext,
+    ) -> ember.DensificationConfig:
+        """Build the runtime FasterGS densification stack."""
+        primary = (
+            self.mcmc.build(context)
+            if self.mode == "mcmc"
+            else self.vanilla.build(context)
+        )
+        return ember.DensificationConfig(
+            builders=[
+                primary,
+                self.morton.build(context),
+                self.antialiasing.build(context),
+                self.final_cleanup.build(context),
+            ]
+        )
+
+
+@app.class_definition
+class FasterGSTrainingConfig(FasterGSConfigBase):
+    """Typed user-facing FasterGS training config."""
+
+    runtime: ember.RuntimeConfig = Field(default_factory=ember.RuntimeConfig)
+    batching: ember.BatchingConfig = Field(default_factory=ember.BatchingConfig)
+    initialization: FasterGSInitializationConfig = Field(
+        default_factory=FasterGSInitializationConfig
+    )
+    render: FasterGSRenderConfig = Field(default_factory=FasterGSRenderConfig)
+    optimization: FasterGSOptimizationConfig = Field(
+        default_factory=FasterGSOptimizationConfig
+    )
+    loss: FasterGSLossConfig = Field(default_factory=FasterGSLossConfig)
+    densification: FasterGSDensificationConfig = Field(
+        default_factory=FasterGSDensificationConfig
+    )
+    checkpoint: ember.CheckpointExportConfig = Field(
+        default_factory=ember.CheckpointExportConfig
+    )
+
+    def to_training_config(
+        self,
+        frame_dataset: ember.PreparedFrameDataset | None = None,
+    ) -> ember.TrainingConfig:
+        """Materialize this typed config into Ember's runtime config."""
+        camera_extent = (
+            ember.compute_frame_camera_extent(frame_dataset)
+            if frame_dataset is not None
+            else 1.0
+        )
+        context = ember.TrainingRunContext(
+            frame_dataset=frame_dataset,
+            camera_extent=camera_extent,
+            max_steps=self.runtime.max_steps,
+            backend=self.render.backend,
+            device=torch.device(self.runtime.device),
+        )
+        return ember.TrainingConfig(
+            runtime=self.runtime,
+            batching=self.batching,
+            initialization=self.initialization.build(context),
+            render=self.render.build(context),
+            optimization=self.optimization.build(context),
+            loss=self.loss.build(context),
+            densification=self.densification.build(context),
+            checkpoint=self.checkpoint,
+        )
+
+
+@app.class_definition
 class FasterGSExperimentConfig(FasterGSConfigBase):
     """Resolved experiment config."""
 
     preset: FasterGSDefaultName = "garden_baseline"
     scene: FasterGSSceneConfig = Field(default_factory=FasterGSSceneConfig)
     data: FasterGSDataConfig = Field(default_factory=FasterGSDataConfig)
-    training: ember.TrainingConfig
+    training: FasterGSTrainingConfig
 
 
 @app.cell(hide_code=True)
@@ -406,6 +745,7 @@ def _():
 @app.function
 def resolve_training_config(
     config: FasterGSExperimentConfig,
+    frame_dataset: ember.PreparedFrameDataset | None = None,
 ) -> ember.TrainingConfig:
     """Apply paper notebook runtime defaults to native Ember training config."""
     checkpoint = config.training.checkpoint.model_copy(
@@ -413,10 +753,11 @@ def resolve_training_config(
             "output_dir": resolve_checkpoint_output_dir(config),
         },
     )
-    return config.training.model_copy(
+    training = config.training.model_copy(
         update={"checkpoint": checkpoint},
         deep=True,
     )
+    return training.to_training_config(frame_dataset)
 
 
 @app.cell
@@ -642,7 +983,10 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
         keep_mask = torch.sigmoid(scene.logit_opacity) >= (
             self.prune_opacity_threshold
         )
-        if step > self.opacity_reset_every and scene.center_position.shape[0] > 0:
+        if (
+            step > self.opacity_reset_every
+            and scene.center_position.shape[0] > 0
+        ):
             max_scale = torch.exp(scene.log_scales).max(dim=-1).values
             keep_mask &= max_scale <= 0.1 * self.camera_extent
         keep_mask &= scene.quaternion_orientation.square().sum(dim=1) >= 1e-8
@@ -673,7 +1017,7 @@ def run_fastergs_training(
     """Run FasterGS training from a native Ember training config."""
     return ember.run_training(
         frame_dataset,
-        resolve_training_config(experiment_config),
+        resolve_training_config(experiment_config, frame_dataset),
     )
 
 

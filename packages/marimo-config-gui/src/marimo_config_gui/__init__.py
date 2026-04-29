@@ -11,6 +11,7 @@ from marimo_config_gui.api import (
     validated_config,
 )
 from marimo_config_gui.presets import (
+    ConfigFile,
     ConfigPreset,
     ConfigPresetCatalog,
 )
@@ -24,6 +25,7 @@ except ImportError:
         __version__ = "0.0.0"
 
 __all__ = [
+    "ConfigFile",
     "ConfigPreset",
     "ConfigPresetCatalog",
     "__version__",

@@ -24,6 +24,7 @@ with app.setup:
     from marimo_config_gui import config_gui_panel, create_config_state
     from pydantic import BaseModel
 
+    NOTEBOOK_PATH = Path(__file__).resolve()
     _adapter_spec = importlib.util.find_spec("new_svraster_cuda")
     if _adapter_spec is None:
         raw_svraster_renderer = None
@@ -107,6 +108,7 @@ def _():
         create_config_state(
             LoadConfig,
             value=LoadConfig(),
+            path_defaults_source=NOTEBOOK_PATH,
         )
     )
     load_form = config_gui_panel(

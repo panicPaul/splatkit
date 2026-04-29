@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 from enum import Enum, Flag, IntFlag, auto
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import marimo_config_gui.api as pgui
 import marimo_config_gui.widgets as widgets
 import pytest
 from marimo_config_gui import (
+    ConfigFile,
     ConfigPreset,
     ConfigPresetCatalog,
     config_gui_panel,
@@ -46,6 +48,12 @@ class _NestedRootModel(BaseModel):
 
 class _PathModel(BaseModel):
     source: Path = Path("README.md")
+
+
+class _DictModel(BaseModel):
+    payload: dict[str, Any] = Field(
+        default_factory=lambda: {"alpha": 1, "enabled": True}
+    )
 
 
 class _OptionalModel(BaseModel):
@@ -121,6 +129,7 @@ def test_public_package_surface_is_intentional() -> None:
     expected = {
         "ConfigPreset",
         "ConfigPresetCatalog",
+        "ConfigFile",
         "__version__",
         "config_gui_panel",
         "config_json_editor",
@@ -331,11 +340,11 @@ def test_script_mode_forwards_explicit_script_args(
 
     form_gui_state, *_rest = create_config_state(
         _RequiredModel,
-        script_args=["cli", "--title", "cli", "--count", "6"],
+        script_args=["--title", "cli", "--count", "6"],
     )
 
     assert captured["model_cls"] is _RequiredModel
-    assert captured["args"] == ["cli", "--title", "cli", "--count", "6"]
+    assert captured["args"] == ["--title", "cli", "--count", "6"]
     assert form_gui_state() == {"title": "cli", "count": 6}
 
 
@@ -353,16 +362,16 @@ def test_script_mode_supports_custom_script_loader(
         _RequiredModel,
         value={"title": "base", "count": 2},
         script_loader=_custom_loader,
-        script_args=["preset", "demo"],
+        script_args=["--preset", "demo"],
     )
 
     assert form_gui_state() == {"title": "preset", "count": 9}
 
 
-def test_load_script_config_supports_cli_subcommand() -> None:
+def test_load_script_config_supports_default_cli_overrides() -> None:
     loaded = load_script_config(
         _RequiredModel,
-        args=["cli", "--title", "cli", "--count", "5"],
+        args=["--title", "cli", "--count", "5"],
     )
 
     assert loaded == _RequiredModel(title="cli", count=5)
@@ -372,7 +381,6 @@ def test_load_script_config_supports_flag_cli_values() -> None:
     loaded = load_script_config(
         _FlagModel,
         args=[
-            "cli",
             "--features",
             "READ",
             "WRITE",
@@ -387,16 +395,52 @@ def test_load_script_config_supports_flag_cli_values() -> None:
     )
 
 
-def test_load_script_config_supports_json_subcommand(tmp_path: Path) -> None:
+def test_load_script_config_supports_json_path(tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text('{"title": "json", "count": 7}')
 
     loaded = load_script_config(
         _RequiredModel,
-        args=["json", str(config_path)],
+        args=[str(config_path)],
     )
 
     assert loaded == _RequiredModel(title="json", count=7)
+
+
+def test_load_script_config_supports_json_path_overrides(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"title": "json", "count": 7}')
+
+    loaded = load_script_config(
+        _RequiredModel,
+        args=[str(config_path), "--title", "server", "--count", "11"],
+    )
+
+    assert loaded == _RequiredModel(title="server", count=11)
+
+
+def test_load_script_config_applies_json_overlays_before_cli(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    overlay_path = tmp_path / "overlay.json"
+    config_path.write_text('{"title": "json", "count": 7}')
+    overlay_path.write_text('{"title": "overlay", "count": 9}')
+
+    loaded = load_script_config(
+        _RequiredModel,
+        args=[
+            str(config_path),
+            "--overlay",
+            str(overlay_path),
+            "--count",
+            "11",
+        ],
+    )
+
+    assert loaded == _RequiredModel(title="overlay", count=11)
 
 
 def test_load_json_config_resolves_relative_paths(tmp_path: Path) -> None:
@@ -416,6 +460,86 @@ def test_load_json_config_resolves_relative_paths(tmp_path: Path) -> None:
     )
 
 
+def test_load_json_config_applies_sibling_path_defaults(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"preset": "file", "title": "json", "count": 2, "path": "data/input"}'
+    )
+    (tmp_path / ".path_defaults.json").write_text(
+        '{"path_prefixes": {"data": "/mnt/datasets"}}'
+    )
+
+    loaded = load_json_config(_PresetModel, config_path)
+
+    assert loaded.path == Path("/mnt/datasets/input")
+
+
+def test_path_defaults_only_apply_to_path_fields(tmp_path: Path) -> None:
+    class _StringPathModel(BaseModel):
+        path: Path = Path("data/input")
+        label: str = "data/input"
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"path": "data/input", "label": "data/input"}')
+    (tmp_path / ".path_defaults.json").write_text(
+        '{"path_prefixes": {"data": "/mnt/data"}}'
+    )
+
+    loaded = load_json_config(_StringPathModel, config_path)
+
+    assert loaded.path == Path("/mnt/data/input")
+    assert loaded.label == "data/input"
+
+
+def test_path_defaults_remap_point_cloud_ply_load_config(
+    tmp_path: Path,
+) -> None:
+    class _PlyLoadConfig(BaseModel):
+        ply_path: Path = Path("point_cloud.ply")
+
+    local_ply = tmp_path / "scenes" / "garden" / "point_cloud.ply"
+    config_path = tmp_path / "viewer.json"
+    config_path.write_text('{"ply_path": "point_cloud.ply"}')
+    (tmp_path / ".path_defaults.json").write_text(
+        json.dumps({"fields": {"ply_path": str(local_ply)}})
+    )
+
+    loaded = load_json_config(_PlyLoadConfig, config_path)
+
+    assert loaded.ply_path == local_ply
+
+
+def test_explicit_path_defaults_tuple_can_be_required(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"preset": "file", "title": "json", "count": 2, "path": "data/input"}'
+    )
+
+    with pytest.raises(FileNotFoundError):
+        load_json_config(
+            _PresetModel,
+            config_path,
+            path_defaults=[("missing_paths.json", True)],
+        )
+
+
+def test_config_overlay_file_entries_support_required_defaults(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"title": "json", "count": 7}')
+
+    with pytest.raises(FileNotFoundError):
+        load_json_config(_RequiredModel, config_path, overlays=["missing.json"])
+
+    loaded = load_json_config(
+        _RequiredModel,
+        config_path,
+        overlays=[ConfigFile(path=Path("missing.json"), required=False)],
+    )
+    assert loaded == _RequiredModel(title="json", count=7)
+
+
 def test_load_json_config_supports_flag_name_lists(tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -430,7 +554,9 @@ def test_load_json_config_supports_flag_name_lists(tmp_path: Path) -> None:
     )
 
 
-def test_config_json_editor_normalizes_flag_name_lists(notebook_runtime: None) -> None:
+def test_config_json_editor_normalizes_flag_name_lists(
+    notebook_runtime: None,
+) -> None:
     (
         form_gui_state,
         json_gui_state,
@@ -513,7 +639,7 @@ def test_config_state_initializes_from_preset_catalog(
     assert '"preset": "demo"' in json_gui_state()
 
 
-def test_load_script_config_supports_preset_subcommand(
+def test_load_script_config_supports_preset_cli_selection(
     tmp_path: Path,
 ) -> None:
     base_path = tmp_path / "base.json"
@@ -547,7 +673,6 @@ def test_load_script_config_supports_preset_subcommand(
         _PresetModel,
         presets=catalog,
         args=[
-            "preset",
             "--preset",
             "quality",
             "--title",
@@ -563,6 +688,44 @@ def test_load_script_config_supports_preset_subcommand(
         count=8,
         path=tmp_path / "q",
     )
+
+
+def test_load_script_config_supports_preset_overlays_before_cli(
+    tmp_path: Path,
+) -> None:
+    preset_path = tmp_path / "base.json"
+    overlay_path = tmp_path / "overlay.json"
+    preset_path.write_text(
+        '{"preset": "ignored", "title": "base", "count": 1, "path": "base"}'
+    )
+    overlay_path.write_text('{"title": "overlay", "count": 5}')
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "base": ConfigPreset(
+                name="base",
+                path=preset_path,
+                base_dir=tmp_path,
+            ),
+        },
+        default="base",
+    )
+
+    loaded = load_script_config(
+        _PresetModel,
+        presets=catalog,
+        args=[
+            "--preset",
+            "base",
+            "--overlay",
+            str(overlay_path),
+            "--count",
+            "8",
+        ],
+    )
+
+    assert loaded.title == "overlay"
+    assert loaded.count == 8
 
 
 def test_config_preset_selector_updates_form_and_json(
@@ -621,6 +784,34 @@ def test_form_generation_keeps_path_and_enum_widgets() -> None:
     assert type(path_gui.elements["source"]).__name__ == "file_browser"
     assert type(enum_gui.elements["mode"]).__name__ == "dropdown"
     assert type(enum_gui.elements["enum_mode"]).__name__ == "dropdown"
+
+
+def test_dict_form_uses_json_code_editor() -> None:
+    generated = PydanticGui(_DictModel, include_json_editor=False)
+
+    assert type(generated.elements["payload"]).__name__ == "code_editor"
+    assert generated.elements["payload"]._value_frontend == (
+        '{\n  "alpha": 1,\n  "enabled": true\n}'
+    )
+
+
+def test_dict_form_parses_json_code_editor_changes() -> None:
+    generated = PydanticGui(_DictModel, include_json_editor=False)
+
+    value = generated._convert_value(
+        {"payload": '{\n  "beta": 2,\n  "nested": {"ok": true}\n}'}
+    )
+
+    assert value == _DictModel(payload={"beta": 2, "nested": {"ok": True}})
+
+
+def test_dict_form_rejects_non_object_json() -> None:
+    generated = PydanticGui(_DictModel, include_json_editor=False)
+
+    with pytest.raises(
+        ValueError, match="top-level JSON value must be an object"
+    ):
+        generated._convert_value({"payload": "[1, 2, 3]"})
 
 
 def test_enum_form_accepts_json_value_initial_payload() -> None:
@@ -752,9 +943,7 @@ def test_union_json_serialization_keeps_kind(notebook_runtime: None) -> None:
         '{\n  "item": {\n    "__kind__": "_UnionB",\n    "title": "switched"\n  }\n}',
     )
 
-    assert '"__kind__": "_UnionB"' in widgets._payload_to_json(
-        form_gui_state()
-    )
+    assert '"__kind__": "_UnionB"' in widgets._payload_to_json(form_gui_state())
 
 
 def test_json_editor_uses_model_field_order(notebook_runtime: None) -> None:

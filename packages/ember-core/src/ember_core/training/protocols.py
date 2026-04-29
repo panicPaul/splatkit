@@ -19,11 +19,21 @@ from ember_core.training.config import CheckpointMetadata, TrainingConfig
 class TrainingRunContext:
     """Runtime-only values available while materializing training config."""
 
-    frame_dataset: PreparedFrameDataset
+    frame_dataset: PreparedFrameDataset | None
     camera_extent: float
     max_steps: int
     backend: str
     device: torch.device
+
+
+class TrainingConfigSource(Protocol):
+    """Typed user-facing config that materializes to ``TrainingConfig``."""
+
+    def to_training_config(
+        self,
+        frame_dataset: PreparedFrameDataset | None = None,
+    ) -> TrainingConfig:
+        """Build the runtime training config for an optional dataset."""
 
 
 @dataclass
@@ -111,6 +121,7 @@ __all__ = [
     "LossResult",
     "RenderFn",
     "TrainState",
+    "TrainingConfigSource",
     "TrainingHook",
     "TrainingResult",
     "TrainingRunContext",

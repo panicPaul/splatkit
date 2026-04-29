@@ -39,7 +39,7 @@ def ssim_score(
         )
     prediction_nchw = nhwc_to_nchw(prediction)
     target_nchw = nhwc_to_nchw(target)
-    if backend == "cuda":
+    if backend in {"cuda", "fused"}:
         return fused_ssim(
             prediction_nchw,
             target_nchw,

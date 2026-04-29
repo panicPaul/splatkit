@@ -88,6 +88,51 @@ result = sk.run_training(dataset, config)
 checkpoint = sk.load_checkpoint_dir(result.checkpoint_dir)
 ```
 
+Research notebooks can keep their public surface cleaner by exposing one typed
+Pydantic config and materializing it into `TrainingConfig` only at runtime:
+
+```python
+from pydantic import BaseModel, Field
+
+
+class ExperimentTrainingConfig(BaseModel):
+    runtime: sk.RuntimeConfig = Field(default_factory=sk.RuntimeConfig)
+    render_backend: str = "adapter.gsplat"
+    position_lr: float = 1.6e-4
+
+    def to_training_config(
+        self,
+        frame_dataset: sk.PreparedFrameDataset | None = None,
+    ) -> sk.TrainingConfig:
+        camera_extent = (
+            sk.compute_frame_camera_extent(frame_dataset)
+            if frame_dataset is not None
+            else 1.0
+        )
+        return sk.TrainingConfig(
+            runtime=self.runtime,
+            render=sk.RenderPipelineSpec(backend=self.render_backend),
+            optimization=sk.OptimizationConfig(
+                parameter_groups=[
+                    sk.ParameterGroupConfig(
+                        target=sk.ParameterTargetSpec(
+                            scope="scene",
+                            name="center_position",
+                        ),
+                        lr=self.position_lr * camera_extent,
+                    )
+                ]
+            ),
+        )
+
+
+result = sk.run_training(dataset, ExperimentTrainingConfig())
+```
+
+Use typed config methods and properties for user-facing computed fields. Keep
+`CallableSpec.kwargs` as a low-level runtime representation for importable
+pipeline stages, preset export, and checkpoint replay.
+
 `ColmapSceneConfig` is the default scene-loading entrypoint. Prepared-frame
 policies such as camera selection, split, materialization, and image resizing
 live in `PreparedFrameDatasetConfig`.

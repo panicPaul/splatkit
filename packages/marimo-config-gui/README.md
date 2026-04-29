@@ -7,6 +7,8 @@ just a few ad hoc widgets. Define the config once as a Pydantic model, edit it
 in marimo as a form or JSON, validate it as a typed model, and run the same
 notebook as a script with `tyro` CLI or JSON input.
 
+For an interactive version run `marimo run docs/marimo-config-gui.py`.
+
 ## Install
 
 This package is not currently published on PyPI. Install it from the Git archive
@@ -14,6 +16,12 @@ and package subdirectory:
 
 ```bash
 uv add "marimo-config-gui @ git+https://github.com/panicPaul/ember.git@main#subdirectory=packages/marimo-config-gui"
+```
+
+The same docs are available as an interactive marimo app:
+
+```bash
+marimo run docs/marimo-config-gui.py
 ```
 
 ## The Main Workflow
@@ -124,12 +132,38 @@ mo.stop(config is None, config_status_panel(
 ## Script Mode
 
 When the notebook is running as a script, `create_config_state(...)` loads the
-initial config through `tyro`. The default loader supports two subcommands:
+initial config through `tyro`. With no positional config path, CLI flags are
+applied to the model defaults:
 
 ```bash
-python notebook.py cli --scene-path data/bicycle --runtime.device cuda
-python notebook.py json config.json
+python notebook.py --scene-path data/bicycle --runtime.device cuda
 ```
+
+A positional JSON config path can be used as the base. Sparse typed overrides
+come after the JSON file, which is usually the most convenient workflow on a
+server:
+
+```bash
+python notebook.py config.json --runtime.device cuda --max-steps 1000
+```
+
+When a notebook defines presets with `ConfigPresetCatalog`, select them with
+`--preset`:
+
+```bash
+python notebook.py --preset garden --runtime.device cuda
+```
+
+Config overlay files can be declared by the notebook or passed on the command
+line. They are sparse JSON objects merged left-to-right before explicit CLI
+field overrides:
+
+```bash
+python notebook.py base.json --overlay server.json --max-steps 1000
+```
+
+In Python, overlay entries may be strings, `Path` objects, `(path, required)`
+tuples, or `ConfigFile` objects. Bare overlay paths are required by default.
 
 If a notebook should be usable with the `tyro`/JSON script loader, use one
 loader-backed top-level config GUI for that notebook. Multiple independent
@@ -140,6 +174,49 @@ make them fields of one top-level `Config` model.
 For custom script behavior, pass `script_loader=...` to
 `create_config_state(...)`. The loader receives the model class, the optional
 default value, and the optional argument sequence.
+
+## Local Path Defaults
+
+Machine-specific dataset and artifact paths should not need to dirty tracked
+presets. Put local path replacements in a `.path_defaults.json` file beside the
+JSON config file:
+
+```json
+{
+  "path_prefixes": {
+    "dataset/mipnerf360": "/data/mipnerf360"
+  },
+  "fields": {
+    "ply_path": "/home/user/scenes/example_scene.ply"
+  }
+}
+```
+
+Path defaults apply only to fields typed as `Path`. The `path_prefixes` section
+uses longest-prefix matching for logical path values. The `fields` section
+targets typed config fields by dotted field path:
+
+```text
+dataset/mipnerf360/garden -> /data/mipnerf360/garden
+ply_path -> /home/user/scenes/example_scene.ply
+```
+
+Non-path strings such as `runtime.device = "mlx"` are never rewritten; use a
+config overlay or CLI override for those.
+
+For configs without JSON files or preset catalogs, pass a source path explicitly
+so the helper can look for the source's sibling `.path_defaults.json`:
+
+```python
+create_config_state(
+    Config,
+    value=Config(),
+    path_defaults_source=NOTEBOOK_PATH,
+)
+```
+
+Path-default entries are optional by default. Use `(path, True)` or
+`ConfigFile(path=path, required=True)` when the file must exist.
 
 ## Apply Before Expensive Work
 

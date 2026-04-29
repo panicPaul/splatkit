@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
+from statistics import median
 
 import torch
 from torch import Tensor
@@ -17,7 +18,11 @@ from fused_ssim import fused_ssim
 def parse_args() -> argparse.Namespace:
     """Parse command-line options for the SSIM profiler driver."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", choices=["fused", "mojo"], required=True)
+    parser.add_argument(
+        "--backend",
+        choices=["fused", "mojo"],
+        required=True,
+    )
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--channels", type=int, default=3)
@@ -28,8 +33,19 @@ def parse_args() -> argparse.Namespace:
         default="forward-backward",
     )
     parser.add_argument("--warmup", type=int, default=20)
+    parser.add_argument("--compile-warmup", type=int, default=5)
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument(
+        "--cuda-event-timing",
+        action="store_true",
+        help="Print synchronized CUDA event timings for captured iterations.",
+    )
+    parser.add_argument(
+        "--torch-compile",
+        action="store_true",
+        help="Wrap the selected backend in torch.compile before profiling.",
+    )
     return parser.parse_args()
 
 
@@ -63,6 +79,17 @@ def run_iteration(
     return score
 
 
+def maybe_compile_function(
+    function: Callable[[Tensor, Tensor], Tensor],
+    *,
+    enabled: bool,
+) -> Callable[[Tensor, Tensor], Tensor]:
+    """Optionally wrap a backend function in torch.compile."""
+    if not enabled:
+        return function
+    return torch.compile(function, fullgraph=False, dynamic=False)
+
+
 def main() -> None:
     """Run warmup outside profiler capture, then profile steady-state work."""
     args = parse_args()
@@ -76,21 +103,48 @@ def main() -> None:
         requires_grad=True,
     )
     target = torch.rand_like(prediction)
-    function = ssim_function(args.backend)
+    function = maybe_compile_function(
+        ssim_function(args.backend),
+        enabled=args.torch_compile,
+    )
 
     for _ in range(args.warmup):
         run_iteration(function, prediction, target, mode=args.mode)
     torch.cuda.synchronize()
 
+    for _ in range(args.compile_warmup if args.torch_compile else 0):
+        run_iteration(function, prediction, target, mode=args.mode)
+    torch.cuda.synchronize()
+
     torch.cuda.cudart().cudaProfilerStart()
+    elapsed_milliseconds = []
     for iteration in range(args.iterations):
         torch.cuda.nvtx.range_push(f"{args.backend}_ssim_{args.mode}_iteration")
+        if args.cuda_event_timing:
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
         score = run_iteration(function, prediction, target, mode=args.mode)
+        if args.cuda_event_timing:
+            end_event.record()
         torch.cuda.nvtx.range_pop()
+        if args.cuda_event_timing:
+            end_event.synchronize()
+            elapsed_milliseconds.append(start_event.elapsed_time(end_event))
         if iteration == args.iterations - 1:
             print(f"score={float(score.detach().cpu()):.9f}")
     torch.cuda.synchronize()
     torch.cuda.cudart().cudaProfilerStop()
+    if elapsed_milliseconds:
+        sorted_times = sorted(elapsed_milliseconds)
+        print(
+            "cuda_event_ms="
+            f"median:{median(sorted_times):.6f} "
+            f"mean:{sum(sorted_times) / len(sorted_times):.6f} "
+            f"min:{sorted_times[0]:.6f} "
+            f"max:{sorted_times[-1]:.6f} "
+            f"iterations:{len(sorted_times)}"
+        )
 
 
 if __name__ == "__main__":

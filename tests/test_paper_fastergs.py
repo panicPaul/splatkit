@@ -72,10 +72,18 @@ def test_fastergs_resolved_training_config_supports_both_backends(
         assert training_config.initialization.initializer.context_kwargs == {
             "device": "device"
         }
-        assert (
-            training_config.optimization.builder.target
-            == "ember_splatting_training.recipes.gaussian_3dgs_optimization_config"
-        )
+        assert training_config.optimization.builder is None
+        assert [
+            group.target.name
+            for group in training_config.optimization.parameter_groups
+        ] == [
+            "center_position",
+            "feature",
+            "feature",
+            "logit_opacity",
+            "log_scales",
+            "quaternion_orientation",
+        ]
         assert (
             training_config.loss.target.target
             == "ember_splatting_training.losses.rgb_l1_dssim_loss"
@@ -83,6 +91,10 @@ def test_fastergs_resolved_training_config_supports_both_backends(
         assert (
             training_config.densification.builders[0].target
             == "papers.fastergs.notebook.FasterGSVanillaDensification"
+        )
+        assert training_config.densification.builders[0].context_kwargs == {}
+        assert (
+            "camera_extent" in training_config.densification.builders[0].kwargs
         )
         assert (
             training_config.render.training_backend_options_builder.target
@@ -103,7 +115,6 @@ def test_fastergs_script_loader_applies_preset_then_cli_overrides(
     loaded = load_fastergs_script_config(
         fastergs_config_module,
         args=[
-            "preset",
             "--preset",
             "garden_mcmc",
             "--training.render.backend",
@@ -120,20 +131,26 @@ def test_fastergs_script_loader_applies_preset_then_cli_overrides(
     assert loaded.preset == "garden_mcmc"
     assert loaded.training.render.backend == "faster_gs.core"
     assert loaded.training.runtime.max_steps == 5
-    assert loaded.training.loss.target.kwargs[
-        "lambda_opacity_regularization"
-    ] == 0.01
+    assert loaded.training.loss.lambda_opacity_regularization == 0.01
+    assert loaded.training.densification.mode == "mcmc"
+    assert loaded.training.optimization.recipe.logit_opacity_lr == 0.05
+    assert loaded.training.initialization.use_mcmc is True
+
+    training_config = fastergs_config_module.resolve_training_config(loaded)
     assert (
-        loaded.training.densification.builders[0].target
+        training_config.densification.builders[0].target
         == "papers.fastergs.notebook.build_fastergs_mcmc_densification"
     )
-    assert (
-        loaded.training.optimization.builder.kwargs["recipe"][
-            "logit_opacity_lr"
-        ]
-        == 0.05
-    )
-    assert loaded.training.initialization.initializer.kwargs["use_mcmc"] is True
+
+
+def test_fastergs_user_config_does_not_expose_runtime_kwargs(
+    fastergs_config_module,
+) -> None:
+    config = load_fastergs_preset(fastergs_config_module, "garden_baseline")
+    serialized = json.dumps(config.model_dump(mode="json"))
+
+    assert '"kwargs"' not in serialized
+    assert '"context_kwargs"' not in serialized
 
 
 def test_fastergs_script_loader_replays_json_config(
@@ -146,7 +163,7 @@ def test_fastergs_script_loader_replays_json_config(
 
     loaded = load_fastergs_script_config(
         fastergs_config_module,
-        args=["json", str(json_path)],
+        args=[str(json_path)],
     )
 
     assert isinstance(
@@ -163,11 +180,11 @@ def test_fastergs_script_loader_resolves_relative_paths_from_json_file(
     json_path = tmp_path / "config.json"
     json_path.write_text(
         json.dumps(
-                {
-                    "preset": "garden_baseline",
-                    "scene": {
-                        "path": "dataset",
-                        "image_root": None,
+            {
+                "preset": "garden_baseline",
+                "scene": {
+                    "path": "dataset",
+                    "image_root": None,
                     "undistort_output_dir": None,
                     "align_horizon": True,
                 },
@@ -179,27 +196,27 @@ def test_fastergs_script_loader_resolves_relative_paths_from_json_file(
                     "materialization_stage": "decoded",
                     "materialization_mode": "eager",
                     "materialization_num_workers": 0,
-                        "normalize_images": True,
-                        "interpolation": "bicubic",
+                    "normalize_images": True,
+                    "interpolation": "bicubic",
+                },
+                "training": {
+                    **load_fastergs_preset(
+                        fastergs_config_module,
+                        "garden_baseline",
+                    ).training.model_dump(mode="json"),
+                    "checkpoint": {
+                        "output_dir": "checkpoints/run",
+                        "export_ply": True,
+                        "overwrite": False,
                     },
-                    "training": {
-                        **load_fastergs_preset(
-                            fastergs_config_module,
-                            "garden_baseline",
-                        ).training.model_dump(mode="json"),
-                        "checkpoint": {
-                            "output_dir": "checkpoints/run",
-                            "export_ply": True,
-                            "overwrite": False,
-                        },
-                    },
-                }
-            )
+                },
+            }
+        )
     )
 
     loaded = load_fastergs_script_config(
         fastergs_config_module,
-        args=["json", str(json_path)],
+        args=[str(json_path)],
     )
 
     assert loaded.scene.path == (tmp_path / "dataset")
@@ -303,11 +320,13 @@ def test_fastergs_initializer_matches_upstream_parameterization(
         point_cloud=point_cloud,
     )
 
-    baseline = fastergs_config_module.initialize_fastergs_model_from_scene_record(
-        scene_record,
-        sh_degree=3,
-        use_mcmc=False,
-        device=torch.device("cpu"),
+    baseline = (
+        fastergs_config_module.initialize_fastergs_model_from_scene_record(
+            scene_record,
+            sh_degree=3,
+            use_mcmc=False,
+            device=torch.device("cpu"),
+        )
     )
     mcmc = fastergs_config_module.initialize_fastergs_model_from_scene_record(
         scene_record,

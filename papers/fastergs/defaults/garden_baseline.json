@@ -28,119 +28,76 @@
       "shuffle": true
     },
     "initialization": {
-      "initializer": {
-        "target": "papers.fastergs.notebook.initialize_fastergs_model_from_scene_record",
-        "kwargs": {
-          "sh_degree": 3,
-          "use_mcmc": false,
-          "default_color": [
-            0.5,
-            0.5,
-            0.5
-          ]
-        },
-        "context_kwargs": {
-          "device": "device"
-        }
-      }
+      "sh_degree": 3,
+      "use_mcmc": false,
+      "default_color": [
+        0.5,
+        0.5,
+        0.5
+      ]
     },
     "render": {
       "backend": "adapter.fastergs",
-      "return_alpha": false,
-      "training_backend_options_builder": {
-        "target": "ember_splatting_training.fastergs_training_backend_options"
-      },
-      "backend_options": {
-        "near_plane": 0.2,
-        "far_plane": 10000.0,
-        "proper_antialiasing": true,
-        "background_color": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      }
+      "near_plane": 0.2,
+      "far_plane": 10000.0,
+      "proper_antialiasing": true,
+      "background_color": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "return_alpha": false
     },
     "optimization": {
-      "builder": {
-        "target": "ember_splatting_training.recipes.gaussian_3dgs_optimization_config",
-        "kwargs": {
-          "recipe": {
-            "optimizer": "ember_splatting_training.FusedAdam",
-            "center_position_lr_init": 0.00016,
-            "center_position_lr_final": 0.0000016,
-            "center_position_lr_max_steps": 30000,
-            "center_position_lr_step_offset": 1,
-            "sh_dc_lr": 0.0025,
-            "sh_rest_lr": 0.000125,
-            "logit_opacity_lr": 0.025,
-            "log_scales_lr": 0.005,
-            "quaternion_orientation_lr": 0.001
-          }
-        },
-        "context_kwargs": {
-          "position_lr_scale": "camera_extent",
-          "max_steps": "max_steps"
-        }
+      "recipe": {
+        "optimizer": "ember_splatting_training.FusedAdam",
+        "center_position_lr_init": 0.00016,
+        "center_position_lr_final": 0.0000016,
+        "center_position_lr_max_steps": 30000,
+        "center_position_lr_step_offset": 1,
+        "sh_dc_lr": 0.0025,
+        "sh_rest_lr": 0.000125,
+        "logit_opacity_lr": 0.025,
+        "log_scales_lr": 0.005,
+        "quaternion_orientation_lr": 0.001
       }
     },
     "loss": {
-      "target": {
-        "target": "ember_splatting_training.losses.rgb_l1_dssim_loss",
-        "kwargs": {
-          "lambda_l1": 0.8,
-          "lambda_dssim": 0.2,
-          "lambda_opacity_regularization": 0.0,
-          "lambda_scale_regularization": 0.0
-        }
-      }
+      "lambda_l1": 0.8,
+      "lambda_dssim": 0.2,
+      "lambda_opacity_regularization": 0.0,
+      "lambda_scale_regularization": 0.0
     },
     "densification": {
-      "builders": [
-        {
-          "target": "papers.fastergs.notebook.FasterGSVanillaDensification",
-          "kwargs": {
-            "refine_every": 100,
-            "start_iter": 600,
-            "stop_iter": 14900,
-            "grad_threshold": 0.0002,
-            "dense_fraction": 0.01,
-            "prune_opacity_threshold": 0.005,
-            "opacity_reset_every": 3000,
-            "extra_opacity_reset_iter": null,
-            "max_reset_opacity": 0.01
-          },
-          "context_kwargs": {
-            "camera_extent": "camera_extent"
-          }
-        },
-        {
-          "target": "ember_splatting_training.GaussianMortonOrdering",
-          "kwargs": {
-            "schedule": {
-              "end_iteration": 15000,
-              "frequency": 5000
-            }
-          }
-        },
-        {
-          "target": "ember_splatting_training.GaussianMipSplattingAntialiasing",
-          "kwargs": {
-            "recompute_schedule": {
-              "start_iteration": 15000,
-              "end_iteration": 29899,
-              "frequency": 100
-            },
-            "near_plane": 0.2
-          }
-        },
-        {
-          "target": "papers.fastergs.notebook.FasterGSFinalCleanup",
-          "kwargs": {
-            "min_opacity": 0.00392156862745098
-          }
+      "mode": "vanilla",
+      "vanilla": {
+        "refine_every": 100,
+        "start_iter": 600,
+        "stop_iter": 14900,
+        "grad_threshold": 0.0002,
+        "dense_fraction": 0.01,
+        "prune_opacity_threshold": 0.005,
+        "opacity_reset_every": 3000,
+        "extra_opacity_reset_iter": null,
+        "max_reset_opacity": 0.01
+      },
+      "morton": {
+        "schedule": {
+          "end_iteration": 15000,
+          "frequency": 5000
         }
-      ]
+      },
+      "antialiasing": {
+        "recompute_schedule": {
+          "start_iteration": 15000,
+          "end_iteration": 29899,
+          "frequency": 100
+        },
+        "near_plane": 0.2
+      },
+      "final_cleanup": {
+        "min_opacity": 0.00392156862745098
+      }
     },
     "checkpoint": {
       "output_dir": "checkpoints/papers/fastergs/garden_baseline/adapter.fastergs",

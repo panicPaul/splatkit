@@ -84,6 +84,74 @@ def read_image(
 
 
 @always_inline
+def compute_horizontal_blur_row(
+    staged_pixels: LayoutTensor[
+        DType.float32,
+        SHARED_TILE,
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ],
+    horizontal_blur: LayoutTensor[
+        DType.float32,
+        SHARED_XCONV,
+        MutAnyOrigin,
+        address_space=AddressSpace.SHARED,
+    ],
+    shared_y: Int,
+    shared_x: Int,
+    output_x: Int,
+):
+    """Compute one horizontal 11-tap Gaussian row for all SSIM moments."""
+    var horizontal_prediction_mean = Float32(0.0)
+    var horizontal_prediction_second_moment = Float32(0.0)
+    var horizontal_target_mean = Float32(0.0)
+    var horizontal_target_second_moment = Float32(0.0)
+    var horizontal_cross_moment = Float32(0.0)
+    comptime for kernel_offset in range(1, HALO + 1):
+        var weight = gauss_weight(HALO - kernel_offset)
+        var prediction_left = rebind[Float32](
+            staged_pixels[shared_y, shared_x - kernel_offset, 0]
+        )
+        var target_left = rebind[Float32](
+            staged_pixels[shared_y, shared_x - kernel_offset, 1]
+        )
+        var prediction_right = rebind[Float32](
+            staged_pixels[shared_y, shared_x + kernel_offset, 0]
+        )
+        var target_right = rebind[Float32](
+            staged_pixels[shared_y, shared_x + kernel_offset, 1]
+        )
+        horizontal_prediction_mean += (prediction_left + prediction_right) * weight
+        horizontal_prediction_second_moment += (
+            prediction_left * prediction_left + prediction_right * prediction_right
+        ) * weight
+        horizontal_target_mean += (target_left + target_right) * weight
+        horizontal_target_second_moment += (
+            target_left * target_left + target_right * target_right
+        ) * weight
+        horizontal_cross_moment += (
+            prediction_left * target_left + prediction_right * target_right
+        ) * weight
+
+    var center_weight = gauss_weight(HALO)
+    var center_prediction = rebind[Float32](staged_pixels[shared_y, shared_x, 0])
+    var center_target = rebind[Float32](staged_pixels[shared_y, shared_x, 1])
+    horizontal_prediction_mean += center_prediction * center_weight
+    horizontal_prediction_second_moment += (
+        center_prediction * center_prediction * center_weight
+    )
+    horizontal_target_mean += center_target * center_weight
+    horizontal_target_second_moment += center_target * center_target * center_weight
+    horizontal_cross_moment += center_prediction * center_target * center_weight
+
+    horizontal_blur[shared_y, output_x, 0] = horizontal_prediction_mean
+    horizontal_blur[shared_y, output_x, 1] = horizontal_prediction_second_moment
+    horizontal_blur[shared_y, output_x, 2] = horizontal_target_mean
+    horizontal_blur[shared_y, output_x, 3] = horizontal_target_second_moment
+    horizontal_blur[shared_y, output_x, 4] = horizontal_cross_moment
+
+
+@always_inline
 def ssim_fwd_kernel(
     ssim_map: LayoutTensor[DType.float32, ROW_MAJOR_4D, MutAnyOrigin],
     dm_dmu1: LayoutTensor[DType.float32, ROW_MAJOR_4D, MutAnyOrigin],
@@ -152,80 +220,19 @@ def ssim_fwd_kernel(
         barrier()
 
         var shared_x = Int(thread_idx.x) + HALO
-        for pass_idx in range(HORIZONTAL_PASSES):
-            var shared_y = Int(thread_idx.y) + pass_idx * BLOCK_Y
-            if shared_y < CONV_Y:
-                var horizontal_prediction_mean = Float32(0.0)
-                var horizontal_prediction_second_moment = Float32(0.0)
-                var horizontal_target_mean = Float32(0.0)
-                var horizontal_target_second_moment = Float32(0.0)
-                var horizontal_cross_moment = Float32(0.0)
-                comptime for kernel_offset in range(1, HALO + 1):
-                    var weight = gauss_weight(HALO - kernel_offset)
-                    var prediction_left = rebind[Float32](
-                        staged_pixels[shared_y, shared_x - kernel_offset, 0]
-                    )
-                    var target_left = rebind[Float32](
-                        staged_pixels[shared_y, shared_x - kernel_offset, 1]
-                    )
-                    var prediction_right = rebind[Float32](
-                        staged_pixels[shared_y, shared_x + kernel_offset, 0]
-                    )
-                    var target_right = rebind[Float32](
-                        staged_pixels[shared_y, shared_x + kernel_offset, 1]
-                    )
-                    horizontal_prediction_mean += (
-                        prediction_left + prediction_right
-                    ) * weight
-                    horizontal_prediction_second_moment += (
-                        prediction_left * prediction_left
-                        + prediction_right * prediction_right
-                    ) * weight
-                    horizontal_target_mean += (target_left + target_right) * weight
-                    horizontal_target_second_moment += (
-                        target_left * target_left + target_right * target_right
-                    ) * weight
-                    horizontal_cross_moment += (
-                        prediction_left * target_left
-                        + prediction_right * target_right
-                    ) * weight
-                var center_weight = gauss_weight(HALO)
-                var center_prediction = rebind[Float32](
-                    staged_pixels[shared_y, shared_x, 0]
-                )
-                var center_target = rebind[Float32](
-                    staged_pixels[shared_y, shared_x, 1]
-                )
-                horizontal_prediction_mean += center_prediction * center_weight
-                horizontal_prediction_second_moment += (
-                    center_prediction * center_prediction * center_weight
-                )
-                horizontal_target_mean += center_target * center_weight
-                horizontal_target_second_moment += (
-                    center_target * center_target * center_weight
-                )
-                horizontal_cross_moment += (
-                    center_prediction * center_target * center_weight
-                )
-                horizontal_blur[
-                    shared_y, Int(thread_idx.x), 0
-                ] = horizontal_prediction_mean
-                horizontal_blur[
-                    shared_y, Int(thread_idx.x), 1
-                ] = horizontal_prediction_second_moment
-                horizontal_blur[
-                    shared_y, Int(thread_idx.x), 2
-                ] = horizontal_target_mean
-                horizontal_blur[
-                    shared_y, Int(thread_idx.x), 3
-                ] = horizontal_target_second_moment
-                horizontal_blur[
-                    shared_y, Int(thread_idx.x), 4
-                ] = horizontal_cross_moment
+        var output_x = Int(thread_idx.x)
+        var first_shared_y = Int(thread_idx.y)
+        compute_horizontal_blur_row(
+            staged_pixels, horizontal_blur, first_shared_y, shared_x, output_x
+        )
+        var second_shared_y = first_shared_y + BLOCK_Y
+        if second_shared_y < CONV_Y:
+            compute_horizontal_blur_row(
+                staged_pixels, horizontal_blur, second_shared_y, shared_x, output_x
+            )
         barrier()
 
         if pixel_x < width and pixel_y < height:
-            var output_x = Int(thread_idx.x)
             var shared_y = Int(thread_idx.y) + HALO
             var vertical_prediction_mean = Float32(0.0)
             var vertical_prediction_second_moment = Float32(0.0)
@@ -315,16 +322,30 @@ def ssim_fwd_kernel(
             var contrast_numerator = (
                 Float32(2.0) * prediction_target_covariance + SSIM_C2
             )
-            var ssim_value = (luminance_numerator * contrast_numerator) / (luminance_denominator * contrast_denominator)
+            var denominator_product = luminance_denominator * contrast_denominator
+            var numerator_product = luminance_numerator * contrast_numerator
+            var ssim_value = numerator_product / denominator_product
             ssim_map[batch_index, channel_index, pixel_y, pixel_x] = ssim_value
-            dm_dmu1[batch_index, channel_index, pixel_y, pixel_x] = (
-                (target_mean * Float32(2.0) * contrast_numerator) / (luminance_denominator * contrast_denominator)
-                - (target_mean * Float32(2.0) * luminance_numerator) / (luminance_denominator * contrast_denominator)
-                - (prediction_mean * Float32(2.0) * luminance_numerator * contrast_numerator) / (luminance_denominator * luminance_denominator * contrast_denominator)
-                + (prediction_mean * Float32(2.0) * luminance_numerator * contrast_numerator) / (luminance_denominator * contrast_denominator * contrast_denominator)
+            var double_target_mean = target_mean * Float32(2.0)
+            var double_prediction_mean = prediction_mean * Float32(2.0)
+            var luminance_squared_product = (
+                luminance_denominator * luminance_denominator * contrast_denominator
             )
-            dm_dsigma1_sq[batch_index, channel_index, pixel_y, pixel_x] = (-luminance_numerator * contrast_numerator) / (luminance_denominator * contrast_denominator * contrast_denominator)
-            dm_dsigma12[batch_index, channel_index, pixel_y, pixel_x] = (Float32(2.0) * luminance_numerator) / (luminance_denominator * contrast_denominator)
+            var contrast_squared_product = (
+                luminance_denominator * contrast_denominator * contrast_denominator
+            )
+            dm_dmu1[batch_index, channel_index, pixel_y, pixel_x] = (
+                (double_target_mean * contrast_numerator) / denominator_product
+                - (double_target_mean * luminance_numerator) / denominator_product
+                - (double_prediction_mean * numerator_product) / luminance_squared_product
+                + (double_prediction_mean * numerator_product) / contrast_squared_product
+            )
+            dm_dsigma1_sq[batch_index, channel_index, pixel_y, pixel_x] = (
+                -numerator_product / contrast_squared_product
+            )
+            dm_dsigma12[batch_index, channel_index, pixel_y, pixel_x] = (
+                (Float32(2.0) * luminance_numerator) / denominator_product
+            )
         barrier()
 
 
@@ -819,7 +840,11 @@ struct SSIMForward:
                     linear_idx_type=DType.int32,
                 ].row_major(Index(batch, channels, height, width)),
             )
-            var dm_dmu1_tensor = LayoutTensor[DType.float32, ROW_MAJOR_4D, MutAnyOrigin](
+            var dm_dmu1_tensor = LayoutTensor[
+                DType.float32,
+                ROW_MAJOR_4D,
+                MutAnyOrigin,
+            ](
                 dm_dmu1.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_4D,
@@ -1167,7 +1192,11 @@ struct SSIMForwardInplace:
                     linear_idx_type=DType.int32,
                 ].row_major(Index(batch, channels, height, width)),
             )
-            var dm_dmu1_tensor = LayoutTensor[DType.float32, ROW_MAJOR_4D, MutAnyOrigin](
+            var dm_dmu1_tensor = LayoutTensor[
+                DType.float32,
+                ROW_MAJOR_4D,
+                MutAnyOrigin,
+            ](
                 dm_dmu1.unsafe_ptr(),
                 RuntimeLayout[
                     ROW_MAJOR_4D,

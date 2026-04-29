@@ -56,6 +56,7 @@ from ember_core.training import (
     initialize_model,
     load_checkpoint_dir,
     materialize_optimization_config,
+    materialize_training_config,
     resolve_backend_options,
     run_training,
     save_checkpoint_dir,
@@ -366,9 +367,7 @@ class LifecycleRecordingDensification(CloneFirstSplatDensification):
         )
 
     def after_training(self, context: DensificationLifecycleContext) -> None:
-        context.state.model.metadata["after_training_step"] = (
-            context.state.step
-        )
+        context.state.model.metadata["after_training_step"] = context.state.step
 
 
 def build_sparse_voxel_model(
@@ -499,6 +498,35 @@ def test_run_training_writes_checkpoint_directory(tmp_path: Path) -> None:
     assert (checkpoint_dir / "config.json").exists()
     assert (checkpoint_dir / "metadata.json").exists()
     assert (checkpoint_dir / "model.ckpt").exists()
+
+
+class TypedUnitTrainingConfig:
+    def __init__(self, output_dir: Path) -> None:
+        self.output_dir = output_dir
+        self.seen_dataset_length: int | None = None
+
+    def to_training_config(
+        self,
+        frame_dataset: PreparedFrameDataset | None = None,
+    ) -> TrainingConfig:
+        assert frame_dataset is not None
+        self.seen_dataset_length = len(frame_dataset)
+        return build_config(self.output_dir)
+
+
+def test_run_training_accepts_typed_training_config_source(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    typed_config = TypedUnitTrainingConfig(tmp_path / "typed-run")
+
+    materialized = materialize_training_config(dataset, typed_config)
+    result = run_training(dataset, typed_config)
+
+    assert isinstance(materialized, TrainingConfig)
+    assert typed_config.seen_dataset_length == len(dataset)
+    assert Path(result.checkpoint_dir).name == "typed-run"
 
 
 def test_training_utilities_cover_common_notebook_loop_needs(
@@ -952,9 +980,7 @@ def test_run_training_merges_densification_render_requirements(
     dataset = build_dataset(tmp_path)
     config = build_config(tmp_path / "run")
     config.densification = DensificationConfig(
-        builders=[
-            CallableSpec(target="ember_core.densification.Vanilla3DGS")
-        ]
+        builders=[CallableSpec(target="ember_core.densification.Vanilla3DGS")]
     )
 
     with pytest.raises(ValueError, match="2d_projections"):

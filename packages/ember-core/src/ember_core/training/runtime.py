@@ -51,6 +51,7 @@ from ember_core.training.protocols import (
     LossFn,
     LossResult,
     RenderFn,
+    TrainingConfigSource,
     TrainingHook,
     TrainingResult,
     TrainingRunContext,
@@ -1289,15 +1290,38 @@ def build_training_run_context(
     )
 
 
+def materialize_training_config(
+    frame_dataset: PreparedFrameDataset,
+    config: TrainingConfig | TrainingConfigSource,
+) -> TrainingConfig:
+    """Resolve a typed user config into the runtime ``TrainingConfig``."""
+    if isinstance(config, TrainingConfig):
+        return config
+    materialize = getattr(config, "to_training_config", None)
+    if not callable(materialize):
+        raise TypeError(
+            "run_training config must be TrainingConfig or provide "
+            "to_training_config(frame_dataset)."
+        )
+    resolved = materialize(frame_dataset)
+    if not isinstance(resolved, TrainingConfig):
+        raise TypeError(
+            "to_training_config(...) must return TrainingConfig, got "
+            f"{type(resolved).__name__}."
+        )
+    return resolved
+
+
 def run_training(
     frame_dataset: PreparedFrameDataset,
-    config: TrainingConfig,
+    config: TrainingConfig | TrainingConfigSource,
 ) -> TrainingResult:
     """Run the declarative training loop and export a checkpoint directory."""
     from ember_core.training.checkpoints import (
         ensure_checkpoint_output_writable,
     )
 
+    config = materialize_training_config(frame_dataset, config)
     ensure_checkpoint_output_writable(
         config.checkpoint.output_dir,
         overwrite=config.checkpoint.overwrite,
@@ -1415,6 +1439,7 @@ __all__ = [
     "initialize_model",
     "instantiate_callable",
     "materialize_optimization_config",
+    "materialize_training_config",
     "resolve_backend_options",
     "resolve_callable",
     "resolve_target",

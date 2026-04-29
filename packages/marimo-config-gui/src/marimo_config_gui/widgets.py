@@ -7,6 +7,7 @@ import json
 import math
 import operator
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, Flag
 from functools import reduce
@@ -147,6 +148,8 @@ class _FieldSpec:
     def to_model_value(self, value: Any) -> Any:
         if self.is_nested_model or self.is_model_union:
             return value
+        if _is_dict_type(self.effective_annotation):
+            return _coerce_dict_value(self.name, value)
         if _is_model_tuple_type(self.effective_annotation):
             return tuple(value)
         if self.effective_annotation is Path:
@@ -697,6 +700,15 @@ def _build_concrete_field_element(
 
     if _is_array_annotation(annotation):
         return _build_array_element(annotation, spec.info, value, label)
+
+    if _is_dict_type(annotation):
+        return mo.ui.code_editor(
+            value=_payload_to_json(value if isinstance(value, dict) else {}),
+            language="json",
+            show_copy_button=True,
+            debounce=False,
+            label=label,
+        )
 
     return mo.ui.text(value=_text_value(value), label=label)
 
@@ -1339,6 +1351,8 @@ def _default_value_for_annotation(
         )
     if _is_array_annotation(annotation):
         return _default_array_value(annotation)
+    if _is_dict_type(annotation):
+        return {}
     return ""
 
 
@@ -1396,6 +1410,11 @@ def _union_model_types(annotation: Any) -> tuple[type[BaseModel], ...]:
 
 def _is_model_union_type(annotation: Any) -> bool:
     return len(_union_model_types(annotation)) >= 2
+
+
+def _is_dict_type(annotation: Any) -> bool:
+    origin = get_origin(annotation)
+    return annotation is dict or origin in (dict, Mapping)
 
 
 def _union_kind_for_model(
@@ -1643,6 +1662,7 @@ def _is_array_annotation(annotation: Any) -> bool:
 def _uses_text_fallback(annotation: Any) -> bool:
     return not (
         annotation in (str, bool, int, float, Path)
+        or _is_dict_type(annotation)
         or _is_literal_type(annotation)
         or _is_enum_type(annotation)
         or _is_model_type(annotation)
@@ -1672,6 +1692,17 @@ def _maybe_parse_json_text(value: str) -> Any:
         return json.loads(stripped)
     except json.JSONDecodeError:
         return value
+
+
+def _coerce_dict_value(name: str, value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        raise ValueError(f"{name}: Expected a JSON object.")
+    payload, error = _json_text_to_payload(value)
+    if error is not None:
+        raise ValueError(f"{name}: {error}") from None
+    return payload
 
 
 def _coerce_path_value(info: FieldInfo, value: Any) -> Path | str:
@@ -1742,6 +1773,8 @@ def _frontend_value_for_element(
         return [] if value is None else [_dropdown_key(value)]
     if annotation in (bool, int, float, str):
         return value
+    if _is_dict_type(annotation):
+        return _payload_to_json(value if isinstance(value, dict) else {})
     return _text_value(value)
 
 

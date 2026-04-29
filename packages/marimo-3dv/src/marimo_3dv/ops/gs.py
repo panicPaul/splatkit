@@ -94,7 +94,7 @@ class SplatLoadConfig(BaseModel):
     """Configuration for loading a Gaussian splat PLY file."""
 
     ply_path: Path = Field(
-        default=Path.cwd() / "point_cloud.ply",
+        default=Path("point_cloud.ply"),
         description="Path to a 3DGS-style `.ply` file.",
     )
     gpu: SplatLoadGpuConfig = Field(
@@ -103,7 +103,11 @@ class SplatLoadConfig(BaseModel):
     )
 
 
-def splat_load_form(*, default_path: Path | None = None) -> Any:
+def splat_load_form(
+    *,
+    default_path: Path | None = None,
+    path_defaults_source: str | Path | None = None,
+) -> Any:
     """Build a reusable notebook form for loading splat scenes."""
     default_config = (
         SplatLoadConfig()
@@ -113,6 +117,7 @@ def splat_load_form(*, default_path: Path | None = None) -> Any:
     form_gui_state, _json_gui_state, bindings = create_config_state(
         SplatLoadConfig,
         value=default_config,
+        path_defaults_source=path_defaults_source,
     )
     return config_gui_panel(bindings, form_gui_state=form_gui_state)
 

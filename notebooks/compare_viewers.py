@@ -41,6 +41,7 @@ with app.setup:
     )
     from pydantic import BaseModel, Field
 
+    NOTEBOOK_PATH = Path(__file__).resolve()
     ember_fastgs_adapter.register()
     ember_fastergs_adapter.register()
     ember_gsplat_adapter.register()
@@ -209,6 +210,7 @@ def _():
     ) = create_config_state(
         SceneLoaderConfig,
         value=SceneLoaderConfig(),
+        path_defaults_source=NOTEBOOK_PATH,
     )
     return (
         left_loader_bindings,
@@ -226,6 +228,7 @@ def _():
     ) = create_config_state(
         SceneLoaderConfig,
         value=SceneLoaderConfig(scene_type=SceneTypeChoice.SVRASTER),
+        path_defaults_source=NOTEBOOK_PATH,
     )
     return (
         right_loader_bindings,

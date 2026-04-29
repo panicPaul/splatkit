@@ -8,6 +8,7 @@ app = marimo.App(width="columns")
 with app.setup:
     import threading
     from functools import partial
+    from pathlib import Path
 
     import altair as alt
     import ember_core as sk
@@ -47,6 +48,7 @@ with app.setup:
         validated_config,
     )
 
+    NOTEBOOK_PATH = Path(__file__).resolve()
     skn_gaussian_pop.register()
     active_link = {"handles": []}
     score_plot_update_gate = ViewerStatsUpdateGate(
@@ -74,6 +76,7 @@ with app.setup:
     ) = create_config_state(
         SplatLoadConfig,
         value=SplatLoadConfig(),
+        path_defaults_source=NOTEBOOK_PATH,
     )
 
 

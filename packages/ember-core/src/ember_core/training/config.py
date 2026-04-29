@@ -17,7 +17,7 @@ class TrainingConfigBase(BaseModel):
 
 
 class CallableSpec(TrainingConfigBase):
-    """Importable callable target plus bound kwargs."""
+    """Low-level importable callable target plus runtime-bound kwargs."""
 
     target: str
     kwargs: dict[str, Any] = Field(default_factory=dict)

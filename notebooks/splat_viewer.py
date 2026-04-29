@@ -3,13 +3,11 @@
 import marimo
 
 __generated_with = "0.23.3"
-app = marimo.App(
-    width="columns",
-    layout_file="layouts/splat_viewer.slides.json",
-)
+app = marimo.App(width="columns")
 
 with app.setup:
     from dataclasses import replace
+    from pathlib import Path
 
     import ember_adapter_backends.fastergs as ember_fastergs_adapter
     import ember_adapter_backends.fastgs as ember_fastgs_adapter
@@ -53,6 +51,7 @@ with app.setup:
         validated_config,
     )
 
+    NOTEBOOK_PATH = Path(__file__).resolve()
     ember_fastgs_adapter.register()
     ember_fastergs_adapter.register()
     ember_gsplat_adapter.register()
@@ -184,6 +183,7 @@ def _():
     ) = create_config_state(
         SplatLoadConfig,
         value=SplatLoadConfig(),
+        path_defaults_source=NOTEBOOK_PATH,
     )
     return load_bindings, load_form_gui_state, load_json_gui_state
 
@@ -708,7 +708,6 @@ def _():
 
     from pydantic import BaseModel
 
-
     class Range(BaseModel):
         lower: int = 0
         upper: int = 100
@@ -720,7 +719,6 @@ def _():
     class MultiSelection(IntFlag):
         RED = auto()
         GREEN = auto()
-
 
     class ConfigTest(BaseModel):
         int_field: int = 0
@@ -750,12 +748,9 @@ def _(bindings, gui_state):
 def _(bindings, gui_state, json_state):
     from marimo_config_gui import config_json_editor
 
-    config_json_editor(bindings, form_gui_state=gui_state, json_gui_state=json_state)
-    return
-
-
-@app.cell
-def _():
+    config_json_editor(
+        bindings, form_gui_state=gui_state, json_gui_state=json_state
+    )
     return
 
 
