@@ -18,7 +18,10 @@ with app.setup:
     import ember_adapter_backends.inria as ember_inria_adapter
     import ember_adapter_backends.stoch3dgs as ember_stoch_adapter
     import ember_core as ember
-    import ember_native_svraster.svraster as ember_svraster_native
+    import ember_native_3dgrt
+    import ember_native_faster_gs
+    import ember_native_faster_gs_mojo
+    import ember_native_svraster
     import marimo as mo
     import numpy as np
     import torch
@@ -31,13 +34,10 @@ with app.setup:
     )
     from marimo_3dv.ops.gs import cleanup_before_splat_reload
     from marimo_config_gui import (
-        config_commit_button,
-        config_committed_value,
-        config_error,
-        config_form,
-        config_value,
-        create_committed_config_state,
+        config_gui_panel,
+        config_status_panel,
         create_config_state,
+        validated_config,
     )
     from pydantic import BaseModel, Field
 
@@ -46,7 +46,10 @@ with app.setup:
     ember_gsplat_adapter.register()
     ember_inria_adapter.register()
     ember_stoch_adapter.register()
-    ember_svraster_native.register()
+    ember_native_faster_gs.register()
+    ember_native_faster_gs_mojo.register()
+    ember_native_svraster.register()
+    ember_native_3dgrt.register()
 
     active_link = {"handle": None}
 
@@ -207,19 +210,10 @@ def _():
         SceneLoaderConfig,
         value=SceneLoaderConfig(),
     )
-    (
-        left_loader_committed_state,
-        set_left_loader_committed_state,
-    ) = create_committed_config_state(
-        SceneLoaderConfig,
-        value=SceneLoaderConfig(),
-    )
     return (
         left_loader_bindings,
-        left_loader_committed_state,
         left_loader_form_gui_state,
         left_loader_json_gui_state,
-        set_left_loader_committed_state,
     )
 
 
@@ -233,19 +227,10 @@ def _():
         SceneLoaderConfig,
         value=SceneLoaderConfig(scene_type=SceneTypeChoice.SVRASTER),
     )
-    (
-        right_loader_committed_state,
-        set_right_loader_committed_state,
-    ) = create_committed_config_state(
-        SceneLoaderConfig,
-        value=SceneLoaderConfig(scene_type=SceneTypeChoice.SVRASTER),
-    )
     return (
         right_loader_bindings,
-        right_loader_committed_state,
         right_loader_form_gui_state,
         right_loader_json_gui_state,
-        set_right_loader_committed_state,
     )
 
 
@@ -266,18 +251,18 @@ def _():
 def _(
     left_loader_bindings, left_loader_form_gui_state, left_loader_json_gui_state
 ):
-    left_loader_form = config_form(
+    left_loader_form = config_gui_panel(
         left_loader_bindings,
         form_gui_state=left_loader_form_gui_state,
         label="Left scene",
         nested_models_multiple_open=False,
     )
-    left_loader_error = config_error(
+    left_loader_error = config_status_panel(
         left_loader_bindings,
         form_gui_state=left_loader_form_gui_state,
         json_gui_state=left_loader_json_gui_state,
     )
-    left_loader_draft = config_value(
+    left_loader_draft = validated_config(
         left_loader_bindings,
         form_gui_state=left_loader_form_gui_state,
         json_gui_state=left_loader_json_gui_state,
@@ -286,30 +271,23 @@ def _(
 
 
 @app.cell
-def _(
-    left_loader_bindings,
-    left_loader_committed_state,
-    left_loader_form_gui_state,
-    left_loader_json_gui_state,
-    set_left_loader_committed_state,
-):
-    left_load_button = config_commit_button(
-        left_loader_bindings,
-        form_gui_state=left_loader_form_gui_state,
-        json_gui_state=left_loader_json_gui_state,
-        committed_state=left_loader_committed_state,
-        set_committed_state=set_left_loader_committed_state,
+def _(left_loader_draft):
+    left_load_button = mo.ui.run_button(
+        disabled=left_loader_draft is None,
         label="Load left scene",
+        tooltip=(
+            "Fix config errors before loading."
+            if left_loader_draft is None
+            else None
+        ),
     )
     return (left_load_button,)
 
 
 @app.cell
-def _(left_loader_bindings, left_loader_committed_state):
-    left_loader_config = config_committed_value(
-        left_loader_bindings,
-        committed_state=left_loader_committed_state,
-    )
+def _(left_load_button, left_loader_draft):
+    mo.stop(not left_load_button.value or left_loader_draft is None, mo.md(""))
+    left_loader_config = left_loader_draft
     return (left_loader_config,)
 
 
@@ -319,18 +297,18 @@ def _(
     right_loader_form_gui_state,
     right_loader_json_gui_state,
 ):
-    right_loader_form = config_form(
+    right_loader_form = config_gui_panel(
         right_loader_bindings,
         form_gui_state=right_loader_form_gui_state,
         label="Right scene",
         nested_models_multiple_open=False,
     )
-    right_loader_error = config_error(
+    right_loader_error = config_status_panel(
         right_loader_bindings,
         form_gui_state=right_loader_form_gui_state,
         json_gui_state=right_loader_json_gui_state,
     )
-    right_loader_draft = config_value(
+    right_loader_draft = validated_config(
         right_loader_bindings,
         form_gui_state=right_loader_form_gui_state,
         json_gui_state=right_loader_json_gui_state,
@@ -339,46 +317,41 @@ def _(
 
 
 @app.cell
-def _(
-    right_loader_bindings,
-    right_loader_committed_state,
-    right_loader_form_gui_state,
-    right_loader_json_gui_state,
-    set_right_loader_committed_state,
-):
-    right_load_button = config_commit_button(
-        right_loader_bindings,
-        form_gui_state=right_loader_form_gui_state,
-        json_gui_state=right_loader_json_gui_state,
-        committed_state=right_loader_committed_state,
-        set_committed_state=set_right_loader_committed_state,
+def _(right_loader_draft):
+    right_load_button = mo.ui.run_button(
+        disabled=right_loader_draft is None,
         label="Load right scene",
+        tooltip=(
+            "Fix config errors before loading."
+            if right_loader_draft is None
+            else None
+        ),
     )
     return (right_load_button,)
 
 
 @app.cell
-def _(right_loader_bindings, right_loader_committed_state):
-    right_loader_config = config_committed_value(
-        right_loader_bindings,
-        committed_state=right_loader_committed_state,
+def _(right_load_button, right_loader_draft):
+    mo.stop(
+        not right_load_button.value or right_loader_draft is None, mo.md("")
     )
+    right_loader_config = right_loader_draft
     return (right_loader_config,)
 
 
 @app.cell
 def _(link_bindings, link_form_gui_state, link_json_gui_state):
-    link_form = config_form(
+    link_form = config_gui_panel(
         link_bindings,
         form_gui_state=link_form_gui_state,
         label="Linked navigation",
     )
-    link_error = config_error(
+    link_error = config_status_panel(
         link_bindings,
         form_gui_state=link_form_gui_state,
         json_gui_state=link_json_gui_state,
     )
-    link_config = config_value(
+    link_config = validated_config(
         link_bindings,
         form_gui_state=link_form_gui_state,
         json_gui_state=link_json_gui_state,

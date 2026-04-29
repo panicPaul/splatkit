@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 from marimo._runtime.virtual_file import InMemoryStorage, VirtualFileRegistry
-from marimo_config_gui import PydanticGui
+from marimo_config_gui.elements import PydanticGui
 
 import marimo_3dv.viewer.defaults as viewer_defaults
 from marimo_3dv import (

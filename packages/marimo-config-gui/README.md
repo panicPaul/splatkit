@@ -22,10 +22,9 @@ The common workflow is:
 
 1. Create a Pydantic `BaseModel` for the notebook config.
 2. Create shared GUI state with `create_config_state(...)`.
-3. Render the config GUIs with `config_form(...)`, `config_json(...)`, and
-   `config_error(...)`.
-4. Extract the current typed value with `config_value(...)` or
-   `config_require_valid(...)`.
+3. Render the config GUIs with `config_gui_panel(...)`,
+   `config_json_editor(...)`, and `config_status_panel(...)`.
+4. Extract the current typed value with `validated_config(...)`.
 
 ```python
 from pathlib import Path
@@ -33,12 +32,11 @@ from typing import Literal
 
 import marimo as mo
 from marimo_config_gui import (
-    config_error,
-    config_form,
-    config_json,
-    config_require_valid,
-    config_value,
+    config_gui_panel,
+    config_json_editor,
+    config_status_panel,
     create_config_state,
+    validated_config,
 )
 from pydantic import BaseModel, Field
 
@@ -73,14 +71,14 @@ Render the form, JSON editor, and validation output in separate cells when that
 makes the notebook layout easier to scan:
 
 ```python
-config_form(
+config_gui_panel(
     config_bindings,
     form_gui_state=config_form_state,
 )
 ```
 
 ```python
-config_json(
+config_json_editor(
     config_bindings,
     form_gui_state=config_form_state,
     json_gui_state=config_json_state,
@@ -88,7 +86,7 @@ config_json(
 ```
 
 ```python
-config_error(
+config_status_panel(
     config_bindings,
     form_gui_state=config_form_state,
     json_gui_state=config_json_state,
@@ -98,7 +96,7 @@ config_error(
 Then extract the current typed config wherever the notebook needs it:
 
 ```python
-config = config_value(
+config = validated_config(
     config_bindings,
     form_gui_state=config_form_state,
     json_gui_state=config_json_state,
@@ -108,31 +106,20 @@ if config is None:
     mo.stop(True, mo.callout("Fix the config before running.", kind="warn"))
 ```
 
-For cells that must not continue without a valid config, use
-`config_require_valid(...)`:
+For cells that must not continue without a valid config, gate with marimo:
 
 ```python
-config = config_require_valid(
+config = validated_config(
     config_bindings,
     form_gui_state=config_form_state,
     json_gui_state=config_json_state,
 )
+mo.stop(config is None, config_status_panel(
+    config_bindings,
+    form_gui_state=config_form_state,
+    json_gui_state=config_json_state,
+))
 ```
-
-## Quick Single-Cell UI
-
-For small notebooks, `config_gui(...)` builds state and returns renderable UI
-elements in one call:
-
-```python
-from marimo_config_gui import config_gui
-
-config_error_view, config_form_view = config_gui(Config)
-```
-
-Use the split state workflow for notebooks that need form and JSON editors in
-different cells, need to expose the validated value to later cells, or need to
-share one config between notebook and script mode.
 
 ## Script Mode
 
@@ -142,14 +129,6 @@ initial config through `tyro`. The default loader supports two subcommands:
 ```bash
 python notebook.py cli --scene-path data/bicycle --runtime.device cuda
 python notebook.py json config.json
-```
-
-You can also call the loader directly:
-
-```python
-from marimo_config_gui import load_script_config
-
-config = load_script_config(Config)
 ```
 
 If a notebook should be usable with the `tyro`/JSON script loader, use one
@@ -165,35 +144,31 @@ default value, and the optional argument sequence.
 ## Apply Before Expensive Work
 
 Viewer reloads, scene loading, dataset preparation, and training runs are often
-too expensive to trigger on every draft edit. Use committed config state when
-the user should edit a draft first and explicitly apply it:
+too expensive to trigger on every draft edit. Use marimo gating when the user
+should edit a draft first and explicitly apply it:
 
 ```python
-from marimo_config_gui import (
-    config_commit_button,
-    config_committed_value,
-    create_committed_config_state,
-)
-
-committed_state, set_committed_state = create_committed_config_state(Config)
-
-apply_button = config_commit_button(
+draft_config = validated_config(
     config_bindings,
     form_gui_state=config_form_state,
     json_gui_state=config_json_state,
-    committed_state=committed_state,
-    set_committed_state=set_committed_state,
-    label="Load scene",
 )
 
-active_config = config_committed_value(
-    config_bindings,
-    committed_state=committed_state,
+load_button = mo.ui.run_button(
+    label="Load scene",
+    disabled=draft_config is None,
 )
 ```
 
-Use the draft config from `config_value(...)` for cheap dependent controls. Use
-the committed config from `config_committed_value(...)` for expensive work.
+Then gate the expensive cell:
+
+```python
+mo.stop(not load_button.value or draft_config is None)
+active_config = draft_config
+```
+
+Use `validated_config(...)` directly for cheap dependent controls. Use
+`mo.ui.run_button(...)` and `mo.stop(...)` for expensive work.
 
 ## Model Authoring Notes
 
@@ -204,7 +179,7 @@ the committed config from `config_committed_value(...)` for expensive work.
 - Optional fields render with a `None`/configure control.
 - 1D and 2D NumPy or Torch arrays render as matrix widgets.
 - Validation constraints from Pydantic are enforced before
-  `config_value(...)` returns a model.
+  `validated_config(...)` returns a model.
 
 Field-level GUI hints can be provided through `json_schema_extra`:
 
@@ -234,13 +209,14 @@ class Config(BaseModel):
 
 ## marimo Patterns
 
-- Return `config_form(...)`, `config_json(...)`, `config_error(...)`, and other
-  reactive outputs directly from cells. Avoid wrapping them in extra layout
-  containers when the wrapped object itself needs to stay reactive.
+- Return `config_gui_panel(...)`, `config_json_editor(...)`,
+  `config_status_panel(...)`, and other reactive outputs directly from cells.
+  Avoid wrapping them in extra layout containers when the wrapped object itself
+  needs to stay reactive.
 - Keep config state creation in `app.setup` when the config should behave the
   same in notebook mode and script mode.
-- Treat `config_value(...)` as `Config | None`; invalid JSON or failed Pydantic
-  validation returns `None`.
+- Treat `validated_config(...)` as `Config | None`; invalid JSON or failed
+  Pydantic validation returns `None`.
 
 ## License
 

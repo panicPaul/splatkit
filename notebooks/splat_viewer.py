@@ -2,7 +2,7 @@
 
 import marimo
 
-__generated_with = "0.23.2"
+__generated_with = "0.23.3"
 app = marimo.App(
     width="columns",
     layout_file="layouts/splat_viewer.slides.json",
@@ -17,10 +17,13 @@ with app.setup:
     import ember_adapter_backends.inria as ember_inria_adapter
     import ember_adapter_backends.stoch3dgs as ember_stoch_adapter
     import ember_core as ember
-    import ember_native_3dgrt.stoch3dgs as ember_stoch_native
+    import ember_native_3dgrt
+    import ember_native_faster_gs
     import ember_native_faster_gs.faster_gs as ember_fastergs_native
     import ember_native_faster_gs.faster_gs_depth as ember_fastergs_depth_native
+    import ember_native_faster_gs.fastgs as ember_fastgs_native
     import ember_native_faster_gs.gaussian_pop as ember_gaussian_pop_native
+    import ember_native_faster_gs_mojo
     import ember_native_faster_gs_mojo.core as ember_fastergs_mojo_native
     import marimo as mo
     import marimo._output.mpl
@@ -44,10 +47,10 @@ with app.setup:
         viewer_pipeline_controls_gui,
     )
     from marimo_config_gui import (
-        config_error,
-        config_form,
-        config_value,
+        config_gui_panel,
+        config_status_panel,
         create_config_state,
+        validated_config,
     )
 
     ember_fastgs_adapter.register()
@@ -55,11 +58,9 @@ with app.setup:
     ember_gsplat_adapter.register()
     ember_stoch_adapter.register()
     ember_inria_adapter.register()
-    ember_fastergs_depth_native.register()
-    ember_fastergs_native.register()
-    ember_fastergs_mojo_native.register()
-    ember_gaussian_pop_native.register()
-    ember_stoch_native.register()
+    ember_native_faster_gs.register()
+    ember_native_faster_gs_mojo.register()
+    ember_native_3dgrt.register()
 
 
 @app.cell(hide_code=True)
@@ -189,7 +190,7 @@ def _():
 
 @app.cell
 def _(load_bindings, load_form_gui_state, load_json_gui_state):
-    load_config = config_value(
+    load_config = validated_config(
         load_bindings,
         form_gui_state=load_form_gui_state,
         json_gui_state=load_json_gui_state,
@@ -376,6 +377,11 @@ def render_options_for_backend(
             ember_gaussian_pop_native.GaussianPopNativeRenderOptions(),
             proper_antialiasing=antialiasing,
         )
+    if backend == "faster_gs.fastgs":
+        return replace(
+            ember_fastgs_native.FastGSNativeRenderOptions(),
+            proper_antialiasing=antialiasing,
+        )
     if backend == "faster_gs_mojo.core":
         return replace(
             ember_fastergs_mojo_native.FasterGSMojoRenderOptions(),
@@ -498,7 +504,6 @@ def _(
     normalization_bias,
     normalization_percent,
     pipeline_result,
-    rasterize_scene,
     view_mode,
     viewer_controls_gui,
     viewer_state,
@@ -645,7 +650,7 @@ def _(view_mode, view_mode_required_outputs):
 
 @app.cell
 def _(load_bindings, load_form_gui_state):
-    load_form = config_form(
+    load_form = config_gui_panel(
         load_bindings,
         form_gui_state=load_form_gui_state,
         label="Scene",
@@ -655,7 +660,7 @@ def _(load_bindings, load_form_gui_state):
 
 @app.cell
 def _(load_bindings, load_form_gui_state, load_json_gui_state):
-    load_error = config_error(
+    load_error = config_status_panel(
         load_bindings,
         form_gui_state=load_form_gui_state,
         json_gui_state=load_json_gui_state,
@@ -686,6 +691,72 @@ def _(backend_bundle, pipeline_result, viewer_state):
     )
     viewer_controls_gui = viewer_controls.gui
     return (viewer_controls_gui,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Quick and dirty config test
+    """)
+    return
+
+
+@app.cell
+def _():
+    from enum import Enum, Flag, IntFlag, auto
+    from typing import Literal
+
+    from pydantic import BaseModel
+
+
+    class Range(BaseModel):
+        lower: int = 0
+        upper: int = 100
+
+    class Selection(Enum):
+        RED = "red"
+        GREEN = "green"
+
+    class MultiSelection(IntFlag):
+        RED = auto()
+        GREEN = auto()
+
+
+    class ConfigTest(BaseModel):
+        int_field: int = 0
+        option_field: Literal["a", "b"] = "a"
+        range: Range = Range()
+        range2: Range = Range()
+        enum: Selection = Selection.GREEN
+        int_flag: MultiSelection = MultiSelection.GREEN
+        choice: bool = True
+
+    return (ConfigTest,)
+
+
+@app.cell
+def _(ConfigTest):
+    gui_state, json_state, bindings = create_config_state(ConfigTest)
+    return bindings, gui_state, json_state
+
+
+@app.cell
+def _(bindings, gui_state):
+    config_gui_panel(bindings, form_gui_state=gui_state)
+    return
+
+
+@app.cell
+def _(bindings, gui_state, json_state):
+    from marimo_config_gui import config_json_editor
+
+    config_json_editor(bindings, form_gui_state=gui_state, json_gui_state=json_state)
+    return
+
+
+@app.cell
+def _():
+    return
 
 
 if __name__ == "__main__":

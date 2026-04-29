@@ -6,51 +6,37 @@ __generated_with = "0.23.3"
 app = marimo.App(width="columns")
 
 with app.setup:
-    import json
+    import math
     import sys
     from collections.abc import Sequence
-    from dataclasses import replace
     from pathlib import Path
     from typing import Any, Literal, Protocol, runtime_checkable
 
     import ember_core as ember
     import marimo as mo
     import torch
-    import torch.nn as nn
-    from ember_core.core.registry import BACKEND_REGISTRY
     from ember_core.densification import (
         BaseDensificationMethod,
         DensificationContext,
+        DensificationLifecycleContext,
         DensificationRenderRequirements,
         GaussianFamilyOps,
         Schedule,
     )
-    from ember_core.densification.runtime import (
-        bind_densification,
-        build_densification,
-    )
     from ember_core.training import (
-        LossResult,
         TrainingResult,
         TrainState,
-        build_dataloader,
-        build_loss_fn,
-        build_optimizer_set,
-        initialize_model,
-        save_checkpoint_dir,
-        train_step,
     )
     from jaxtyping import Float
     from marimo_config_gui import (
         ConfigPreset,
         ConfigPresetCatalog,
-        PydanticGui,
-        config_error,
-        config_form,
-        config_json,
+        config_gui_panel,
+        config_json_editor,
         config_preset_selector,
-        config_value,
+        config_status_panel,
         create_config_state,
+        validated_config,
     )
     from pydantic import BaseModel, Field
     from torch import Tensor
@@ -79,18 +65,6 @@ def _(train_button):
     return
 
 
-@app.cell(hide_code=True)
-def _(preset_selector):
-    preset_selector
-    return
-
-
-@app.cell(hide_code=True)
-def _(densification_form):
-    densification_form
-    return
-
-
 @app.cell
 def _():
     fastergs_presets = fastergs_preset_catalog()
@@ -115,7 +89,7 @@ def _(config_bindings, fastergs_presets, form_gui_state, json_gui_state):
 
 @app.cell
 def _(config_bindings, form_gui_state, json_gui_state):
-    current_config = config_value(
+    current_config = validated_config(
         config_bindings,
         form_gui_state=form_gui_state,
         json_gui_state=json_gui_state,
@@ -124,21 +98,26 @@ def _(config_bindings, form_gui_state, json_gui_state):
 
 
 @app.cell(hide_code=True)
+def _(preset_selector):
+    preset_selector
+    return
+
+
+@app.cell(hide_code=True)
 def _(config_bindings, form_gui_state):
-    config_form(
+    config_gui_panel(
         config_bindings,
         form_gui_state=form_gui_state,
         label="FasterGS config",
         nested_models_multiple_open=False,
         nested_models_flat_after_level=2,
-        exclude_fields=frozenset({"densification"}),
     )
     return
 
 
 @app.cell(hide_code=True)
 def _(config_bindings, form_gui_state, json_gui_state):
-    config_json(
+    config_json_editor(
         config_bindings,
         form_gui_state=form_gui_state,
         json_gui_state=json_gui_state,
@@ -148,7 +127,7 @@ def _(config_bindings, form_gui_state, json_gui_state):
 
 @app.cell(hide_code=True)
 def _(config_bindings, form_gui_state, json_gui_state):
-    config_error(
+    config_status_panel(
         config_bindings,
         form_gui_state=form_gui_state,
         json_gui_state=json_gui_state,
@@ -212,111 +191,13 @@ class FasterGSDataConfig(FasterGSConfigBase):
 
 
 @app.class_definition
-class FasterGSModelConfig(FasterGSConfigBase):
-    """Gaussian initialization settings."""
-
-    sh_degree: int = Field(default=3, ge=0)
-    initial_scale: float = Field(default=0.01, gt=0.0)
-    initial_opacity: float = Field(default=0.1, gt=0.0, lt=1.0)
-    default_color: tuple[float, float, float] = (0.5, 0.5, 0.5)
-
-
-@app.class_definition
-class FasterGSRenderConfig(FasterGSConfigBase):
-    """FasterGS render options."""
-
-    proper_antialiasing: bool = False
-    near_plane: float = Field(default=0.2, gt=0.0)
-    far_plane: float = Field(default=10_000.0, gt=0.0)
-    background_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
-
-
-@app.class_definition
-class FasterGSOptimizationConfig(FasterGSConfigBase):
-    """Optimizer settings following FasterGS defaults."""
-
-    optimizer: str = "ember_splatting_training.FusedAdam"
-    means_lr_init: float = Field(default=1.6e-4, gt=0.0)
-    means_lr_final: float = Field(default=1.6e-6, gt=0.0)
-    means_lr_max_steps: int | None = Field(default=None, ge=1)
-    sh_dc_lr: float = Field(default=2.5e-3, gt=0.0)
-    sh_rest_lr: float = Field(default=1.25e-4, gt=0.0)
-    opacity_lr: float = Field(default=2.5e-2, gt=0.0)
-    scale_lr: float = Field(default=5e-3, gt=0.0)
-    rotation_lr: float = Field(default=1e-3, gt=0.0)
-
-
-@app.class_definition
-class FasterGSLossConfig(FasterGSConfigBase):
-    """Loss weights used for training."""
-
-    lambda_l1: float = Field(default=0.8, ge=0.0)
-    lambda_dssim: float = Field(default=0.2, ge=0.0)
-    lambda_opacity_regularization: float = Field(default=0.0, ge=0.0)
-    lambda_scale_regularization: float = Field(default=0.0, ge=0.0)
-
-
-@app.class_definition
-class FasterGSDensificationConfig(FasterGSConfigBase):
-    """FasterGS densification schedule and thresholds."""
-
-    use_mcmc: bool = False
-    refine_every: int = Field(default=100, ge=1)
-    start_iter: int = Field(default=600, ge=0)
-    stop_iter: int = Field(default=14_900, ge=0)
-    grad_threshold: float = Field(default=2e-4, gt=0.0)
-    dense_fraction: float = Field(default=0.01, gt=0.0)
-    prune_opacity_threshold: float = Field(default=0.005, gt=0.0)
-    opacity_reset_every: int = Field(default=3_000, ge=1)
-    extra_opacity_reset_iter: int | None = Field(default=500, ge=0)
-    max_reset_opacity: float = Field(default=0.01, gt=0.0, lt=1.0)
-    min_opacity: float = Field(default=0.005, gt=0.0, lt=1.0)
-    max_primitives: int = Field(default=1_000_000, ge=1)
-    noise_lr_scale: float = Field(default=5e5, gt=0.0)
-
-
-@app.class_definition
-class FasterGSCheckpointConfig(FasterGSConfigBase):
-    """Checkpoint export settings."""
-
-    output_dir: Path
-    export_ply: bool = True
-    overwrite: bool = False
-
-
-@app.class_definition
-class FasterGSExecutionConfig(FasterGSConfigBase):
-    """Runtime controls for the notebook training loop."""
-
-    device: Literal["cpu", "cuda"] = "cuda"
-    seed: int = 0
-    max_steps: int = Field(default=30_000, ge=1)
-    batch_size: int = Field(default=1, ge=1)
-    shuffle: bool = True
-    preview_every: int = Field(default=250, ge=1)
-
-
-@app.class_definition
 class FasterGSExperimentConfig(FasterGSConfigBase):
     """Resolved experiment config."""
 
     preset: FasterGSDefaultName = "garden_baseline"
-    backend: FasterGSBackendName = "adapter.fastergs"
     scene: FasterGSSceneConfig = Field(default_factory=FasterGSSceneConfig)
     data: FasterGSDataConfig = Field(default_factory=FasterGSDataConfig)
-    model: FasterGSModelConfig = Field(default_factory=FasterGSModelConfig)
-    render: FasterGSRenderConfig = Field(default_factory=FasterGSRenderConfig)
-    optimization: FasterGSOptimizationConfig = Field(
-        default_factory=FasterGSOptimizationConfig
-    )
-    loss: FasterGSLossConfig = Field(default_factory=FasterGSLossConfig)
-    densification: FasterGSDensificationConfig = Field(
-        default_factory=FasterGSDensificationConfig
-    )
-    checkpoint: FasterGSCheckpointConfig
-    execution: FasterGSExecutionConfig = Field(
-        default_factory=FasterGSExecutionConfig
-    )
+    training: ember.TrainingConfig
 
 
 @app.cell(hide_code=True)
@@ -359,6 +240,143 @@ def fastergs_preset_catalog() -> ConfigPresetCatalog[FasterGSExperimentConfig]:
     )
 
 
+@app.function
+def _resolve_fastergs_point_cloud(
+    scene_record: ember.SceneRecord,
+) -> ember.PointCloudState:
+    """Return the SfM point cloud required by FasterGS initialization."""
+    if scene_record.point_cloud is None:
+        raise ValueError("FasterGS initialization requires an SfM point cloud.")
+    return scene_record.point_cloud
+
+
+@app.function
+def fastergs_root_mean_squared_knn_distances(
+    positions: Float[Tensor, " num_points 3"],
+    *,
+    fallback_max_points: int = 20_000,
+) -> Float[Tensor, " num_points"]:
+    """Compute upstream FasterGS initial scale distances for the notebook."""
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError(
+            "FasterGS KNN distances expect positions with shape "
+            f"(num_points, 3), got {tuple(positions.shape)}."
+        )
+    num_points = int(positions.shape[0])
+    if num_points == 0:
+        return torch.empty(
+            (0,),
+            dtype=positions.dtype,
+            device=positions.device,
+        )
+    if positions.device.type == "cuda":
+        try:
+            from simple_knn._C import distCUDA2
+
+            mean_squared = distCUDA2(positions.contiguous())
+            return mean_squared.clamp_min(1e-7).sqrt()
+        except Exception:
+            pass
+    if num_points > fallback_max_points:
+        raise RuntimeError(
+            "FasterGS KNN initialization needs simple_knn on CUDA for large "
+            f"point clouds; got {num_points} points without that backend."
+        )
+    if num_points == 1:
+        return torch.full(
+            (1,),
+            1e-3,
+            dtype=positions.dtype,
+            device=positions.device,
+        )
+    distances = torch.cdist(positions, positions)
+    distances.fill_diagonal_(math.inf)
+    k = min(3, num_points - 1)
+    mean_squared = distances.topk(k, largest=False).values.square().mean(dim=1)
+    return mean_squared.clamp_min(1e-7).sqrt()
+
+
+@app.function
+def initialize_fastergs_model_from_scene_record(
+    scene_record: ember.SceneRecord,
+    *,
+    modules: dict[str, torch.nn.Module] | None = None,
+    parameters: dict[str, torch.nn.Parameter] | None = None,
+    buffers: dict[str, Tensor] | None = None,
+    metadata: dict[str, Any] | None = None,
+    sh_degree: int = 3,
+    use_mcmc: bool = False,
+    default_color: tuple[float, float, float] = (0.5, 0.5, 0.5),
+    device: torch.device | None = None,
+) -> ember.InitializedModel:
+    """Initialize Gaussians exactly like the FasterGS paper implementation."""
+    point_cloud = _resolve_fastergs_point_cloud(scene_record)
+    target_device = device or torch.device("cpu")
+    centers = point_cloud.points.to(device=target_device, dtype=torch.float32)
+    num_points = int(centers.shape[0])
+
+    colors = (
+        torch.full(
+            (num_points, 3),
+            fill_value=0.5,
+            dtype=torch.float32,
+            device=target_device,
+        )
+        if point_cloud.colors is None
+        else point_cloud.colors.to(device=target_device, dtype=torch.float32)
+    )
+    if point_cloud.colors is None and default_color != (0.5, 0.5, 0.5):
+        colors = torch.tensor(
+            default_color,
+            dtype=torch.float32,
+            device=target_device,
+        ).expand(num_points, 3)
+
+    sh_coeffs = (sh_degree + 1) ** 2
+    feature = torch.zeros(
+        (num_points, sh_coeffs, 3),
+        dtype=torch.float32,
+        device=target_device,
+    )
+    feature[:, 0, :] = (colors - 0.5) / 0.28209479177387814
+
+    distances = fastergs_root_mean_squared_knn_distances(centers)
+    if use_mcmc:
+        distances = distances * 0.1
+    log_scales = distances.log()[:, None].repeat(1, 3)
+
+    quaternion_orientation = torch.zeros(
+        (num_points, 4),
+        dtype=torch.float32,
+        device=target_device,
+    )
+    quaternion_orientation[:, 0] = 1.0
+
+    initial_opacity = 0.5 if use_mcmc else 0.1
+    opacity = torch.full(
+        (num_points,),
+        initial_opacity,
+        dtype=torch.float32,
+        device=target_device,
+    )
+    logit_opacity = opacity.clamp(1e-5, 1.0 - 1e-5).logit()
+    scene = ember.GaussianScene3D(
+        center_position=centers.requires_grad_(True),
+        log_scales=log_scales.requires_grad_(True),
+        quaternion_orientation=quaternion_orientation.requires_grad_(True),
+        logit_opacity=logit_opacity.requires_grad_(True),
+        feature=feature.requires_grad_(True),
+        sh_degree=sh_degree,
+    )
+    return ember.InitializedModel(
+        scene=scene,
+        modules=dict(modules or {}),
+        parameters=dict(parameters or {}),
+        buffers=dict(buffers or {}),
+        metadata=dict(metadata or {}),
+    )
+
+
 @app.cell(hide_code=True)
 def _():
     mo.md("""
@@ -381,397 +399,39 @@ def _():
     return
 
 
-@app.function(column=1)
-def compute_training_camera_extent(
-    frame_dataset: ember.PreparedFrameDataset,
-) -> float:
-    """Compute FasterGS camera extent from prepared training cameras."""
-    centers = [
-        frame_dataset[index].camera.cam_to_world[..., :3, 3].reshape(-1, 3)
-        for index in range(len(frame_dataset))
-    ]
-    camera_centers = torch.cat(centers, dim=0).to(torch.float32)
-    mean_center = camera_centers.mean(dim=0, keepdim=True)
-    return float(1.1 * (camera_centers - mean_center).norm(dim=-1).max().item())
-
-
-@app.function(column=1)
-def build_training_config(
+@app.function
+def resolve_training_config(
     config: FasterGSExperimentConfig,
-    *,
-    camera_extent: float = 1.0,
 ) -> ember.TrainingConfig:
-    """Translate paper config into Ember's declarative training config."""
-    means_lr_max_steps = (
-        config.optimization.means_lr_max_steps
-        if config.optimization.means_lr_max_steps is not None
-        else config.execution.max_steps
-    )
-    optimizer_kwargs = {"eps": 1e-15}
-    parameter_groups = [
-        ember.ParameterGroupConfig(
-            target=ember.ParameterTargetSpec(
-                scope="scene",
-                name="center_position",
-            ),
-            optimizer=config.optimization.optimizer,
-            lr=config.optimization.means_lr_init * camera_extent,
-            optimizer_kwargs=optimizer_kwargs,
-            scheduler=ember.CallableSpec(
-                target="ember_core.training.exponential_decay_to",
-                kwargs={
-                    "final_lr": config.optimization.means_lr_final
-                    * camera_extent,
-                    "max_steps": means_lr_max_steps,
-                },
-            ),
-        ),
-        ember.ParameterGroupConfig(
-            target=ember.ParameterTargetSpec(
-                scope="scene",
-                name="feature",
-                view=ember.TensorViewSpec(
-                    slices=(ember.TensorSliceSpec(axis=1, start=0, stop=1),)
-                ),
-            ),
-            optimizer=config.optimization.optimizer,
-            lr=config.optimization.sh_dc_lr,
-            optimizer_kwargs=optimizer_kwargs,
-        ),
-        ember.ParameterGroupConfig(
-            target=ember.ParameterTargetSpec(
-                scope="scene",
-                name="feature",
-                view=ember.TensorViewSpec(
-                    slices=(ember.TensorSliceSpec(axis=1, start=1),)
-                ),
-            ),
-            optimizer=config.optimization.optimizer,
-            lr=config.optimization.sh_rest_lr,
-            optimizer_kwargs=optimizer_kwargs,
-        ),
-        ember.ParameterGroupConfig(
-            target=ember.ParameterTargetSpec(
-                scope="scene",
-                name="logit_opacity",
-            ),
-            optimizer=config.optimization.optimizer,
-            lr=config.optimization.opacity_lr,
-            optimizer_kwargs=optimizer_kwargs,
-        ),
-        ember.ParameterGroupConfig(
-            target=ember.ParameterTargetSpec(scope="scene", name="log_scales"),
-            optimizer=config.optimization.optimizer,
-            lr=config.optimization.scale_lr,
-            optimizer_kwargs=optimizer_kwargs,
-        ),
-        ember.ParameterGroupConfig(
-            target=ember.ParameterTargetSpec(
-                scope="scene",
-                name="quaternion_orientation",
-            ),
-            optimizer=config.optimization.optimizer,
-            lr=config.optimization.rotation_lr,
-            optimizer_kwargs=optimizer_kwargs,
-        ),
-    ]
-    if config.densification.use_mcmc:
-        densification_builder = ember.CallableSpec(
-            target="papers.fastergs.notebook.build_fastergs_mcmc_densification",
-            kwargs={
-                "refine_every": config.densification.refine_every,
-                "start_iter": config.densification.start_iter,
-                "stop_iter": config.densification.stop_iter,
-                "min_opacity": config.densification.min_opacity,
-                "max_primitives": config.densification.max_primitives,
-                "noise_lr_scale": config.densification.noise_lr_scale,
-            },
-        )
-    else:
-        densification_builder = ember.CallableSpec(
-            target="papers.fastergs.notebook.FasterGSVanillaDensification",
-            kwargs={
-                "refine_every": config.densification.refine_every,
-                "start_iter": config.densification.start_iter,
-                "stop_iter": config.densification.stop_iter,
-                "grad_threshold": config.densification.grad_threshold,
-                "dense_fraction": config.densification.dense_fraction,
-                "prune_opacity_threshold": (
-                    config.densification.prune_opacity_threshold
-                ),
-                "opacity_reset_every": config.densification.opacity_reset_every,
-                "extra_opacity_reset_iter": (
-                    config.densification.extra_opacity_reset_iter
-                ),
-                "max_reset_opacity": config.densification.max_reset_opacity,
-                "camera_extent": camera_extent,
-            },
-        )
-    return ember.TrainingConfig(
-        runtime=ember.RuntimeConfig(
-            device=config.execution.device,
-            seed=config.execution.seed,
-            max_steps=config.execution.max_steps,
-        ),
-        batching=ember.BatchingConfig(
-            batch_size=config.execution.batch_size,
-            shuffle=config.execution.shuffle,
-        ),
-        initialization=ember.InitializationSpec(
-            initializer=ember.CallableSpec(
-                target=(
-                    "ember_core.initialization."
-                    "initialize_gaussian_model_from_scene_record"
-                ),
-                kwargs={
-                    "sh_degree": config.model.sh_degree,
-                    "initial_scale": config.model.initial_scale,
-                    "initial_opacity": config.model.initial_opacity,
-                    "default_color": config.model.default_color,
-                },
-            )
-        ),
-        render=ember.RenderPipelineSpec(
-            backend=config.backend,
-            return_alpha=False,
-            backend_options={
-                "near_plane": config.render.near_plane,
-                "far_plane": config.render.far_plane,
-                "proper_antialiasing": config.render.proper_antialiasing,
-                "background_color": list(config.render.background_color),
-            },
-        ),
-        optimization=ember.OptimizationConfig(
-            parameter_groups=parameter_groups
-        ),
-        loss=ember.LossConfig(
-            target=ember.CallableSpec(
-                target="papers.fastergs.notebook.fastergs_training_loss",
-                kwargs={
-                    "lambda_l1": config.loss.lambda_l1,
-                    "lambda_dssim": config.loss.lambda_dssim,
-                    "lambda_opacity_regularization": (
-                        config.loss.lambda_opacity_regularization
-                    ),
-                    "lambda_scale_regularization": (
-                        config.loss.lambda_scale_regularization
-                    ),
-                },
-            )
-        ),
-        densification=ember.DensificationConfig(builder=densification_builder),
-        checkpoint=ember.CheckpointExportConfig(
-            output_dir=resolve_checkpoint_output_dir(config),
-            export_ply=config.checkpoint.export_ply,
-        ),
-    )
-
-
-@app.function(column=1)
-def gaussian_window(
-    *,
-    kernel_size: int,
-    sigma: float,
-    channels: int,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> Float[Tensor, " channels 1 kernel_size kernel_size"]:
-    """Build a depthwise Gaussian SSIM window."""
-    coords = torch.arange(kernel_size, device=device, dtype=dtype)
-    coords = coords - (kernel_size - 1) / 2.0
-    gauss_1d = torch.exp(-(coords.square()) / (2.0 * sigma * sigma))
-    gauss_1d = gauss_1d / gauss_1d.sum()
-    kernel_2d = torch.outer(gauss_1d, gauss_1d)
-    kernel_2d = kernel_2d / kernel_2d.sum()
-    return kernel_2d.expand(channels, 1, kernel_size, kernel_size).contiguous()
-
-
-@app.function(column=1)
-def ssim_score(
-    prediction: Float[Tensor, " batch height width 3"],
-    target: Float[Tensor, " batch height width 3"],
-    *,
-    kernel_size: int = 11,
-    sigma: float = 1.5,
-) -> Tensor:
-    """Compute mean SSIM over NHWC RGB tensors."""
-    prediction_nchw = prediction.permute(0, 3, 1, 2)
-    target_nchw = target.permute(0, 3, 1, 2)
-    channels = int(prediction_nchw.shape[1])
-    window = gaussian_window(
-        kernel_size=kernel_size,
-        sigma=sigma,
-        channels=channels,
-        device=prediction_nchw.device,
-        dtype=prediction_nchw.dtype,
-    )
-    padding = kernel_size // 2
-    mu_prediction = nn.functional.conv2d(
-        prediction_nchw,
-        window,
-        padding=padding,
-        groups=channels,
-    )
-    mu_target = nn.functional.conv2d(
-        target_nchw,
-        window,
-        padding=padding,
-        groups=channels,
-    )
-    mu_prediction_sq = mu_prediction.square()
-    mu_target_sq = mu_target.square()
-    mu_product = mu_prediction * mu_target
-    sigma_prediction_sq = (
-        nn.functional.conv2d(
-            prediction_nchw.square(),
-            window,
-            padding=padding,
-            groups=channels,
-        )
-        - mu_prediction_sq
-    )
-    sigma_target_sq = (
-        nn.functional.conv2d(
-            target_nchw.square(),
-            window,
-            padding=padding,
-            groups=channels,
-        )
-        - mu_target_sq
-    )
-    sigma_product = (
-        nn.functional.conv2d(
-            prediction_nchw * target_nchw,
-            window,
-            padding=padding,
-            groups=channels,
-        )
-        - mu_product
-    )
-    c1 = 0.01**2
-    c2 = 0.03**2
-    numerator = (2.0 * mu_product + c1) * (2.0 * sigma_product + c2)
-    denominator = (mu_prediction_sq + mu_target_sq + c1) * (
-        sigma_prediction_sq + sigma_target_sq + c2
-    )
-    return (numerator / denominator).mean()
-
-
-@app.function(column=1)
-def fastergs_training_loss(
-    state: TrainState,
-    batch: Any,
-    render_output: Any,
-    *,
-    weights: dict[str, float],
-    lambda_l1: float,
-    lambda_dssim: float,
-    lambda_opacity_regularization: float,
-    lambda_scale_regularization: float,
-) -> LossResult:
-    """Paper-style FasterGS RGB reconstruction loss."""
-    del weights
-    prediction = render_output.render
-    target = batch.images
-    if prediction.shape != target.shape:
-        raise ValueError(
-            "FasterGS loss expects render and target images to share NHWC "
-            f"shape, got {tuple(prediction.shape)} and {tuple(target.shape)}."
-        )
-    l1_loss = (prediction - target).abs().mean()
-    dssim = (1.0 - ssim_score(prediction, target)) / 2.0
-    scene = state.model.scene
-    assert isinstance(scene, ember.GaussianScene3D)
-    opacity_regularization = torch.sigmoid(scene.logit_opacity).mean()
-    scale_regularization = torch.exp(scene.log_scales).mean()
-    loss = (
-        lambda_l1 * l1_loss
-        + lambda_dssim * dssim
-        + lambda_opacity_regularization * opacity_regularization
-        + lambda_scale_regularization * scale_regularization
-    )
-    return LossResult(
-        loss=loss,
-        metrics={
-            "l1": float(l1_loss.detach().item()),
-            "dssim": float(dssim.detach().item()),
-            "opacity_regularization": float(
-                opacity_regularization.detach().item()
-            ),
-            "scale_regularization": float(scale_regularization.detach().item()),
+    """Apply paper notebook runtime defaults to native Ember training config."""
+    checkpoint = config.training.checkpoint.model_copy(
+        update={
+            "output_dir": resolve_checkpoint_output_dir(config),
         },
     )
+    return config.training.model_copy(
+        update={"checkpoint": checkpoint},
+        deep=True,
+    )
 
 
-@app.cell(column=1)
+@app.cell
 def _(register_fastergs_backends):
     def run_fastergs_training(
         frame_dataset: ember.PreparedFrameDataset,
         experiment_config: FasterGSExperimentConfig,
     ) -> TrainingResult:
-        """Run FasterGS training through notebook-local paper logic."""
+        """Run FasterGS training from a native Ember training config."""
         register_fastergs_backends()
-        set_seed(experiment_config.execution.seed)
-        device = torch.device(experiment_config.execution.device)
-        camera_extent = compute_training_camera_extent(frame_dataset)
-        training_config = build_training_config(
-            experiment_config,
-            camera_extent=camera_extent,
-        )
-        ensure_checkpoint_output_writable(
-            training_config.checkpoint.output_dir,
-            overwrite=experiment_config.checkpoint.overwrite,
-        )
-        model = initialize_model(
-            frame_dataset.scene_record, training_config
-        ).to(device)
-        state = TrainState(
-            model=model,
-            step=0,
-            seed=experiment_config.execution.seed,
-            device=device,
-        )
-        dataloader = build_dataloader(frame_dataset, training_config)
-        loss_fn = build_loss_fn(training_config)
-        optimizers = build_optimizer_set(state, training_config)
-        densification = build_densification(training_config.densification)
-        densification = bind_densification(densification, state, optimizers)
-        render_fn = make_dynamic_fastergs_render_fn(
-            training_config,
-            state,
-            collect_until_step=experiment_config.densification.stop_iter,
-            use_mcmc=experiment_config.densification.use_mcmc,
-        )
-        history: list[dict[str, float]] = []
-        iterator = cycle(dataloader)
-        for _ in range(training_config.runtime.max_steps):
-            history.append(
-                train_step(
-                    state,
-                    next(iterator),
-                    render_fn=render_fn,
-                    loss_fn=loss_fn,
-                    optimizers=optimizers,
-                    densification=densification,
-                    hooks=(),
-                )
-            )
-        checkpoint_dir = save_checkpoint_dir(
-            training_config.checkpoint.output_dir,
-            state,
-            training_config,
-            frame_dataset=frame_dataset,
-        )
-        return TrainingResult(
-            state=state,
-            history=history,
-            checkpoint_dir=str(checkpoint_dir),
+        return ember.run_training(
+            frame_dataset,
+            resolve_training_config(experiment_config),
         )
 
     return (run_fastergs_training,)
 
 
-@app.cell(column=1)
+@app.cell
 def _(current_config, train_button):
     should_prepare = bool(train_button.value)
     scene_record = (
@@ -782,7 +442,7 @@ def _(current_config, train_button):
     return (scene_record,)
 
 
-@app.cell(column=1)
+@app.cell
 def _(current_config, scene_record):
     frame_dataset = (
         ember.prepare_frame_dataset(
@@ -795,7 +455,7 @@ def _(current_config, scene_record):
     return (frame_dataset,)
 
 
-@app.cell(column=1)
+@app.cell
 def _(current_config, frame_dataset, run_fastergs_training, train_button):
     should_train = bool(train_button.value)
     training_result = (
@@ -808,7 +468,7 @@ def _(current_config, frame_dataset, run_fastergs_training, train_button):
     return (training_result,)
 
 
-@app.cell(column=1)
+@app.cell
 def _(training_result):
     training_result_view = (
         mo.md("Training has not started.")
@@ -829,27 +489,7 @@ def _():
     return
 
 
-@app.function(column=2)
-def update_densification_payload(
-    config_payload: dict[str, Any],
-    densification: FasterGSDensificationConfig,
-) -> dict[str, Any]:
-    """Return a full experiment payload with updated densification settings."""
-    current_config = FasterGSExperimentConfig.model_validate(config_payload)
-    next_config = current_config.model_copy(
-        update={"densification": densification}
-    )
-    return next_config.model_dump(mode="json")
-
-
-@app.function(column=2)
-def config_payload_json(config_payload: dict[str, Any]) -> str:
-    """Serialize a config payload for the JSON editor state."""
-    config = FasterGSExperimentConfig.model_validate(config_payload)
-    return json.dumps(config.model_dump(mode="json"), indent=2)
-
-
-@app.function(column=2)
+@app.function
 def build_fastergs_mcmc_densification(
     *,
     refine_every: int,
@@ -864,8 +504,8 @@ def build_fastergs_mcmc_densification(
 
     return GaussianMCMC(
         schedule=Schedule(
-            start_iteration=start_iter,
-            end_iteration=stop_iter,
+            start_iteration=max(0, start_iter - 1),
+            end_iteration=max(0, stop_iter - 1),
             frequency=refine_every,
         ),
         min_opacity=min_opacity,
@@ -874,7 +514,7 @@ def build_fastergs_mcmc_densification(
     )
 
 
-@app.class_definition(column=2)
+@app.class_definition
 @runtime_checkable
 class HasFasterGSDensificationInfo(Protocol):
     """Render-output trait for FasterGS densification accumulators."""
@@ -882,93 +522,7 @@ class HasFasterGSDensificationInfo(Protocol):
     densification_info: Float[Tensor, " 2 num_splats"]
 
 
-@app.function(column=2)
-def render_options(
-    training_config: ember.TrainingConfig,
-    *,
-    collect_densification_info: bool,
-) -> Any:
-    """Build backend options with dynamic FasterGS densification collection."""
-    backend = BACKEND_REGISTRY[training_config.render.backend]
-    option_updates = dict(training_config.render.backend_options)
-    option_updates["collect_densification_info"] = collect_densification_info
-    default_options = backend.default_options
-    resolved: dict[str, Any] = {}
-    for field_name, value in option_updates.items():
-        current = getattr(default_options, field_name)
-        if isinstance(current, torch.Tensor):
-            value = torch.as_tensor(
-                value,
-                dtype=current.dtype,
-                device=current.device,
-            )
-        resolved[field_name] = value
-    return replace(default_options, **resolved)
-
-
-@app.function(column=2)
-def make_dynamic_fastergs_render_fn(
-    training_config: ember.TrainingConfig,
-    state: TrainState,
-    *,
-    collect_until_step: int,
-    use_mcmc: bool,
-) -> Any:
-    """Create a render function that toggles FasterGS accumulation by step."""
-
-    def render_fn(model: Any, camera: Any) -> Any:
-        collect = (not use_mcmc) and state.step < collect_until_step
-        return ember.render(
-            model.scene,
-            camera,
-            backend=training_config.render.backend,
-            return_alpha=False,
-            return_depth=False,
-            return_gaussian_impact_score=False,
-            return_normals=False,
-            return_2d_projections=False,
-            return_projective_intersection_transforms=False,
-            options=render_options(
-                training_config,
-                collect_densification_info=collect,
-            ),
-        )
-
-    return render_fn
-
-
-@app.cell(column=2)
-def _(config_bindings, form_gui_state):
-    densification_form_ref: dict[
-        str, PydanticGui[FasterGSDensificationConfig]
-    ] = {}
-
-    def on_densification_change(_: Any) -> None:
-        densification = densification_form_ref["form"].value
-        if densification is None:
-            return
-        next_payload = update_densification_payload(
-            form_gui_state(),
-            densification,
-        )
-        config_bindings.set_form_gui_state(next_payload)
-        config_bindings.set_json_gui_state(config_payload_json(next_payload))
-
-    densification_form = PydanticGui(
-        FasterGSDensificationConfig,
-        value=form_gui_state()["densification"],
-        label="Densification",
-        include_json_editor=False,
-        bordered=False,
-        nested_models_multiple_open=False,
-        nested_models_flat_after_level=1,
-        on_change=on_densification_change,
-    )
-    densification_form_ref["form"] = densification_form
-    return (densification_form,)
-
-
-@app.class_definition(column=2)
+@app.class_definition
 class FasterGSVanillaDensification(BaseDensificationMethod):
     """Notebook-local FasterGS adaptive density control."""
 
@@ -1005,10 +559,15 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
         self.grad_sum: Tensor | None = None
         self.visible_count: Tensor | None = None
 
-    def get_render_requirements(self) -> DensificationRenderRequirements:
-        """Document the backend option this strategy consumes."""
+    def get_render_requirements(
+        self,
+        state: TrainState,
+    ) -> DensificationRenderRequirements:
+        """Collect FasterGS visibility accumulators while densification runs."""
         return DensificationRenderRequirements(
-            backend_options={"collect_densification_info": True}
+            backend_options={
+                "collect_densification_info": state.step + 1 < self.stop_iter
+            }
         )
 
     def bind(
@@ -1024,7 +583,7 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
 
     def post_backward(self, context: DensificationContext) -> None:
         """Accumulate FasterGS screen-space densification statistics."""
-        if context.step >= self.stop_iter:
+        if context.step + 1 >= self.stop_iter:
             return
         if not isinstance(context.render_output, HasFasterGSDensificationInfo):
             raise TypeError(
@@ -1051,13 +610,18 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
         scene = context.state.model.scene
         if not isinstance(scene, ember.GaussianScene):
             return
-        if self.refine_schedule.includes(context.step):
-            self.adaptive_density_control(scene)
+        upstream_iteration = context.step + 1
+        if self.refine_schedule.includes(upstream_iteration):
+            self.adaptive_density_control(scene, upstream_iteration)
             self.reset_accumulators()
-        if self.should_reset_opacity(context.step):
+        if self.should_reset_opacity(upstream_iteration):
             self.family_ops.reset_opacity(self.max_reset_opacity)
 
-    def adaptive_density_control(self, scene: ember.GaussianScene) -> None:
+    def adaptive_density_control(
+        self,
+        scene: ember.GaussianScene,
+        step: int,
+    ) -> None:
         if self.visible_count is None or self.grad_sum is None:
             return
         assert self.family_ops is not None
@@ -1084,12 +648,15 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
             self.family_ops.split(
                 split_mask,
                 num_children=2,
-                scale_shrink=0.8,
+                scale_shrink=0.625,
             )
         scene = self.family_ops.scene
         keep_mask = torch.sigmoid(scene.logit_opacity) >= (
             self.prune_opacity_threshold
         )
+        if step > self.opacity_reset_every and scene.center_position.shape[0] > 0:
+            max_scale = torch.exp(scene.log_scales).max(dim=-1).values
+            keep_mask &= max_scale <= 0.1 * self.camera_extent
         keep_mask &= scene.quaternion_orientation.square().sum(dim=1) >= 1e-8
         if torch.any(~keep_mask):
             self.family_ops.prune(keep_mask)
@@ -1100,11 +667,56 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
             and step <= self.stop_iter
             and step % self.opacity_reset_every == 0
         )
-        return scheduled or step == self.extra_opacity_reset_iter
+        return scheduled or (
+            self.extra_opacity_reset_iter is not None
+            and step == self.extra_opacity_reset_iter
+        )
 
     def reset_accumulators(self) -> None:
         self.visible_count = None
         self.grad_sum = None
+
+
+@app.class_definition
+class FasterGSFinalCleanup(BaseDensificationMethod):
+    """Notebook-local FasterGS checkpoint cleanup before export."""
+
+    expected_scene_families = ("gaussian",)
+
+    def __init__(self, *, min_opacity: float = 1.0 / 255.0) -> None:
+        self.min_opacity = float(min_opacity)
+        self.family_ops: GaussianFamilyOps | None = None
+
+    def bind(
+        self,
+        state: Any,
+        optimizers: Sequence[Any],
+        family_ops: Any,
+    ) -> None:
+        """Bind Gaussian topology operations."""
+        del state, optimizers
+        if not isinstance(family_ops, GaussianFamilyOps):
+            raise TypeError("FasterGSFinalCleanup requires GaussianFamilyOps.")
+        self.family_ops = family_ops
+
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        """Prune invalid Gaussians and apply final Morton ordering."""
+        del context
+        if self.family_ops is None:
+            return
+        scene = self.family_ops.scene
+        if not isinstance(scene, ember.GaussianScene):
+            return
+        keep_mask = torch.sigmoid(scene.logit_opacity) >= self.min_opacity
+        keep_mask &= scene.quaternion_orientation.square().sum(dim=1) >= 1e-8
+        if torch.any(~keep_mask):
+            self.family_ops.prune(keep_mask)
+            scene = self.family_ops.scene
+        if scene.center_position.device.type != "cuda":
+            return
+        from ember_splatting_training import morton_order
+
+        self.family_ops.reorder(morton_order(scene.center_position))
 
 
 @app.cell(column=3, hide_code=True)
@@ -1115,7 +727,7 @@ def _():
     return
 
 
-@app.cell(column=3)
+@app.cell
 def _(importlib):
     def register_fastergs_backends() -> tuple[str, ...]:
         """Register FasterGS backends used by the paper notebook."""
@@ -1133,7 +745,7 @@ def _(importlib):
     return (register_fastergs_backends,)
 
 
-@app.function(column=3)
+@app.function
 def build_scene_load_config(
     config: FasterGSExperimentConfig,
 ) -> ember.ColmapSceneConfig:
@@ -1157,7 +769,7 @@ def build_scene_load_config(
     )
 
 
-@app.function(column=3)
+@app.function
 def build_prepared_frame_dataset_config(
     config: FasterGSExperimentConfig,
 ) -> ember.PreparedFrameDatasetConfig:
@@ -1188,49 +800,19 @@ def build_prepared_frame_dataset_config(
     )
 
 
-@app.function(column=3)
+@app.function
 def resolve_checkpoint_output_dir(
     config: FasterGSExperimentConfig,
 ) -> Path:
     """Mirror checkpoint dirs by preset and backend unless user changed them."""
     default_parent = DEFAULT_CHECKPOINT_ROOT / config.preset
-    output_dir = config.checkpoint.output_dir.expanduser()
+    output_dir = config.training.checkpoint.output_dir.expanduser()
     if output_dir.parent == default_parent:
-        return default_checkpoint_dir(config.preset, config.backend)
-    return output_dir
-
-
-@app.function(column=3)
-def ensure_checkpoint_output_writable(
-    output_dir: Path,
-    *,
-    overwrite: bool,
-) -> None:
-    """Fail before training overwrites an existing checkpoint artifact."""
-    artifacts = ("config.json", "metadata.json", "model.ckpt", "scene.ply")
-    if overwrite:
-        return
-    existing = [output_dir / artifact for artifact in artifacts]
-    if any(path.exists() for path in existing):
-        raise FileExistsError(
-            "Checkpoint output directory already contains training artifacts: "
-            f"{output_dir}. Set checkpoint.overwrite=true to replace them."
+        return default_checkpoint_dir(
+            config.preset,
+            config.training.render.backend,
         )
-
-
-@app.function(column=3)
-def set_seed(seed: int) -> None:
-    """Seed PyTorch RNGs."""
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-@app.function(column=3)
-def cycle(loader: Any) -> Any:
-    """Repeat a dataloader forever."""
-    while True:
-        yield from loader
+    return output_dir
 
 
 if __name__ == "__main__":

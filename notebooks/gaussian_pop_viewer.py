@@ -41,10 +41,10 @@ with app.setup:
         viewer_pipeline_controls_gui,
     )
     from marimo_config_gui import (
-        config_error,
-        config_form,
-        config_value,
+        config_gui_panel,
+        config_status_panel,
         create_config_state,
+        validated_config,
     )
 
     skn_gaussian_pop.register()
@@ -381,7 +381,7 @@ def _():
 
 @app.cell
 def _():
-    load_config = config_value(
+    load_config = validated_config(
         load_bindings,
         form_gui_state=load_form_gui_state,
         json_gui_state=load_json_gui_state,
@@ -1307,7 +1307,7 @@ def _():
 
 @app.cell
 def _():
-    load_form = config_form(
+    load_form = config_gui_panel(
         load_bindings,
         form_gui_state=load_form_gui_state,
         label="Scene",
@@ -1317,7 +1317,7 @@ def _():
 
 @app.cell
 def _():
-    load_error = config_error(
+    load_error = config_status_panel(
         load_bindings,
         form_gui_state=load_form_gui_state,
         json_gui_state=load_json_gui_state,

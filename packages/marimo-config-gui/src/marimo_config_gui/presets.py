@@ -10,7 +10,10 @@ from typing import Any, Generic, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from marimo_config_gui.widgets import _order_payload_for_model
+from marimo_config_gui.widgets import (
+    _order_payload_for_model,
+    _resolve_materialized_payload,
+)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -109,7 +112,9 @@ def load_json_config(
     """Load a JSON config and optionally resolve relative Path values."""
     resolved_path = Path(path).expanduser().resolve()
     payload = json.loads(resolved_path.read_text())
-    config = model_cls.model_validate(payload)
+    config = model_cls.model_validate(
+        _resolve_materialized_payload(model_cls, payload)
+    )
     if not resolve_relative_paths:
         return config
     resolved_base_dir = _base_dir_for_json(
@@ -196,6 +201,12 @@ def _is_model_annotation(annotation: Any) -> bool:
     return isinstance(unwrapped, type) and issubclass(unwrapped, BaseModel)
 
 
+def _is_mapping_annotation(annotation: Any) -> bool:
+    unwrapped = _unwrap_optional(annotation)
+    origin = get_origin(unwrapped)
+    return unwrapped is dict or origin in (dict, Mapping)
+
+
 def _override_model_for(
     model_cls: type[BaseModel],
     *,
@@ -213,6 +224,8 @@ def _override_model_for(
                 nested_model,
                 Field(default_factory=nested_model),
             )
+        elif _is_mapping_annotation(annotation):
+            fields[field_name] = (Any, None)
         else:
             fields[field_name] = (_optional_annotation(annotation), None)
     return create_model(

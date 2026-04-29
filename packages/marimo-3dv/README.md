@@ -157,7 +157,7 @@ You can also generate marimo controls from a small Pydantic model:
 ```python
 from pydantic import BaseModel, Field
 
-from marimo_config_gui import config_gui
+from marimo_config_gui import config_gui_panel, create_config_state
 
 
 class RenderSettings(BaseModel):
@@ -167,11 +167,11 @@ class RenderSettings(BaseModel):
     title: str = "viewer"
 ```
 
-The generated UI is submit-gated and includes both structured controls and a
-JSON editor tab:
+The generated UI can be backed by shared marimo state:
 
 ```python
-form = config_gui(RenderSettings, mode="form")
+form_state, json_state, bindings = create_config_state(RenderSettings)
+form = config_gui_panel(bindings, form_gui_state=form_state)
 form
 ```
 
@@ -181,8 +181,8 @@ Then in a downstream cell:
 submitted = form.value
 ```
 
-`submitted` is either `None` before the first valid submit or a typed
-`RenderSettings` instance afterwards.
+`submitted` is a typed `RenderSettings` instance when the current form payload
+is valid.
 
 ## Camera State
 

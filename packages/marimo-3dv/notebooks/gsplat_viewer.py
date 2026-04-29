@@ -31,14 +31,14 @@ with app.setup:
     import marimo as mo
     import numpy as np
     import torch
+    from ember_core.viewer import ViewerRenderResult as RenderResult
     from gsplat import rasterization
     from jaxtyping import Float
-    from marimo_config_gui import config_gui
+    from marimo_config_gui import config_gui_panel, create_config_state
     from plyfile import PlyData
     from pydantic import BaseModel, Field
     from torch import Tensor
 
-    from ember_core.viewer import ViewerRenderResult as RenderResult
     from marimo_3dv import CameraState, Viewer, ViewerState
     from marimo_3dv.ops.gs import gs_backend_bundle
     from marimo_3dv.viewer.defaults import (
@@ -269,8 +269,13 @@ def _():
             description="How to clean up GPU resources before replacing a scene.",
         )
 
-    load_form = config_gui(
-        LoadConfig, value=LoadConfig(), submit_label="Load File"
+    load_form_gui_state, _load_json_gui_state, load_bindings = (
+        create_config_state(LoadConfig, value=LoadConfig())
+    )
+    load_form = config_gui_panel(
+        load_bindings,
+        form_gui_state=load_form_gui_state,
+        label="Load File",
     )
     return (load_form,)
 

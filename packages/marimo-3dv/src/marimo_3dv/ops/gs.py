@@ -11,7 +11,7 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 import torch
 from jaxtyping import Float
-from marimo_config_gui import form_gui
+from marimo_config_gui import config_gui_panel, create_config_state
 from plyfile import PlyData
 from pydantic import BaseModel, Field
 from torch import Tensor
@@ -110,10 +110,11 @@ def splat_load_form(*, default_path: Path | None = None) -> Any:
         if default_path is None
         else SplatLoadConfig(ply_path=default_path)
     )
-    return form_gui(
+    form_gui_state, _json_gui_state, bindings = create_config_state(
         SplatLoadConfig,
         value=default_config,
     )
+    return config_gui_panel(bindings, form_gui_state=form_gui_state)
 
 
 def pick_splat_load_config(

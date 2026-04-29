@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import marimo as mo
-from marimo_config_gui import form_gui
+from marimo_config_gui import (
+    config_gui_panel,
+    create_config_state,
+    validated_config,
+)
 from pydantic import BaseModel, Field, create_model
 
 from marimo_3dv.viewer.widget import ViewerState
@@ -106,10 +110,20 @@ class ViewerControlsHandle:
     config_model: type[ViewerControlsConfig]
     default_config: ViewerControlsConfig
     gui: Any
+    form_gui_state: Any | None = None
+    json_gui_state: Any | None = None
+    config_bindings: Any | None = None
 
     @property
     def value(self) -> ViewerControlsConfig:
         """Return the latest controls value."""
+        if self.config_bindings is not None:
+            value = validated_config(
+                self.config_bindings,
+                form_gui_state=self.form_gui_state,
+                json_gui_state=self.json_gui_state,
+            )
+            return self.default_config if value is None else value
         value = getattr(self.gui, "value", None)
         if value is None:
             return self.default_config
@@ -125,10 +139,20 @@ class CombinedViewerPipelineControlsHandle(Generic[PipelineConfigT]):
     gui: Any
     pipeline_config_model: type[PipelineConfigT]
     pipeline_default_config: PipelineConfigT
+    form_gui_state: Any | None = None
+    json_gui_state: Any | None = None
+    config_bindings: Any | None = None
 
     @property
     def value(self) -> BaseModel:
         """Return the latest combined controls value."""
+        if self.config_bindings is not None:
+            value = validated_config(
+                self.config_bindings,
+                form_gui_state=self.form_gui_state,
+                json_gui_state=self.json_gui_state,
+            )
+            return self.default_config if value is None else value
         value = getattr(self.gui, "value", None)
         if value is None:
             return self.default_config
@@ -242,20 +266,28 @@ def viewer_controls_handle(
     resolved_default_config = default_config or viewer_controls_config(
         viewer_state
     )
-    gui = (
-        form_gui(
+    form_gui_state = None
+    json_gui_state = None
+    bindings = None
+    if mo.running_in_notebook():
+        form_gui_state, json_gui_state, bindings = create_config_state(
             ViewerControlsConfig,
             value=resolved_default_config,
-            label=label,
-            live_update=True,
         )
-        if mo.running_in_notebook()
-        else _StaticControls(resolved_default_config)
-    )
+        gui = config_gui_panel(
+            bindings,
+            form_gui_state=form_gui_state,
+            label=label,
+        )
+    else:
+        gui = _StaticControls(resolved_default_config)
     return ViewerControlsHandle(
         config_model=ViewerControlsConfig,
         default_config=resolved_default_config,
         gui=gui,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+        config_bindings=bindings,
     )
 
 
@@ -306,22 +338,30 @@ def viewer_pipeline_controls_handle(
         viewer=resolved_viewer_default,
         pipeline=pipeline_result.default_config,
     )
-    gui = (
-        form_gui(
+    form_gui_state = None
+    json_gui_state = None
+    bindings = None
+    if mo.running_in_notebook():
+        form_gui_state, json_gui_state, bindings = create_config_state(
             combined_model,
             value=default_config,
-            label=label,
-            live_update=True,
         )
-        if mo.running_in_notebook()
-        else _StaticControls(default_config)
-    )
+        gui = config_gui_panel(
+            bindings,
+            form_gui_state=form_gui_state,
+            label=label,
+        )
+    else:
+        gui = _StaticControls(default_config)
     return CombinedViewerPipelineControlsHandle(
         config_model=combined_model,
         default_config=default_config,
         gui=gui,
         pipeline_config_model=pipeline_config_model,
         pipeline_default_config=pipeline_result.default_config,
+        form_gui_state=form_gui_state,
+        json_gui_state=json_gui_state,
+        config_bindings=bindings,
     )
 
 

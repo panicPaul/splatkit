@@ -21,7 +21,7 @@ with app.setup:
         ViewerState,
     )
     from marimo_3dv.ops.gs import cleanup_before_splat_reload
-    from marimo_config_gui import form_gui
+    from marimo_config_gui import config_gui_panel, create_config_state
     from pydantic import BaseModel
 
     _adapter_spec = importlib.util.find_spec("new_svraster_cuda")
@@ -103,11 +103,16 @@ class LoadConfig(BaseModel):
 
 @app.cell
 def _():
-    load_form = form_gui(
-        LoadConfig,
-        value=LoadConfig(),
+    load_form_gui_state, _load_json_gui_state, load_bindings = (
+        create_config_state(
+            LoadConfig,
+            value=LoadConfig(),
+        )
+    )
+    load_form = config_gui_panel(
+        load_bindings,
+        form_gui_state=load_form_gui_state,
         label="SV Raster Scene",
-        live_update=False,
     )
     return (load_form,)
 

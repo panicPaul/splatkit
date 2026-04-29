@@ -8,7 +8,7 @@ import math
 import operator
 import re
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, Flag
 from functools import reduce
 from pathlib import Path
 from types import UnionType
@@ -151,6 +151,10 @@ class _FieldSpec:
             return tuple(value)
         if self.effective_annotation is Path:
             return _coerce_path_value(self.info, value)
+        if _is_enum_flag_type(self.effective_annotation):
+            return _coerce_enum_flag_value(self.effective_annotation, value)
+        if _is_enum_type(self.effective_annotation):
+            return _coerce_enum_value(self.effective_annotation, value)
         if _is_array_annotation(self.effective_annotation):
             return _coerce_array_value(self.effective_annotation, value)
         if _uses_text_fallback(self.effective_annotation) and isinstance(
@@ -626,9 +630,22 @@ def _build_concrete_field_element(
         options = list(get_args(annotation))
         return mo.ui.dropdown(options=options, value=value, label=label)
 
+    if _is_enum_flag_type(annotation):
+        options = _enum_flag_widget_options(annotation)
+        return mo.ui.multiselect(
+            options=options,
+            value=_enum_flag_selected_names(annotation, value),
+            label=label,
+        )
+
     if _is_enum_type(annotation):
-        options = list(annotation)
-        return mo.ui.dropdown(options=options, value=value, label=label)
+        options = _enum_widget_options(annotation)
+        enum_value = _coerce_enum_value(annotation, value)
+        return mo.ui.dropdown(
+            options=options,
+            value=_enum_display_label(enum_value),
+            label=label,
+        )
 
     if _is_model_type(annotation):
         nested_payload = value if isinstance(value, dict) else {}
@@ -839,6 +856,18 @@ def _order_payload_for_model(
                     value,
                 )
                 continue
+        if _is_enum_flag_type(spec.effective_annotation):
+            ordered[name] = _coerce_enum_flag_value(
+                spec.effective_annotation,
+                value,
+            )
+            continue
+        if _is_enum_type(spec.effective_annotation):
+            ordered[name] = _coerce_enum_value(
+                spec.effective_annotation,
+                value,
+            )
+            continue
         ordered[name] = value
 
     for name, value in payload.items():
@@ -904,6 +933,16 @@ def _resolve_initial_payload(
                     spec.effective_annotation,
                     field_value,
                 )
+            elif _is_enum_flag_type(spec.effective_annotation):
+                payload[name] = _coerce_enum_flag_value(
+                    spec.effective_annotation,
+                    field_value,
+                )
+            elif _is_enum_type(spec.effective_annotation):
+                payload[name] = _coerce_enum_value(
+                    spec.effective_annotation,
+                    field_value,
+                )
             else:
                 payload[name] = field_value
         else:
@@ -939,6 +978,18 @@ def _resolve_materialized_payload(
             continue
         if spec.is_model_union:
             resolved[name] = _materialize_union_value(
+                spec.effective_annotation,
+                field_value,
+            )
+            continue
+        if _is_enum_flag_type(spec.effective_annotation):
+            resolved[name] = _coerce_enum_flag_value(
+                spec.effective_annotation,
+                field_value,
+            )
+            continue
+        if _is_enum_type(spec.effective_annotation):
+            resolved[name] = _coerce_enum_value(
                 spec.effective_annotation,
                 field_value,
             )
@@ -1263,6 +1314,13 @@ def _default_value_for_annotation(
                 f"Literal field {name!r} does not define any options."
             )
         return options[0]
+    if _is_enum_flag_type(annotation):
+        options = _enum_flag_widget_options(annotation)
+        if not options:
+            raise ValueError(
+                f"Flag field {name!r} does not define any options."
+            )
+        return annotation(0)
     if _is_enum_type(annotation):
         options = list(annotation)
         if not options:
@@ -1503,6 +1561,77 @@ def _is_enum_type(annotation: Any) -> bool:
     return isinstance(annotation, type) and issubclass(annotation, Enum)
 
 
+def _is_enum_flag_type(annotation: Any) -> bool:
+    return isinstance(annotation, type) and issubclass(annotation, Flag)
+
+
+def _enum_widget_options(annotation: type[Enum]) -> dict[str, Enum]:
+    return {
+        _enum_display_label(member): member
+        for name, member in annotation.__members__.items()
+        if member.name == name
+    }
+
+
+def _enum_flag_widget_options(annotation: type[Flag]) -> dict[str, Flag]:
+    return {
+        _enum_display_label(member): member
+        for name, member in annotation.__members__.items()
+        if member.name == name and member.value != 0
+    }
+
+
+def _enum_display_label(member: Enum) -> str:
+    if isinstance(member.value, str):
+        return member.value.replace("_", " ")
+    return member.name.lower().replace("_", " ")
+
+
+def _coerce_enum_value(annotation: type[Enum], value: Any) -> Enum:
+    if isinstance(value, annotation):
+        return value
+    if isinstance(value, str):
+        if value in annotation.__members__:
+            return annotation.__members__[value]
+        for member in annotation:
+            if member.value == value:
+                return member
+    return annotation(value)
+
+
+def _coerce_enum_flag_value(annotation: type[Flag], value: Any) -> Flag:
+    if isinstance(value, annotation):
+        return value
+    if value is None:
+        return annotation(0)
+    if isinstance(value, str):
+        if value in annotation.__members__:
+            return annotation.__members__[value]
+        return annotation(value)
+    if isinstance(value, list | tuple | set):
+        combined = annotation(0)
+        for item in value:
+            member = _coerce_enum_flag_value(annotation, item)
+            if member.value == 0:
+                combined = annotation(0)
+            else:
+                combined |= member
+        return combined
+    return annotation(value)
+
+
+def _enum_flag_names(value: Flag) -> list[str]:
+    return [member.name for member in value]
+
+
+def _enum_flag_display_labels(value: Flag) -> list[str]:
+    return [_enum_display_label(member) for member in value]
+
+
+def _enum_flag_selected_names(annotation: type[Flag], value: Any) -> list[str]:
+    return _enum_flag_display_labels(_coerce_enum_flag_value(annotation, value))
+
+
 def _is_array_annotation(annotation: Any) -> bool:
     if annotation in (np.ndarray, torch.Tensor):
         return True
@@ -1605,7 +1734,11 @@ def _frontend_value_for_element(
         return _file_browser_frontend_value(value)
     if _is_array_annotation(annotation):
         return _normalize_matrix_value(annotation, value)
-    if _is_enum_type(annotation) or _is_literal_type(annotation):
+    if _is_enum_flag_type(annotation):
+        return _enum_flag_selected_names(annotation, value)
+    if _is_enum_type(annotation):
+        return [_enum_display_label(_coerce_enum_value(annotation, value))]
+    if _is_literal_type(annotation):
         return [] if value is None else [_dropdown_key(value)]
     if annotation in (bool, int, float, str):
         return value
@@ -1887,6 +2020,8 @@ def _jsonify(value: Any) -> Any:
         return [_jsonify(item) for item in value]
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, Flag):
+        return _enum_flag_names(value)
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, np.ndarray):
