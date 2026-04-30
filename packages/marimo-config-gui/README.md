@@ -7,7 +7,11 @@ just a few ad hoc widgets. Define the config once as a Pydantic model, edit it
 in marimo as a form or JSON, validate it as a typed model, and run the same
 notebook as a script with `tyro` CLI or JSON input.
 
-For an interactive version run `marimo run docs/marimo-config-gui.py`.
+For an interactive version, run from the repository root:
+
+```bash
+marimo run docs/interactive/marimo-config-gui.py
+```
 
 ## Install
 
@@ -21,7 +25,7 @@ uv add "marimo-config-gui @ git+https://github.com/panicPaul/ember.git@main#subd
 The same docs are available as an interactive marimo app:
 
 ```bash
-marimo run docs/marimo-config-gui.py
+marimo run docs/interactive/marimo-config-gui.py
 ```
 
 ## The Main Workflow

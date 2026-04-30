@@ -92,3 +92,24 @@ def project(
   in the main flow. Do not hide code by default for producer cells such as
   `mo.ui.*` constructors, `config_form(...)`, `config_error(...)`, or other
   support cells unless there is a specific reason to do so.
+
+## Interactive Package Docs
+
+- For `marimo-config-gui` docs, the canonical interactive docs notebook lives at
+  `packages/marimo-config-gui/docs/interactive.py`. The root docs entry
+  `docs/marimo-config-gui.py` should remain a symlink to that file.
+- Use `marimo.App(width="wide")` for linear docs notebooks unless columns are
+  explicitly useful. Do not use columns for linear documentation pages.
+- Keep major sections separated by markdown dividers and top-level section
+  headers. Prefer short interactive examples over large all-in-one demos.
+- For public package APIs, include at least one live example for each
+  root-exported user feature when practical.
+- Do not wrap reactive config GUI outputs such as `config_gui_panel(...)`,
+  `config_json_editor(...)`, `config_preset_selector(...)`, or
+  `config_status_panel(...)` in `mo.vstack(...)`, `mo.hstack(...)`, callouts,
+  or other layout containers when they need to remain reactive. Return them
+  directly from their own cells.
+- Keep known bugs documented in the interactive docs when they affect
+  user-facing behavior, especially marimo reactivity issues.
+- Prefer live `mo.ui.code_editor(...)` examples for concepts users are expected
+  to modify, and static markdown code blocks for supporting script-mode snippets.

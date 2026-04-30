@@ -166,6 +166,34 @@ See `sandboxed_notebooks/packaging_local.py`,
 `sandboxed_notebooks/packaging_git_main.py`, and
 `sandboxed_notebooks/splat_viewer_git_main.py` for working packaging probes.
 
+## Docs
+
+The repository uses package-local reference docs plus a top-level crosswalk:
+
+- `docs/README.md` lists the recommended reading order and links to package
+  docs.
+- Package READMEs are the canonical reference docs for their public surface.
+- Interactive marimo docs are tutorial-style and live under
+  `docs/interactive/`, with short compatibility symlinks in `docs/` where
+  useful.
+
+Run the standalone interactive docs:
+
+```bash
+marimo run docs/interactive/marimo-config-gui.py
+marimo run docs/interactive/marimo-3dv.py
+```
+
+Run the Ember workflow tutorials:
+
+```bash
+marimo run docs/interactive/ember/contracts.py
+marimo run docs/interactive/ember/data.py
+marimo run docs/interactive/ember/viewer.py
+marimo run docs/interactive/ember/training.py
+marimo run docs/interactive/ember/extension.py
+```
+
 ## Backend Packages
 
 There are two backend categories.

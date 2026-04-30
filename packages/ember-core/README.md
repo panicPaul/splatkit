@@ -44,6 +44,31 @@ image = output.render
 
 Backends are registered separately. `ember-core` does not import backend packages automatically.
 
+## Core Surface
+
+`ember-core` is intentionally the package that other projects should be able to
+adopt without inheriting the whole research monorepo. It owns the reusable
+contracts and orchestration points:
+
+- `ember_core.core`: scene families, camera contracts, render outputs, output
+  capabilities, backend registration, and the generic `render(...)` wrapper.
+- `ember_core.data`: scene-record loaders, source pipes, frame splitting,
+  materialization, image preparation, and prepared-frame datasets.
+- `ember_core.io`: scene-only load/save helpers for Gaussian PLY and SVRaster
+  checkpoints.
+- `ember_core.initialization`: helpers that turn loaded scene records into
+  trainable scene/model state.
+- `ember_core.densification`: typed densification families, passes, collectors,
+  and composition helpers.
+- `ember_core.training`: declarative runtime, render, loss, optimization,
+  hook, checkpoint, and training-run helpers.
+- `ember_core.viewer`: optional bridge utilities for viewer payloads,
+  prep/cache keys, mode selection, scene filtering, and stats preparation.
+
+Heavy renderer implementations, upstream adapters, and native kernels live in
+separate packages. Import those packages explicitly and call their `register()`
+functions before rendering through them.
+
 ## Training
 Training is organized around declarative configs plus importable pipeline stages.
 
@@ -143,6 +168,36 @@ Built-in presets:
 - `MipNerf360OutdoorPreparedFrameDatasetConfig`: default image resize with `width_scale=0.5`
 
 Checkpoints are saved as directories containing `config.json`, `metadata.json`, `model.ckpt`, and optionally `scene.ply`.
+
+## Viewer Bridge
+
+Install `ember-core[viewer]` when you want the optional `marimo-3dv`
+integration:
+
+```bash
+pip install "ember-core[viewer]"
+```
+
+The viewer bridge keeps rendering and browser state separate. `marimo-3dv`
+owns the live widget, controls, linked state, and click handling. `ember-core`
+owns conversion and preparation helpers that know about Ember scene and camera
+contracts:
+
+- `camera_from_viewer_payload(...)` and `camera_to_viewer_payload(...)`
+- `select_viewer_camera(...)`
+- `filter_gaussian_scene(...)` and `replace_gaussian_features(...)`
+- `viewer_prep_key(...)` and `config_cache_key(...)`
+- `prepare_viewer_stats_series(...)`
+- `launch_viewer(...)`
+
+For package-level viewer behavior, read the `marimo-3dv` docs. For an Ember
+workflow tutorial, run:
+
+```bash
+marimo run docs/interactive/ember/viewer.py
+```
+
+from the repository root.
 
 ## Registering Backends
 `ember-core` owns the shared registry, but backend packages are responsible for registering themselves.
