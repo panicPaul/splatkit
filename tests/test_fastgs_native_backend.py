@@ -16,10 +16,6 @@ from ember_adapter_backends.fastgs import (
 from ember_core.core import BACKEND_REGISTRY, render, resolve_backend_trait
 from ember_core.densification import GaussianMetricAttribution
 from ember_native_faster_gs.faster_gs import (
-    FasterGSNativeRenderOutput,
-    render_faster_gs_native,
-)
-from ember_native_faster_gs.faster_gs import (
     register as register_faster_gs,
 )
 from ember_native_faster_gs.fastgs import (
@@ -68,25 +64,21 @@ def test_generic_render_dispatches_to_fastgs_native(
 
 @pytest.mark.backend
 @pytest.mark.cuda
-def test_fastgs_native_backend_matches_faster_gs_core(
+def test_fastgs_native_backend_accepts_compact_box_scale(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    fastgs_output = cast(
+    output = cast(
         FastGSNativeRenderOutput,
-        render_fastgs_native(cuda_scene, cuda_camera),
-    )
-    core_output = cast(
-        FasterGSNativeRenderOutput,
-        render_faster_gs_native(cuda_scene, cuda_camera),
+        render_fastgs_native(
+            cuda_scene,
+            cuda_camera,
+            options=FastGSNativeRenderOptions(compact_box_scale=0.7),
+        ),
     )
 
-    torch.testing.assert_close(
-        fastgs_output.render,
-        core_output.render,
-        rtol=1e-4,
-        atol=2e-4,
-    )
+    assert output.render.shape == (1, 32, 32, 3)
+    assert torch.isfinite(output.render).all()
 
 
 @pytest.mark.backend

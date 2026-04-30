@@ -17,17 +17,19 @@ from jaxtyping import Float, Int
 from torch import Tensor
 
 from ember_native_faster_gs.faster_gs.renderer import (
-    FasterGSNativeDensificationRenderOutput,
     FasterGSNativeRenderOptions,
-    FasterGSNativeRenderOutput,
     _split_sh_coefficients,
     _validate_inputs,
-    render_faster_gs_native,
 )
 from ember_native_faster_gs.faster_gs.runtime import (
     blend_metric_counts,
+)
+from ember_native_faster_gs.fastgs.runtime import (
     preprocess,
     sort,
+)
+from ember_native_faster_gs.fastgs.runtime import (
+    render as render_runtime,
 )
 
 _SUPPORTED_OUTPUTS = frozenset()
@@ -51,6 +53,8 @@ class FastGSNativeDensificationRenderOutput(FastGSNativeRenderOutput):
 @dataclass(frozen=True)
 class FastGSNativeRenderOptions(FasterGSNativeRenderOptions):
     """Native FastGS render configuration."""
+
+    compact_box_scale: float = 0.5
 
 
 @beartype
@@ -79,6 +83,11 @@ class FastGSNativeGaussianMetricAttribution(GaussianMetricAttribution):
 
         _validate_inputs(scene, camera)
         resolved_options = options or FastGSNativeRenderOptions()
+        active_sh_bases = (
+            int(scene.feature.shape[1])
+            if resolved_options.active_sh_bases is None
+            else resolved_options.active_sh_bases
+        )
         sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)
         intrinsics = camera.get_intrinsics()[0]
         width = int(camera.width[0].item())
@@ -112,7 +121,10 @@ class FastGSNativeGaussianMetricAttribution(GaussianMetricAttribution):
             center_x=float(intrinsics[0, 2].item()),
             center_y=float(intrinsics[1, 2].item()),
             proper_antialiasing=resolved_options.proper_antialiasing,
-            active_sh_bases=int(scene.feature.shape[1]),
+            active_sh_bases=active_sh_bases,
+            compact_box_scale=(
+                resolved_options.compact_box_scale
+            ),
         )
         sort_result = sort(
             preprocess_result.depth_keys,
@@ -125,6 +137,9 @@ class FastGSNativeGaussianMetricAttribution(GaussianMetricAttribution):
             preprocess_result.instance_count,
             width=width,
             height=height,
+            compact_box_scale=(
+                resolved_options.compact_box_scale
+            ),
         )
         metric_counts = blend_metric_counts(
             sort_result.instance_primitive_indices,
@@ -198,22 +213,69 @@ def render_fastgs_native(
         ),
     )
     resolved_options = options or FastGSNativeRenderOptions()
-    native_output = render_faster_gs_native(
-        scene,
-        camera,
-        options=resolved_options,
+    _validate_inputs(scene, camera)
+    active_sh_bases = (
+        int(scene.feature.shape[1])
+        if resolved_options.active_sh_bases is None
+        else resolved_options.active_sh_bases
     )
-    if isinstance(native_output, FasterGSNativeDensificationRenderOutput):
+    sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)
+    intrinsics = camera.get_intrinsics()
+    background_color = resolved_options.background_color.to(
+        device=scene.center_position.device,
+        dtype=scene.center_position.dtype,
+    )
+    renders: list[Tensor] = []
+    densification_info = (
+        torch.zeros(
+            (2, scene.center_position.shape[0]),
+            dtype=torch.float32,
+            device=scene.center_position.device,
+        )
+        if resolved_options.collect_densification_info
+        else torch.empty(0, device=scene.center_position.device)
+    )
+
+    for camera_index in range(camera.cam_to_world.shape[0]):
+        cam_to_world = camera.cam_to_world[camera_index]
+        world_2_camera = torch.linalg.inv(cam_to_world)
+        camera_intrinsics = intrinsics[camera_index]
+        render_result = render_runtime(
+            scene.center_position.contiguous(),
+            scene.log_scales.contiguous(),
+            scene.quaternion_orientation.contiguous(),
+            scene.logit_opacity[:, None].contiguous(),
+            sh_coefficients_0.contiguous(),
+            sh_coefficients_rest.contiguous(),
+            world_2_camera.contiguous(),
+            cam_to_world[:3, 3].contiguous(),
+            near_plane=resolved_options.near_plane,
+            far_plane=resolved_options.far_plane,
+            width=int(camera.width[camera_index].item()),
+            height=int(camera.height[camera_index].item()),
+            focal_x=float(camera_intrinsics[0, 0].item()),
+            focal_y=float(camera_intrinsics[1, 1].item()),
+            center_x=float(camera_intrinsics[0, 2].item()),
+            center_y=float(camera_intrinsics[1, 2].item()),
+            bg_color=background_color,
+            proper_antialiasing=resolved_options.proper_antialiasing,
+            active_sh_bases=active_sh_bases,
+            compact_box_scale=(
+                resolved_options.compact_box_scale
+            ),
+            densification_info=densification_info,
+        )
+        renders.append(render_result.image.permute(1, 2, 0).contiguous())
+
+    rendered = torch.stack(renders, dim=0)
+    if resolved_options.clamp_output:
+        rendered = rendered.clamp(0.0, 1.0)
+    if resolved_options.collect_densification_info:
         return FastGSNativeDensificationRenderOutput(
-            render=native_output.render,
-            densification_info=native_output.densification_info,
+            render=rendered,
+            densification_info=densification_info,
         )
-    if not isinstance(native_output, FasterGSNativeRenderOutput):
-        raise TypeError(
-            "faster_gs.core returned an unexpected render output type: "
-            f"{type(native_output).__name__}."
-        )
-    return FastGSNativeRenderOutput(render=native_output.render)
+    return FastGSNativeRenderOutput(render=rendered)
 
 
 def register() -> None:
