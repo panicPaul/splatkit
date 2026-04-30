@@ -59,6 +59,9 @@ def test_fastergs_resolved_training_config_supports_both_backends(
         )
 
         assert training_config.render.backend == backend
+        assert training_config.batching.num_workers == 4
+        assert training_config.batching.persistent_workers is True
+        assert training_config.batching.pin_memory is True
         assert training_config.render.backend_options == {
             "near_plane": 0.2,
             "far_plane": 10_000.0,
@@ -191,10 +194,13 @@ def test_fastergs_script_loader_resolves_relative_paths_from_json_file(
                 "data": {
                     "camera_sensor_id": None,
                     "image_scale_factor": 0.25,
+                    "cache_resized_images": True,
+                    "resized_image_cache_root": None,
+                    "max_resized_image_caches": 4,
                     "split_target": "train",
                     "split_every_n": 8,
-                    "materialization_stage": "decoded",
-                    "materialization_mode": "eager",
+                    "materialization_stage": "none",
+                    "materialization_mode": "lazy",
                     "materialization_num_workers": 0,
                     "normalize_images": True,
                     "interpolation": "bicubic",
@@ -230,6 +236,9 @@ def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
 ) -> None:
     baseline = load_fastergs_preset(fastergs_config_module, "garden_baseline")
     mcmc = load_fastergs_preset(fastergs_config_module, "garden_mcmc")
+    debug = load_fastergs_preset(
+        fastergs_config_module, "garden_debug_val"
+    )
 
     assert baseline.training.checkpoint.output_dir == (
         REPO_ROOT
@@ -247,6 +256,20 @@ def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
         / "garden_mcmc"
         / "adapter.fastergs"
     )
+    assert debug.training.checkpoint.output_dir == (
+        REPO_ROOT
+        / "checkpoints"
+        / "papers"
+        / "fastergs"
+        / "garden_debug_val"
+        / "adapter.fastergs"
+    )
+    assert debug.data.split_target == "val"
+    assert debug.data.image_scale_factor == 0.1
+    assert debug.data.cache_resized_images is True
+    assert debug.data.max_resized_image_caches == 4
+    assert debug.data.materialization_stage == "none"
+    assert debug.training.runtime.max_steps == 3000
 
 
 def test_fastergs_training_config_retargets_default_checkpoint_dir_with_backend(
@@ -353,3 +376,18 @@ def test_fastergs_initializer_matches_upstream_parameterization(
         torch.exp(mcmc.scene.log_scales),
         torch.exp(baseline.scene.log_scales) * 0.1,
     )
+
+
+def test_fastergs_torch_knn_fallback_handles_large_inputs(
+    fastergs_config_module,
+) -> None:
+    positions = torch.linspace(0.0, 1.0, 1500).reshape(500, 3)
+
+    distances = fastergs_config_module.fastergs_root_mean_squared_knn_distances(
+        positions,
+        torch_chunk_size=64,
+    )
+
+    assert distances.shape == (500,)
+    assert torch.isfinite(distances).all()
+    assert torch.all(distances > 0)

@@ -318,6 +318,37 @@ def test_load_colmap_scene_record_can_undistort_into_cache(
     assert image_path.exists()
 
 
+def test_load_colmap_scene_record_scales_intrinsics_for_resized_image_root(
+    tmp_path: Path,
+) -> None:
+    _write_images(tmp_path)
+    _write_colmap_text_model(tmp_path)
+    resized_dir = tmp_path / "resized"
+    _write_rgb_image(resized_dir / "000.png", (255, 0, 0), (8, 6))
+    _write_rgb_image(resized_dir / "001.png", (0, 255, 0), (8, 6))
+
+    scene_record = load_colmap_scene_record(
+        tmp_path,
+        image_root=resized_dir,
+    )
+
+    camera = scene_record.resolve_camera_sensor().camera
+    assert camera.intrinsics is not None
+    assert camera.width.tolist() == [8, 8]
+    assert camera.height.tolist() == [6, 6]
+    torch.testing.assert_close(
+        camera.intrinsics[0],
+        torch.tensor(
+            [
+                [5.0, 0.0, 4.0],
+                [0.0, 5.0, 3.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=torch.float32,
+        ),
+    )
+
+
 def test_torch_frame_dataset_resizes_and_collates(tmp_path: Path) -> None:
     _write_images(tmp_path)
     _write_colmap_text_model(tmp_path)

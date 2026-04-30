@@ -293,6 +293,17 @@ def _camera_to_intrinsics(camera: _ColmapCamera) -> Float[Tensor, " 3 3"]:
     )
 
 
+def _image_size(path: Path) -> tuple[int, int]:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(
+            "Reading COLMAP image sizes requires Pillow. Install ember-core[data]."
+        ) from exc
+    with Image.open(path) as image:
+        return image.size
+
+
 def _camera_distortion(
     camera: _ColmapCamera,
 ) -> Float[Tensor, " distortion"] | None:
@@ -405,10 +416,17 @@ def _build_scene_dataset(
             intrinsics_matrix = _camera_to_intrinsics(camera)
         else:
             image_path, intrinsics_matrix = undistorted_images[image.image_id]
-        widths.append(camera.width)
-        heights.append(camera.height)
+        image_width, image_height = _image_size(image_path)
+        if (image_width, image_height) != (camera.width, camera.height):
+            scale_x = image_width / float(camera.width)
+            scale_y = image_height / float(camera.height)
+            intrinsics_matrix = intrinsics_matrix.clone()
+            intrinsics_matrix[0, :] *= scale_x
+            intrinsics_matrix[1, :] *= scale_y
+        widths.append(image_width)
+        heights.append(image_height)
         fov_degrees.append(
-            horizontal_fov_degrees(camera.width, intrinsics_matrix)
+            horizontal_fov_degrees(image_width, intrinsics_matrix)
         )
         intrinsics.append(intrinsics_matrix)
 
@@ -421,8 +439,8 @@ def _build_scene_dataset(
                 frame_id=str(image.image_id),
                 sensor_id=_COLMAP_CAMERA_SENSOR_ID,
                 camera_index=camera_index,
-                width=camera.width,
-                height=camera.height,
+                width=image_width,
+                height=image_height,
             )
         )
         frame_paths[str(image.image_id)] = image_path

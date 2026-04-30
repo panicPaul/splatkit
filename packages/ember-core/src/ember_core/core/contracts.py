@@ -100,19 +100,23 @@ class CameraState:
     camera_convention: CameraConvention = "opencv"
     up_direction: Literal["up", "down"] = "up"
 
-    def to(self, device: torch.device) -> Self:
+    def to(self, device: torch.device, non_blocking: bool = False) -> Self:
         """Move state to a device."""
         return replace(
             self,
-            width=self.width.to(device),
-            height=self.height.to(device),
-            fov_degrees=self.fov_degrees.to(device),
+            width=self.width.to(device, non_blocking=non_blocking),
+            height=self.height.to(device, non_blocking=non_blocking),
+            fov_degrees=self.fov_degrees.to(
+                device, non_blocking=non_blocking
+            ),
             intrinsics=(
-                self.intrinsics.to(device)
+                self.intrinsics.to(device, non_blocking=non_blocking)
                 if self.intrinsics is not None
                 else None
             ),
-            cam_to_world=self.cam_to_world.to(device),
+            cam_to_world=self.cam_to_world.to(
+                device, non_blocking=non_blocking
+            ),
         )
 
     def get_intrinsics(self) -> Float[Tensor, "num_cams 3 3"]:

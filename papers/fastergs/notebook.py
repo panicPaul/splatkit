@@ -6,7 +6,9 @@ __generated_with = "0.23.3"
 app = marimo.App(width="columns")
 
 with app.setup:
+    import json
     import math
+    import shutil
     import sys
     from collections.abc import Sequence
     from pathlib import Path
@@ -45,7 +47,9 @@ with app.setup:
     DEFAULTS_DIR = NOTEBOOK_DIR / "defaults"
     DEFAULT_CHECKPOINT_ROOT = REPO_ROOT / "checkpoints" / "papers" / "fastergs"
     FasterGSBackendName = Literal["adapter.fastergs", "faster_gs.core"]
-    FasterGSDefaultName = Literal["garden_baseline", "garden_mcmc"]
+    FasterGSDefaultName = Literal[
+        "garden_baseline", "garden_mcmc", "garden_debug_val"
+    ]
     sys.modules.setdefault("papers.fastergs.notebook", sys.modules[__name__])
     ember_fastergs_adapter.register()
     ember_fastergs_native.register()
@@ -150,10 +154,13 @@ class FasterGSDataConfig(FasterGSConfigBase):
 
     camera_sensor_id: str | None = None
     image_scale_factor: float = Field(default=0.25, gt=0.0)
+    cache_resized_images: bool = True
+    resized_image_cache_root: Path | None = None
+    max_resized_image_caches: int = Field(default=4, ge=1)
     split_target: Literal["train", "val", "all"] = "train"
     split_every_n: int | None = Field(default=8, ge=1)
-    materialization_stage: Literal["none", "decoded", "prepared"] = "decoded"
-    materialization_mode: Literal["lazy", "eager"] = "eager"
+    materialization_stage: Literal["none", "decoded", "prepared"] = "none"
+    materialization_mode: Literal["lazy", "eager"] = "lazy"
     materialization_num_workers: int | None = 0
     normalize_images: bool = True
     interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
@@ -542,6 +549,12 @@ def fastergs_preset_catalog() -> ConfigPresetCatalog[FasterGSExperimentConfig]:
                 label="Garden MCMC",
                 base_dir=REPO_ROOT,
             ),
+            "garden_debug_val": ConfigPreset(
+                name="garden_debug_val",
+                path=DEFAULTS_DIR / "garden_debug_val.json",
+                label="Garden debug validation",
+                base_dir=REPO_ROOT,
+            ),
         },
         default="garden_baseline",
     )
@@ -561,7 +574,7 @@ def resolve_fastergs_point_cloud(
 def fastergs_root_mean_squared_knn_distances(
     positions: Float[Tensor, " num_points 3"],
     *,
-    fallback_max_points: int = 20_000,
+    torch_chunk_size: int = 512,
 ) -> Float[Tensor, " num_points"]:
     """Compute upstream FasterGS initial scale distances for the notebook."""
     if positions.ndim != 2 or positions.shape[1] != 3:
@@ -569,6 +582,8 @@ def fastergs_root_mean_squared_knn_distances(
             "FasterGS KNN distances expect positions with shape "
             f"(num_points, 3), got {tuple(positions.shape)}."
         )
+    if torch_chunk_size < 1:
+        raise ValueError("torch_chunk_size must be at least 1.")
     num_points = int(positions.shape[0])
     if num_points == 0:
         return torch.empty(
@@ -584,11 +599,6 @@ def fastergs_root_mean_squared_knn_distances(
             return mean_squared.clamp_min(1e-7).sqrt()
         except Exception:
             pass
-    if num_points > fallback_max_points:
-        raise RuntimeError(
-            "FasterGS KNN initialization needs simple_knn on CUDA for large "
-            f"point clouds; got {num_points} points without that backend."
-        )
     if num_points == 1:
         return torch.full(
             (1,),
@@ -596,10 +606,25 @@ def fastergs_root_mean_squared_knn_distances(
             dtype=positions.dtype,
             device=positions.device,
         )
-    distances = torch.cdist(positions, positions)
-    distances.fill_diagonal_(math.inf)
     k = min(3, num_points - 1)
-    mean_squared = distances.topk(k, largest=False).values.square().mean(dim=1)
+    nearest_distances = []
+    for start in range(0, num_points, torch_chunk_size):
+        stop = min(start + torch_chunk_size, num_points)
+        distances = torch.cdist(positions[start:stop], positions)
+        row_indices = torch.arange(
+            stop - start,
+            dtype=torch.long,
+            device=positions.device,
+        )
+        col_indices = torch.arange(
+            start,
+            stop,
+            dtype=torch.long,
+            device=positions.device,
+        )
+        distances[row_indices, col_indices] = math.inf
+        nearest_distances.append(distances.topk(k, largest=False).values)
+    mean_squared = torch.cat(nearest_distances, dim=0).square().mean(dim=1)
     return mean_squared.clamp_min(1e-7).sqrt()
 
 
@@ -696,6 +721,40 @@ def _():
 def _():
     train_button = mo.ui.run_button(label="Start training")
     return (train_button,)
+
+
+@app.function
+def fastergs_resized_cache_parent(config: FasterGSExperimentConfig) -> Path:
+    """Return the reusable derived image cache parent for the scene."""
+    if config.data.resized_image_cache_root is not None:
+        return config.data.resized_image_cache_root.expanduser()
+    return config.scene.path.expanduser() / "ember_cache" / "resized_images"
+
+
+@app.function
+def enforce_fastergs_resized_cache_limit(
+    *,
+    cache_root: Path,
+    max_caches: int,
+) -> None:
+    """Keep only a bounded number of reusable resized image caches."""
+    parent = cache_root.parent
+    if not parent.exists():
+        return
+    cache_dirs = [
+        path
+        for path in parent.iterdir()
+        if path.is_dir() and path.name.startswith("scale_")
+    ]
+    overflow = len(cache_dirs) - max_caches
+    if overflow <= 0:
+        return
+    evictable = sorted(
+        (path for path in cache_dirs if path != cache_root),
+        key=lambda path: path.stat().st_mtime,
+    )
+    for stale_cache in evictable[:overflow]:
+        shutil.rmtree(stale_cache)
 
 
 @app.cell(column=1, hide_code=True)
@@ -1036,6 +1095,126 @@ def _():
 
 
 @app.function
+def fastergs_resized_cache_enabled(config: FasterGSExperimentConfig) -> bool:
+    """Return whether FasterGS should use a derived resized image cache."""
+    return config.data.cache_resized_images and config.data.image_scale_factor != 1.0
+
+
+@app.function
+def fastergs_source_image_root(config: FasterGSExperimentConfig) -> Path:
+    """Return the full-resolution source image root."""
+    if config.scene.image_root is not None:
+        return config.scene.image_root.expanduser()
+    return config.scene.path.expanduser() / "images"
+
+
+@app.function
+def fastergs_resized_cache_root(config: FasterGSExperimentConfig) -> Path:
+    """Return the derived resized image cache root for this config."""
+    scale_name = f"{config.data.image_scale_factor:.6f}".rstrip("0").rstrip(".")
+    scale_name = scale_name.replace(".", "p")
+    return fastergs_resized_cache_parent(config) / (
+        f"scale_{scale_name}_{config.data.interpolation}"
+    )
+
+
+@app.function
+def fastergs_pillow_resampling(interpolation: str) -> Any:
+    """Translate notebook interpolation names to Pillow resampling filters."""
+    from PIL import Image
+
+    if interpolation == "nearest":
+        return Image.Resampling.NEAREST
+    if interpolation == "bilinear":
+        return Image.Resampling.BILINEAR
+    if interpolation == "bicubic":
+        return Image.Resampling.BICUBIC
+    raise ValueError(f"Unsupported interpolation mode {interpolation!r}.")
+
+
+@app.function
+def materialize_fastergs_resized_image_cache(
+    *,
+    source_root: Path,
+    cache_root: Path,
+    scale: float,
+    interpolation: str,
+    max_caches: int,
+) -> Path:
+    """Create/update a derived resized image cache from full-res images."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from PIL import Image
+    from tqdm.auto import tqdm
+
+    image_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    source_paths = sorted(
+        path
+        for path in source_root.rglob("*")
+        if path.is_file() and path.suffix.lower() in image_suffixes
+    )
+    if not source_paths:
+        raise ValueError(f"No source images found under {source_root}.")
+    resampling = fastergs_pillow_resampling(interpolation)
+    enforce_fastergs_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    def resize_one(source_path: Path) -> None:
+        relative_path = source_path.relative_to(source_root)
+        target_path = cache_root / relative_path
+        if (
+            target_path.exists()
+            and target_path.stat().st_mtime >= source_path.stat().st_mtime
+        ):
+            return
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(source_path) as image:
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            resized_size = (
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
+            )
+            resized = rgb.resize(resized_size, resampling)
+            save_kwargs = (
+                {"quality": 95}
+                if target_path.suffix.lower() in {".jpg", ".jpeg"}
+                else {}
+            )
+            resized.save(target_path, **save_kwargs)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(resize_one, path) for path in source_paths]
+        for future in tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Preparing resized image cache",
+        ):
+            future.result()
+    (cache_root / "cache_metadata.json").write_text(
+        json.dumps(
+            {
+                "source_root": str(source_root),
+                "scale": scale,
+                "interpolation": interpolation,
+                "num_images": len(source_paths),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    cache_root.touch()
+    enforce_fastergs_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    return cache_root
+
+
+@app.function
 def build_scene_load_config(
     config: FasterGSExperimentConfig,
 ) -> ember.ColmapSceneConfig:
@@ -1043,13 +1222,24 @@ def build_scene_load_config(
     source_pipes = (
         (ember.HorizonAlignPipeConfig(),) if config.scene.align_horizon else ()
     )
-    return ember.ColmapSceneConfig(
-        path=config.scene.path.expanduser(),
-        image_root=(
+    image_root = (
+        materialize_fastergs_resized_image_cache(
+            source_root=fastergs_source_image_root(config),
+            cache_root=fastergs_resized_cache_root(config),
+            scale=config.data.image_scale_factor,
+            interpolation=config.data.interpolation,
+            max_caches=config.data.max_resized_image_caches,
+        )
+        if fastergs_resized_cache_enabled(config)
+        else (
             config.scene.image_root.expanduser()
             if config.scene.image_root is not None
             else None
-        ),
+        )
+    )
+    return ember.ColmapSceneConfig(
+        path=config.scene.path.expanduser(),
+        image_root=image_root,
         undistort_output_dir=(
             config.scene.undistort_output_dir.expanduser()
             if config.scene.undistort_output_dir is not None
@@ -1083,7 +1273,11 @@ def build_prepared_frame_dataset_config(
         ),
         image_preparation=ember.ImagePreparationConfig(
             normalize=config.data.normalize_images,
-            resize_width_scale=config.data.image_scale_factor,
+            resize_width_scale=(
+                None
+                if fastergs_resized_cache_enabled(config)
+                else config.data.image_scale_factor
+            ),
             resize_width_target=None,
             interpolation=config.data.interpolation,
         ),

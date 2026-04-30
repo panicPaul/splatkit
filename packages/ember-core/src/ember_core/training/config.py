@@ -48,6 +48,9 @@ class BatchingConfig(TrainingConfigBase):
 
     batch_size: int = Field(default=1, ge=1)
     shuffle: bool = True
+    num_workers: int = Field(default=0, ge=0)
+    persistent_workers: bool = False
+    pin_memory: bool = False
 
 
 class InitializationSpec(TrainingConfigBase):

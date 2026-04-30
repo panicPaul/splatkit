@@ -419,12 +419,14 @@ class PreparedFrameSample:
     image: Float[Tensor, "height width 3"]
     camera: CameraState
 
-    def to(self, device: torch.device) -> PreparedFrameSample:
+    def to(
+        self, device: torch.device, non_blocking: bool = False
+    ) -> PreparedFrameSample:
         """Move tensor fields to a device."""
         return replace(
             self,
-            image=self.image.to(device),
-            camera=self.camera.to(device),
+            image=self.image.to(device, non_blocking=non_blocking),
+            camera=self.camera.to(device, non_blocking=non_blocking),
         )
 
 
@@ -437,12 +439,14 @@ class DecodedFrameSample:
     image: UInt8[Tensor, "height width 3"]
     camera: CameraState
 
-    def to(self, device: torch.device) -> DecodedFrameSample:
+    def to(
+        self, device: torch.device, non_blocking: bool = False
+    ) -> DecodedFrameSample:
         """Move tensor fields to a device."""
         return replace(
             self,
-            image=self.image.to(device),
-            camera=self.camera.to(device),
+            image=self.image.to(device, non_blocking=non_blocking),
+            camera=self.camera.to(device, non_blocking=non_blocking),
         )
 
 
@@ -455,12 +459,14 @@ class PreparedFrameBatch:
     images: Float[Tensor, "batch height width 3"]
     camera: CameraState
 
-    def to(self, device: torch.device) -> PreparedFrameBatch:
+    def to(
+        self, device: torch.device, non_blocking: bool = False
+    ) -> PreparedFrameBatch:
         """Move tensor fields to a device."""
         return replace(
             self,
-            images=self.images.to(device),
-            camera=self.camera.to(device),
+            images=self.images.to(device, non_blocking=non_blocking),
+            camera=self.camera.to(device, non_blocking=non_blocking),
         )
 
 

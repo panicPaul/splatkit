@@ -1,5 +1,5 @@
 {
-  "preset": "garden_mcmc",
+  "preset": "garden_debug_val",
   "scene": {
     "path": "dataset/mipnerf360/garden",
     "image_root": null,
@@ -8,11 +8,11 @@
   },
   "data": {
     "camera_sensor_id": null,
-    "image_scale_factor": 0.25,
+    "image_scale_factor": 0.1,
     "cache_resized_images": true,
     "resized_image_cache_root": null,
     "max_resized_image_caches": 4,
-    "split_target": "train",
+    "split_target": "val",
     "split_every_n": 8,
     "materialization_stage": "none",
     "materialization_mode": "lazy",
@@ -24,7 +24,7 @@
     "runtime": {
       "device": "cuda",
       "seed": 0,
-      "max_steps": 30000
+      "max_steps": 3000
     },
     "batching": {
       "batch_size": 1,
@@ -35,7 +35,7 @@
     },
     "initialization": {
       "sh_degree": 3,
-      "use_mcmc": true,
+      "use_mcmc": false,
       "default_color": [
         0.5,
         0.5,
@@ -59,11 +59,11 @@
         "optimizer": "ember_splatting_training.FusedAdam",
         "center_position_lr_init": 0.00016,
         "center_position_lr_final": 0.0000016,
-        "center_position_lr_max_steps": 30000,
+        "center_position_lr_max_steps": 3000,
         "center_position_lr_step_offset": 1,
         "sh_dc_lr": 0.0025,
         "sh_rest_lr": 0.000125,
-        "logit_opacity_lr": 0.05,
+        "logit_opacity_lr": 0.025,
         "log_scales_lr": 0.005,
         "quaternion_orientation_lr": 0.001
       }
@@ -71,30 +71,33 @@
     "loss": {
       "lambda_l1": 0.8,
       "lambda_dssim": 0.2,
-      "lambda_opacity_regularization": 0.01,
-      "lambda_scale_regularization": 0.01
+      "lambda_opacity_regularization": 0.0,
+      "lambda_scale_regularization": 0.0
     },
     "densification": {
-      "mode": "mcmc",
-      "mcmc": {
-        "refine_every": 100,
-        "start_iter": 600,
-        "stop_iter": 24900,
-        "min_opacity": 0.005,
-        "max_primitives": 1000000,
-        "noise_lr_scale": 500000.0
+      "mode": "vanilla",
+      "vanilla": {
+        "refine_every": 10,
+        "start_iter": 60,
+        "stop_iter": 1490,
+        "grad_threshold": 0.0002,
+        "dense_fraction": 0.01,
+        "prune_opacity_threshold": 0.005,
+        "opacity_reset_every": 300,
+        "extra_opacity_reset_iter": null,
+        "max_reset_opacity": 0.01
       },
       "morton": {
         "schedule": {
-          "end_iteration": 25000,
-          "frequency": 5000
+          "end_iteration": 1500,
+          "frequency": 500
         }
       },
       "antialiasing": {
         "recompute_schedule": {
-          "start_iteration": 25000,
-          "end_iteration": 29899,
-          "frequency": 100
+          "start_iteration": 1500,
+          "end_iteration": 2989,
+          "frequency": 10
         },
         "near_plane": 0.2
       },
@@ -103,7 +106,7 @@
       }
     },
     "checkpoint": {
-      "output_dir": "checkpoints/papers/fastergs/garden_mcmc/adapter.fastergs",
+      "output_dir": "checkpoints/papers/fastergs/garden_debug_val/adapter.fastergs",
       "export_ply": true
     }
   }

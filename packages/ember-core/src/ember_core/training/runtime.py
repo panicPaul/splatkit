@@ -440,10 +440,16 @@ def _build_dataloader_from_frame_dataset(
     frame_dataset: PreparedFrameDataset,
     config: TrainingConfig,
 ) -> DataLoader[PreparedFrameBatch]:
+    num_workers = config.batching.num_workers
     return DataLoader(
         frame_dataset,
         batch_size=config.batching.batch_size,
         shuffle=config.batching.shuffle,
+        num_workers=num_workers,
+        persistent_workers=(
+            config.batching.persistent_workers and num_workers > 0
+        ),
+        pin_memory=config.batching.pin_memory,
         collate_fn=collate_frame_samples,
     )
 
@@ -1090,7 +1096,10 @@ def build_optimizer_set(
 
 def _move_batch_to_device(batch: Any, device: torch.device) -> Any:
     if hasattr(batch, "to"):
-        return batch.to(device)
+        try:
+            return batch.to(device, non_blocking=device.type == "cuda")
+        except TypeError:
+            return batch.to(device)
     return batch
 
 

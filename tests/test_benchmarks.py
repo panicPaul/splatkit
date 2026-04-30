@@ -34,12 +34,12 @@ from ember_core.data import collate_frame_samples
 from torch.utils.data import DataLoader
 
 
-def _register_unit_test_backend() -> None:
-    if "unit_test_backend" in BACKEND_REGISTRY:
+def _register_benchmark_test_backend() -> None:
+    if "benchmark_test_backend" in BACKEND_REGISTRY:
         return
 
     @register_backend(
-        name="unit_test_backend",
+        name="benchmark_test_backend",
         default_options=RenderOptions(),
         accepted_scene_types=(GaussianScene3D,),
     )
@@ -119,8 +119,46 @@ def test_benchmark_dataloader_reports_expected_metrics() -> None:
     assert "iters_per_sec" in asdict(result)
 
 
+def test_benchmark_dataloader_applies_prepare_batch_callback() -> None:
+    scene_record = load_colmap_scene_record(get_sample_scene_path())
+    frame_dataset = PreparedFrameDataset(
+        scene_record,
+        config=PreparedFrameDatasetConfig(
+            split=None,
+            materialization=MaterializationConfig(
+                stage="prepared",
+                mode="eager",
+                num_workers=0,
+            ),
+            image_preparation=ImagePreparationConfig(normalize=True),
+        ),
+    )
+    dataloader = DataLoader(
+        frame_dataset,
+        batch_size=1,
+        shuffle=False,
+        collate_fn=collate_frame_samples,
+    )
+    prepared_batch_count = 0
+
+    def prepare_batch(batch: object) -> object:
+        nonlocal prepared_batch_count
+        prepared_batch_count += 1
+        return batch
+
+    result = benchmark_dataloader(
+        dataloader,
+        warmup_steps=1,
+        measured_steps=3,
+        prepare_batch=prepare_batch,
+    )
+
+    assert result.measured_steps == 3
+    assert prepared_batch_count == 5
+
+
 def test_benchmark_backend_render_reports_expected_metrics() -> None:
-    _register_unit_test_backend()
+    _register_benchmark_test_backend()
     scene_record = load_colmap_scene_record(get_sample_scene_path())
     scene = initialize_gaussian_scene_from_scene_record(scene_record)
     camera = _first_camera(scene_record.resolve_camera_sensor().camera)
@@ -128,12 +166,12 @@ def test_benchmark_backend_render_reports_expected_metrics() -> None:
     result = benchmark_backend_render(
         scene,
         camera,
-        backend="unit_test_backend",
+        backend="benchmark_test_backend",
         warmup_steps=1,
         measured_steps=3,
     )
 
-    assert result.backend == "unit_test_backend"
+    assert result.backend == "benchmark_test_backend"
     assert result.image_size == (
         int(camera.width[0].item()),
         int(camera.height[0].item()),
@@ -145,7 +183,7 @@ def test_benchmark_backend_render_reports_expected_metrics() -> None:
 
 
 def test_benchmark_backend_render_autograd_reports_expected_metrics() -> None:
-    _register_unit_test_backend()
+    _register_benchmark_test_backend()
     scene_record = load_colmap_scene_record(get_sample_scene_path())
     scene = initialize_gaussian_scene_from_scene_record(scene_record)
     camera = _first_camera(scene_record.resolve_camera_sensor().camera)
@@ -153,12 +191,12 @@ def test_benchmark_backend_render_autograd_reports_expected_metrics() -> None:
     result = benchmark_backend_render_autograd(
         scene,
         camera,
-        backend="unit_test_backend",
+        backend="benchmark_test_backend",
         warmup_steps=1,
         measured_steps=3,
     )
 
-    assert result.backend == "unit_test_backend"
+    assert result.backend == "benchmark_test_backend"
     assert result.image_size == (
         int(camera.width[0].item()),
         int(camera.height[0].item()),

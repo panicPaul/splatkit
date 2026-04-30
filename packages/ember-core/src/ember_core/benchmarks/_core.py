@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from time import perf_counter
 from typing import Any
@@ -11,6 +12,19 @@ import torch
 from torch.utils.data import DataLoader
 
 from ember_core.core import CameraState, GaussianScene3D, render
+
+
+def _progress_range(
+    iterable: range,
+    *,
+    enabled: bool,
+    desc: str,
+) -> Any:
+    if not enabled:
+        return iterable
+    from tqdm.auto import tqdm
+
+    return tqdm(iterable, desc=desc, leave=False)
 
 
 @dataclass(frozen=True)
@@ -84,6 +98,8 @@ def benchmark_dataloader(
     *,
     warmup_steps: int = 10,
     measured_steps: int = 100,
+    prepare_batch: Callable[[Any], Any] | None = None,
+    show_progress: bool = False,
 ) -> DataloaderBenchmarkResult:
     """Benchmark dataloader initialization and steady-state iteration."""
     if warmup_steps < 0:
@@ -92,9 +108,13 @@ def benchmark_dataloader(
         raise ValueError("measured_steps must be >= 1.")
 
     initialization_start = perf_counter()
+    if show_progress:
+        print("Initializing dataloader benchmark...")
     iterator = iter(dataloader)
     try:
-        next(iterator)
+        batch = next(iterator)
+        if prepare_batch is not None:
+            prepare_batch(batch)
     except StopIteration:
         initialization_ms = (perf_counter() - initialization_start) * 1000.0
         return DataloaderBenchmarkResult(
@@ -110,22 +130,34 @@ def benchmark_dataloader(
     initialization_ms = (perf_counter() - initialization_start) * 1000.0
 
     warmup_start = perf_counter()
-    for _ in range(warmup_steps):
+    for _ in _progress_range(
+        range(warmup_steps),
+        enabled=show_progress,
+        desc="Dataloader warmup",
+    ):
         try:
-            next(iterator)
+            batch = next(iterator)
         except StopIteration:
             iterator = iter(dataloader)
-            next(iterator)
+            batch = next(iterator)
+        if prepare_batch is not None:
+            prepare_batch(batch)
     warmup_ms = (perf_counter() - warmup_start) * 1000.0
 
     measured_samples_ms: list[float] = []
-    for _ in range(measured_steps):
+    for _ in _progress_range(
+        range(measured_steps),
+        enabled=show_progress,
+        desc="Dataloader measured",
+    ):
         sample_start = perf_counter()
         try:
-            next(iterator)
+            batch = next(iterator)
         except StopIteration:
             iterator = iter(dataloader)
-            next(iterator)
+            batch = next(iterator)
+        if prepare_batch is not None:
+            prepare_batch(batch)
         measured_samples_ms.append((perf_counter() - sample_start) * 1000.0)
 
     mean_ms, p50_ms, p90_ms = _duration_stats(measured_samples_ms)

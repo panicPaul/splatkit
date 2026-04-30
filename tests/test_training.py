@@ -186,6 +186,24 @@ def test_prepared_frame_materialization_rejects_single_worker() -> None:
         )
 
 
+def test_batching_config_accepts_dataloader_worker_options() -> None:
+    batching = BatchingConfig(
+        batch_size=1,
+        shuffle=True,
+        num_workers=4,
+        persistent_workers=True,
+        pin_memory=True,
+    )
+
+    assert batching.model_dump(mode="json") == {
+        "batch_size": 1,
+        "shuffle": True,
+        "num_workers": 4,
+        "persistent_workers": True,
+        "pin_memory": True,
+    }
+
+
 def apply_color_mlp(
     model: InitializedModel,
     camera: CameraState,
