@@ -41,12 +41,7 @@ with app.setup:
         apply_viewer_pipeline_config,
         viewer_pipeline_controls_gui,
     )
-    from marimo_config_gui import (
-        config_gui_panel,
-        config_status_panel,
-        create_config_state,
-        validated_config,
-    )
+    from marimo_config_gui import create_config_gui
 
     NOTEBOOK_PATH = Path(__file__).resolve()
     skn_gaussian_pop.register()
@@ -69,11 +64,7 @@ with app.setup:
         "gray",
     ]
     gaussian_sh_zero_degree_scale = 0.28209479177387814
-    (
-        load_form_gui_state,
-        load_json_gui_state,
-        load_bindings,
-    ) = create_config_state(
+    load_gui = create_config_gui(
         SplatLoadConfig,
         value=SplatLoadConfig(),
         path_defaults_source=NOTEBOOK_PATH,
@@ -384,11 +375,7 @@ def _():
 
 @app.cell
 def _():
-    load_config = validated_config(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        json_gui_state=load_json_gui_state,
-    )
+    load_config = load_gui.validated_config()
     return (load_config,)
 
 
@@ -410,11 +397,7 @@ def _(filtered_viewer_state, load_config, score_viewer_state, viewer_state):
             close_existing_viewer=True,
             empty_cuda_cache=False,
         )
-        scene = (
-            None
-            if load_config is None
-            else load_gaussian_scene(load_config.ply_path)
-        )
+        scene = load_gaussian_scene(load_config.ply_path)
     else:
         picked_load_config = pick_splat_load_config()
         scene = (
@@ -1310,21 +1293,13 @@ def _():
 
 @app.cell
 def _():
-    load_form = config_gui_panel(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        label="Scene",
-    )
+    load_form = load_gui.gui_panel()
     return (load_form,)
 
 
 @app.cell
 def _():
-    load_error = config_status_panel(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        json_gui_state=load_json_gui_state,
-    )
+    load_error = load_gui.status_panel()
     return (load_error,)
 
 

@@ -34,7 +34,7 @@ with app.setup:
     from ember_core.viewer import ViewerRenderResult as RenderResult
     from gsplat import rasterization
     from jaxtyping import Float
-    from marimo_config_gui import config_gui_panel, create_config_state
+    from marimo_config_gui import create_config_gui
     from plyfile import PlyData
     from pydantic import BaseModel, Field
     from torch import Tensor
@@ -271,18 +271,13 @@ def _():
             description="How to clean up GPU resources before replacing a scene.",
         )
 
-    load_form_gui_state, _load_json_gui_state, load_bindings = (
-        create_config_state(
-            LoadConfig,
-            value=LoadConfig(),
-            path_defaults_source=NOTEBOOK_PATH,
-        )
-    )
-    load_form = config_gui_panel(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
+    load_gui = create_config_gui(
+        LoadConfig,
+        value=LoadConfig(),
+        path_defaults_source=NOTEBOOK_PATH,
         label="Load File",
     )
+    load_form = load_gui.gui_panel()
     return (load_form,)
 
 

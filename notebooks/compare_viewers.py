@@ -33,12 +33,7 @@ with app.setup:
         link_viewer_states,
     )
     from marimo_3dv.ops.gs import cleanup_before_splat_reload
-    from marimo_config_gui import (
-        config_gui_panel,
-        config_status_panel,
-        create_config_state,
-        validated_config,
-    )
+    from marimo_config_gui import create_config_gui
     from pydantic import BaseModel, Field
 
     NOTEBOOK_PATH = Path(__file__).resolve()
@@ -203,84 +198,55 @@ def _(controls):
 
 @app.cell
 def _():
-    (
-        left_loader_form_gui_state,
-        left_loader_json_gui_state,
-        left_loader_bindings,
-    ) = create_config_state(
+    left_loader_gui = create_config_gui(
         SceneLoaderConfig,
         value=SceneLoaderConfig(),
         path_defaults_source=NOTEBOOK_PATH,
+        label="Left scene",
+        nested_models_multiple_open=False,
     )
-    return (
-        left_loader_bindings,
-        left_loader_form_gui_state,
-        left_loader_json_gui_state,
-    )
+    return (left_loader_gui,)
 
 
 @app.cell
 def _():
-    (
-        right_loader_form_gui_state,
-        right_loader_json_gui_state,
-        right_loader_bindings,
-    ) = create_config_state(
+    right_loader_gui = create_config_gui(
         SceneLoaderConfig,
         value=SceneLoaderConfig(scene_type=SceneTypeChoice.SVRASTER),
         path_defaults_source=NOTEBOOK_PATH,
+        label="Right scene",
+        nested_models_multiple_open=False,
     )
-    return (
-        right_loader_bindings,
-        right_loader_form_gui_state,
-        right_loader_json_gui_state,
-    )
+    return (right_loader_gui,)
 
 
 @app.cell
 def _():
-    (
-        link_form_gui_state,
-        link_json_gui_state,
-        link_bindings,
-    ) = create_config_state(
+    link_gui = create_config_gui(
         LinkConfig,
         value=LinkConfig(),
+        label="Linked navigation",
     )
-    return link_bindings, link_form_gui_state, link_json_gui_state
+    return (link_gui,)
 
 
 @app.cell
 def _(
-    left_loader_bindings, left_loader_form_gui_state, left_loader_json_gui_state
+    left_loader_gui,
 ):
-    left_loader_form = config_gui_panel(
-        left_loader_bindings,
-        form_gui_state=left_loader_form_gui_state,
-        label="Left scene",
-        nested_models_multiple_open=False,
-    )
-    left_loader_error = config_status_panel(
-        left_loader_bindings,
-        form_gui_state=left_loader_form_gui_state,
-        json_gui_state=left_loader_json_gui_state,
-    )
-    left_loader_draft = validated_config(
-        left_loader_bindings,
-        form_gui_state=left_loader_form_gui_state,
-        json_gui_state=left_loader_json_gui_state,
-    )
-    return left_loader_draft, left_loader_error, left_loader_form
+    left_loader_form = left_loader_gui.gui_panel()
+    left_loader_status = left_loader_gui.status_panel()
+    return left_loader_form, left_loader_status
 
 
 @app.cell
-def _(left_loader_draft):
+def _(left_loader_gui):
     left_load_button = mo.ui.run_button(
-        disabled=left_loader_draft is None,
+        disabled=not left_loader_gui.is_valid(),
         label="Load left scene",
         tooltip=(
             "Fix config errors before loading."
-            if left_loader_draft is None
+            if not left_loader_gui.is_valid()
             else None
         ),
     )
@@ -288,45 +254,29 @@ def _(left_loader_draft):
 
 
 @app.cell
-def _(left_load_button, left_loader_draft):
-    mo.stop(not left_load_button.value or left_loader_draft is None, mo.md(""))
-    left_loader_config = left_loader_draft
+def _(left_load_button, left_loader_gui):
+    mo.stop(not left_load_button.value, mo.md(""))
+    left_loader_config = left_loader_gui.validated_config()
     return (left_loader_config,)
 
 
 @app.cell
 def _(
-    right_loader_bindings,
-    right_loader_form_gui_state,
-    right_loader_json_gui_state,
+    right_loader_gui,
 ):
-    right_loader_form = config_gui_panel(
-        right_loader_bindings,
-        form_gui_state=right_loader_form_gui_state,
-        label="Right scene",
-        nested_models_multiple_open=False,
-    )
-    right_loader_error = config_status_panel(
-        right_loader_bindings,
-        form_gui_state=right_loader_form_gui_state,
-        json_gui_state=right_loader_json_gui_state,
-    )
-    right_loader_draft = validated_config(
-        right_loader_bindings,
-        form_gui_state=right_loader_form_gui_state,
-        json_gui_state=right_loader_json_gui_state,
-    )
-    return right_loader_draft, right_loader_error, right_loader_form
+    right_loader_form = right_loader_gui.gui_panel()
+    right_loader_status = right_loader_gui.status_panel()
+    return right_loader_form, right_loader_status
 
 
 @app.cell
-def _(right_loader_draft):
+def _(right_loader_gui):
     right_load_button = mo.ui.run_button(
-        disabled=right_loader_draft is None,
+        disabled=not right_loader_gui.is_valid(),
         label="Load right scene",
         tooltip=(
             "Fix config errors before loading."
-            if right_loader_draft is None
+            if not right_loader_gui.is_valid()
             else None
         ),
     )
@@ -334,36 +284,32 @@ def _(right_loader_draft):
 
 
 @app.cell
-def _(right_load_button, right_loader_draft):
-    mo.stop(
-        not right_load_button.value or right_loader_draft is None, mo.md("")
-    )
-    right_loader_config = right_loader_draft
+def _(right_load_button, right_loader_gui):
+    mo.stop(not right_load_button.value, mo.md(""))
+    right_loader_config = right_loader_gui.validated_config()
     return (right_loader_config,)
 
 
 @app.cell
-def _(link_bindings, link_form_gui_state, link_json_gui_state):
-    link_form = config_gui_panel(
-        link_bindings,
-        form_gui_state=link_form_gui_state,
-        label="Linked navigation",
-    )
-    link_error = config_status_panel(
-        link_bindings,
-        form_gui_state=link_form_gui_state,
-        json_gui_state=link_json_gui_state,
-    )
-    link_config = validated_config(
-        link_bindings,
-        form_gui_state=link_form_gui_state,
-        json_gui_state=link_json_gui_state,
-    )
-    return link_config, link_error, link_form
+def _(link_gui):
+    link_form = link_gui.gui_panel()
+    link_status = link_gui.status_panel()
+    return link_form, link_status
 
 
 @app.cell
-def _(left_loader_draft):
+def _(link_gui):
+    link_config = link_gui.validated_config()
+    return (link_config,)
+
+
+@app.cell
+def _(left_loader_gui):
+    left_loader_draft = (
+        left_loader_gui.validated_config()
+        if left_loader_gui.is_valid()
+        else None
+    )
     left_backend_options = available_backends(
         left_loader_draft.scene_type
         if left_loader_draft is not None
@@ -379,7 +325,12 @@ def _(left_loader_draft):
 
 
 @app.cell
-def _(right_loader_draft):
+def _(right_loader_gui):
+    right_loader_draft = (
+        right_loader_gui.validated_config()
+        if right_loader_gui.is_valid()
+        else None
+    )
     right_backend_options = available_backends(
         right_loader_draft.scene_type
         if right_loader_draft is not None
@@ -408,11 +359,7 @@ def _(left_loader_config, left_viewer_state):
         close_existing_viewer=True,
         empty_cuda_cache=True,
     )
-    left_scene = (
-        None
-        if left_loader_config is None
-        else load_scene_artifact(left_loader_config)
-    )
+    left_scene = load_scene_artifact(left_loader_config)
     return (left_scene,)
 
 
@@ -423,11 +370,7 @@ def _(right_loader_config, right_viewer_state):
         close_existing_viewer=True,
         empty_cuda_cache=True,
     )
-    right_scene = (
-        None
-        if right_loader_config is None
-        else load_scene_artifact(right_loader_config)
-    )
+    right_scene = load_scene_artifact(right_loader_config)
     return (right_scene,)
 
 
@@ -533,18 +476,18 @@ def _(left_viewer_state, link_config, right_viewer_state):
 def _(
     left_backend,
     left_load_button,
-    left_loader_error,
     left_loader_form,
-    link_error,
+    left_loader_status,
     link_form,
+    link_status,
     right_backend,
     right_load_button,
-    right_loader_error,
     right_loader_form,
+    right_loader_status,
 ):
     left_controls = mo.vstack(
         [
-            left_loader_error,
+            left_loader_status,
             left_backend,
             mo.hstack([left_loader_form, left_load_button], align="end"),
         ],
@@ -552,7 +495,7 @@ def _(
     )
     right_controls = mo.vstack(
         [
-            right_loader_error,
+            right_loader_status,
             right_backend,
             mo.hstack([right_loader_form, right_load_button], align="end"),
         ],
@@ -560,7 +503,7 @@ def _(
     )
     controls = mo.vstack(
         [
-            link_error,
+            link_status,
             link_form,
             mo.hstack(
                 [left_controls, right_controls],

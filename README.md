@@ -180,7 +180,7 @@ The repository uses package-local reference docs plus a top-level crosswalk:
 Run the standalone interactive docs:
 
 ```bash
-marimo run docs/interactive/marimo-config-gui.py
+marimo run docs/marimo-config-gui.py
 marimo run docs/interactive/marimo-3dv.py
 ```
 

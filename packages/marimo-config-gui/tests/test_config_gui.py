@@ -8,27 +8,38 @@ from typing import Any, Literal
 import marimo_config_gui.api as pgui
 import marimo_config_gui.widgets as widgets
 import pytest
+from marimo._runtime.control_flow import MarimoStopError
 from marimo_config_gui import (
     ConfigFile,
     ConfigPreset,
     ConfigPresetCatalog,
-    config_gui_panel,
-    config_json_editor,
-    config_preset_selector,
-    config_status_panel,
-    create_config_state,
-    validated_config,
+    create_config_gui,
 )
 from marimo_config_gui.api import load_script_config
-from marimo_config_gui.elements import PydanticGui
+from marimo_config_gui.elements import (
+    CONFIG_FORM_VIEW_KEY,
+    CONFIG_JSON_VIEW_KEY,
+    PydanticGui,
+)
 from marimo_config_gui.presets import load_json_config, load_preset_config
 from marimo_config_gui.state import ConfigBindings
 from pydantic import BaseModel, Field
+
+config_gui_panel = pgui.config_gui_panel
+config_json_editor = pgui.config_json_editor
+config_preset_selector = pgui.config_preset_selector
+config_status_panel = pgui.config_status_panel
+create_config_state = pgui.create_config_state
+validated_config = pgui.validated_config
 
 
 class _RequiredModel(BaseModel):
     title: str = "demo"
     count: int = Field(0, ge=0)
+
+
+class _BoolModel(BaseModel):
+    flag: bool = False
 
 
 class _OrderModel(BaseModel):
@@ -152,12 +163,7 @@ def test_public_package_surface_is_intentional() -> None:
         "ConfigPresetCatalog",
         "ConfigFile",
         "__version__",
-        "config_gui_panel",
-        "config_json_editor",
-        "config_preset_selector",
-        "config_status_panel",
-        "create_config_state",
-        "validated_config",
+        "create_config_gui",
     }
     legacy = {
         "ConfigBindings",
@@ -169,14 +175,20 @@ def test_public_package_surface_is_intentional() -> None:
         "config_gui",
         "config_json",
         "config_json_output",
+        "config_gui_panel",
+        "config_json_editor",
+        "config_preset_selector",
+        "config_status_panel",
         "config_require_valid",
         "config_value",
+        "create_config_state",
         "create_committed_config_state",
         "form_gui",
         "json_gui",
         "load_json_config",
         "load_preset_config",
         "load_script_config",
+        "validated_config",
     }
 
     assert set(marimo_config_gui.__all__) == expected
@@ -197,6 +209,224 @@ def _dispatch_json_change(json_view: object, text: str) -> None:
 
 def _make_state(model_cls: type[BaseModel]):
     return create_config_state(model_cls)
+
+
+def test_config_gui_owner_initializes_views_and_value(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_RequiredModel, background=None)
+
+    assert config_gui.validated_config() == _RequiredModel()
+    assert type(config_gui.gui_panel()).__name__ == "PydanticGui"
+    assert type(config_gui.json_editor()).__name__ == "code_editor"
+    assert config_gui.status_panel().text == pgui.mo.md("").text
+
+
+def test_config_gui_owner_registers_child_views_for_wrapping(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_BoolModel, background=None)
+    form = config_gui.gui_panel()
+    json_editor = config_gui.json_editor()
+
+    assert form._lens is not None
+    assert form._lens.parent_id == config_gui._id
+    assert form._lens.key == CONFIG_FORM_VIEW_KEY
+    assert json_editor._lens is not None
+    assert json_editor._lens.parent_id == config_gui._id
+    assert json_editor._lens.key == CONFIG_JSON_VIEW_KEY
+
+
+def test_config_gui_owner_syncs_bool_form_to_json(
+    notebook_runtime: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_gui = create_config_gui(_BoolModel, background=None)
+    sent_messages: list[dict[str, object]] = []
+
+    def _record_json_message(
+        message: dict[str, object], buffers: object
+    ) -> None:
+        del buffers
+        sent_messages.append(message)
+
+    monkeypatch.setattr(
+        config_gui.json_editor(),
+        "_send_message",
+        _record_json_message,
+    )
+
+    config_gui._convert_value({CONFIG_FORM_VIEW_KEY: {"flag": True}})
+
+    assert config_gui.validated_config() == _BoolModel(flag=True)
+    assert '"flag": true' in config_gui.json_editor().value
+    assert sent_messages[-1]["type"] == "marimo-ui-value-update"
+    assert '"flag": true' in str(sent_messages[-1]["value"])
+    assert config_gui.status_panel().text == pgui.mo.md("").text
+
+
+def test_config_gui_owner_syncs_bool_json_to_form(
+    notebook_runtime: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_gui = create_config_gui(_BoolModel, background=None)
+    sent_messages: list[dict[str, object]] = []
+    flag_control = config_gui.gui_panel().elements["flag"]
+
+    def _record_flag_message(
+        message: dict[str, object], buffers: object
+    ) -> None:
+        del buffers
+        sent_messages.append(message)
+
+    monkeypatch.setattr(flag_control, "_send_message", _record_flag_message)
+
+    config_gui._convert_value({CONFIG_JSON_VIEW_KEY: '{"flag": true}'})
+
+    assert config_gui.validated_config() == _BoolModel(flag=True)
+    assert config_gui.gui_panel().elements["flag"]._value_frontend is True
+    assert sent_messages[-1] == {
+        "type": "marimo-ui-value-update",
+        "value": True,
+    }
+    assert '"flag": true' in config_gui.json_editor().value
+    assert config_gui.status_panel().text == pgui.mo.md("").text
+
+
+def test_config_gui_owner_syncs_flags_both_directions(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_FlagModel, background=None)
+
+    config_gui._convert_value(
+        {
+            CONFIG_FORM_VIEW_KEY: {
+                "features": ["execute"],
+                "permissions": ["read", "write"],
+            }
+        }
+    )
+
+    assert config_gui.validated_config() == _FlagModel(
+        features=_FeatureFlag.EXECUTE,
+        permissions=_PermissionFlag.READ | _PermissionFlag.WRITE,
+    )
+    assert '"features": [\n    "EXECUTE"\n  ]' in config_gui.json_editor().value
+
+    config_gui._convert_value(
+        {
+            CONFIG_JSON_VIEW_KEY: (
+                '{"features": ["READ", "WRITE"], "permissions": ["EXECUTE"]}'
+            )
+        }
+    )
+
+    assert config_gui.validated_config() == _FlagModel(
+        features=_FeatureFlag.READ | _FeatureFlag.WRITE,
+        permissions=_PermissionFlag.EXECUTE,
+    )
+    assert config_gui.gui_panel().elements["features"]._value_frontend == [
+        "read",
+        "write",
+    ]
+    assert config_gui.gui_panel().elements["permissions"]._value_frontend == [
+        "execute"
+    ]
+
+
+def test_config_gui_owner_invalid_json_does_not_corrupt_form(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_BoolModel, background=None)
+    config_gui._convert_value({CONFIG_FORM_VIEW_KEY: {"flag": True}})
+
+    config_gui._convert_value({CONFIG_JSON_VIEW_KEY: "{"})
+
+    assert config_gui.is_valid() is False
+    assert "Expecting property name enclosed in double quotes" in (
+        config_gui.validation_error() or ""
+    )
+    with pytest.raises(MarimoStopError):
+        config_gui.validated_config()
+    assert "Expecting property name enclosed in double quotes" in (
+        config_gui.status_panel().text
+    )
+    assert config_gui.gui_panel().elements["flag"]._value_frontend is True
+
+
+def test_config_gui_owner_invalid_flag_name_reports_status(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_FlagModel, background=None)
+
+    config_gui._convert_value({CONFIG_JSON_VIEW_KEY: '{"features": ["GREN"]}'})
+
+    assert config_gui.is_valid() is False
+    assert "GREN" in (config_gui.validation_error() or "")
+    with pytest.raises(MarimoStopError):
+        config_gui.validated_config()
+    assert "GREN" in config_gui.status_panel().text
+    assert "_FeatureFlag" in config_gui.status_panel().text
+
+
+def test_config_gui_owner_uses_default_neutral_background(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_BoolModel)
+
+    assert "rgba(113, 113, 122, 0.10)" in config_gui.gui_panel().text
+    assert "rgba(113, 113, 122, 0.10)" in config_gui.json_editor().text
+    assert type(config_gui.gui_panel(background=None)).__name__ == "PydanticGui"
+
+
+def test_config_gui_owner_rejects_removed_yellow_background(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_BoolModel)
+
+    with pytest.raises(
+        ValueError, match="danger, info, neutral, success, warn"
+    ):
+        config_gui.gui_panel(background="yellow")
+
+
+def test_config_gui_owner_accepts_custom_background(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(
+        _BoolModel,
+        background={"background": "white", "padding": "1rem"},
+    )
+
+    assert "background:white" in config_gui.gui_panel().text
+    assert "padding:1rem" in config_gui.json_editor().text
+
+
+def test_config_gui_owner_accepts_named_backgrounds(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_BoolModel, background="success")
+
+    assert "rgba(34, 197, 94, 0.12)" in config_gui.gui_panel().text
+    assert "rgba(34, 197, 94, 0.12)" in config_gui.json_editor().text
+    assert "rgba(59, 130, 246, 0.11)" in (
+        config_gui.gui_panel(background="info").text
+    )
+
+
+def test_config_gui_owner_stacked_layout_background_scopes(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_BoolModel)
+
+    panel_stack = config_gui.stacked()
+    outer_stack = config_gui.stacked(background_scope="stack")
+    unstyled_stack = config_gui.stacked(background=None)
+
+    assert panel_stack.text.count("rgba(113, 113, 122, 0.10)") == 2
+    assert outer_stack.text.count("rgba(113, 113, 122, 0.10)") == 1
+    assert "marimo-ui-element" in panel_stack.text
+    assert unstyled_stack.text.count("rgba(113, 113, 122, 0.10)") == 0
 
 
 def test_config_state_returns_state_tuple(notebook_runtime: None) -> None:
@@ -302,7 +532,7 @@ def test_config_status_panel_prefers_json_errors_then_validation(
     assert "Expecting property name enclosed in double quotes" in errored.text
 
 
-def test_validated_config_returns_model_or_none(
+def test_legacy_validated_config_returns_model_or_stops(
     notebook_runtime: None,
 ) -> None:
     (
@@ -321,14 +551,24 @@ def test_validated_config_returns_model_or_none(
     )
 
     bindings.set_json_gui_state("{")
-    assert (
+    with pytest.raises(MarimoStopError):
         validated_config(
             bindings,
             form_gui_state=form_gui_state,
             json_gui_state=json_gui_state,
         )
-        is None
-    )
+
+
+def test_config_gui_owner_invalid_script_mode_raises_value_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
+    config_gui = create_config_gui(_BoolModel, background=None, script_args=[])
+    config_gui._convert_value({CONFIG_JSON_VIEW_KEY: "{"})
+
+    assert config_gui.is_valid() is False
+    with pytest.raises(ValueError, match="Expecting property name"):
+        config_gui.validated_config()
 
 
 def test_script_mode_uses_tyro(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -844,9 +1084,7 @@ def test_short_primitive_tuple_form_uses_compact_widget() -> None:
     assert type(generated.elements["crop_origin"]).__name__ == (
         "PrimitiveTupleGui"
     )
-    assert type(generated.elements["weights"]).__name__ == (
-        "PrimitiveTupleGui"
-    )
+    assert type(generated.elements["weights"]).__name__ == ("PrimitiveTupleGui")
     assert generated.elements["opacity_range"]._value_frontend == {
         "0": 0.1,
         "1": 0.9,
@@ -919,9 +1157,7 @@ def test_primitive_list_form_parses_variable_length_array() -> None:
         {"labels": '[\n  "train",\n  "val",\n  "test"\n]'}
     )
 
-    assert value == _PrimitiveSequenceModel(
-        labels=["train", "val", "test"]
-    )
+    assert value == _PrimitiveSequenceModel(labels=["train", "val", "test"])
 
 
 def test_primitive_list_form_rejects_non_array_json() -> None:

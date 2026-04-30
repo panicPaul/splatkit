@@ -34,12 +34,7 @@ with app.setup:
     from marimo_config_gui import (
         ConfigPreset,
         ConfigPresetCatalog,
-        config_gui_panel,
-        config_json_editor,
-        config_preset_selector,
-        config_status_panel,
-        create_config_state,
-        validated_config,
+        create_config_gui,
     )
     from pydantic import BaseModel, Field
     from torch import Tensor
@@ -73,32 +68,27 @@ def _(train_button):
 @app.cell
 def _():
     fastergs_presets = fastergs_preset_catalog()
-    form_gui_state, json_gui_state, config_bindings = create_config_state(
+    config_gui = create_config_gui(
         FasterGSExperimentConfig,
         presets=fastergs_presets,
+        label="FasterGS config",
+        nested_models_multiple_open=False,
+        nested_models_flat_after_level=2,
     )
-    return config_bindings, fastergs_presets, form_gui_state, json_gui_state
+    return (config_gui,)
 
 
 @app.cell
-def _(config_bindings, fastergs_presets, form_gui_state, json_gui_state):
-    preset_selector = config_preset_selector(
-        config_bindings,
-        presets=fastergs_presets,
-        form_gui_state=form_gui_state,
-        json_gui_state=json_gui_state,
+def _(config_gui):
+    preset_selector = config_gui.preset_selector(
         label="FasterGS preset",
     )
     return (preset_selector,)
 
 
 @app.cell
-def _(config_bindings, form_gui_state, json_gui_state):
-    current_config = validated_config(
-        config_bindings,
-        form_gui_state=form_gui_state,
-        json_gui_state=json_gui_state,
-    )
+def _(config_gui):
+    current_config = config_gui.validated_config()
     return (current_config,)
 
 
@@ -109,34 +99,8 @@ def _(preset_selector):
 
 
 @app.cell(hide_code=True)
-def _(config_bindings, form_gui_state):
-    config_gui_panel(
-        config_bindings,
-        form_gui_state=form_gui_state,
-        label="FasterGS config",
-        nested_models_multiple_open=False,
-        nested_models_flat_after_level=2,
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(config_bindings, form_gui_state, json_gui_state):
-    config_json_editor(
-        config_bindings,
-        form_gui_state=form_gui_state,
-        json_gui_state=json_gui_state,
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(config_bindings, form_gui_state, json_gui_state):
-    config_status_panel(
-        config_bindings,
-        form_gui_state=form_gui_state,
-        json_gui_state=json_gui_state,
-    )
+def _(config_gui):
+    config_gui.stacked()
     return
 
 

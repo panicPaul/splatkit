@@ -6,11 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import marimo as mo
-from marimo_config_gui import (
-    config_gui_panel,
-    create_config_state,
-    validated_config,
-)
+from marimo_config_gui import create_config_gui
 from pydantic import BaseModel, Field, create_model
 
 from marimo_3dv.viewer.widget import ViewerState
@@ -118,12 +114,9 @@ class ViewerControlsHandle:
     def value(self) -> ViewerControlsConfig:
         """Return the latest controls value."""
         if self.config_bindings is not None:
-            value = validated_config(
-                self.config_bindings,
-                form_gui_state=self.form_gui_state,
-                json_gui_state=self.json_gui_state,
-            )
-            return self.default_config if value is None else value
+            if not self.config_bindings.is_valid():
+                return self.default_config
+            return self.config_bindings.validated_config()
         value = getattr(self.gui, "value", None)
         if value is None:
             return self.default_config
@@ -147,12 +140,9 @@ class CombinedViewerPipelineControlsHandle(Generic[PipelineConfigT]):
     def value(self) -> BaseModel:
         """Return the latest combined controls value."""
         if self.config_bindings is not None:
-            value = validated_config(
-                self.config_bindings,
-                form_gui_state=self.form_gui_state,
-                json_gui_state=self.json_gui_state,
-            )
-            return self.default_config if value is None else value
+            if not self.config_bindings.is_valid():
+                return self.default_config
+            return self.config_bindings.validated_config()
         value = getattr(self.gui, "value", None)
         if value is None:
             return self.default_config
@@ -270,15 +260,13 @@ def viewer_controls_handle(
     json_gui_state = None
     bindings = None
     if mo.running_in_notebook():
-        form_gui_state, json_gui_state, bindings = create_config_state(
+        bindings = create_config_gui(
             ViewerControlsConfig,
             value=resolved_default_config,
-        )
-        gui = config_gui_panel(
-            bindings,
-            form_gui_state=form_gui_state,
+            background=None,
             label=label,
         )
+        gui = bindings.gui_panel()
     else:
         gui = _StaticControls(resolved_default_config)
     return ViewerControlsHandle(
@@ -342,15 +330,13 @@ def viewer_pipeline_controls_handle(
     json_gui_state = None
     bindings = None
     if mo.running_in_notebook():
-        form_gui_state, json_gui_state, bindings = create_config_state(
+        bindings = create_config_gui(
             combined_model,
             value=default_config,
-        )
-        gui = config_gui_panel(
-            bindings,
-            form_gui_state=form_gui_state,
+            background=None,
             label=label,
         )
+        gui = bindings.gui_panel()
     else:
         gui = _StaticControls(default_config)
     return CombinedViewerPipelineControlsHandle(

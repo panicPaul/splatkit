@@ -292,7 +292,7 @@ You can also generate marimo controls from a small Pydantic model:
 ```python
 from pydantic import BaseModel, Field
 
-from marimo_config_gui import config_gui_panel, create_config_state
+from marimo_config_gui import create_config_gui
 
 
 class RenderSettings(BaseModel):
@@ -302,18 +302,17 @@ class RenderSettings(BaseModel):
     title: str = "viewer"
 ```
 
-The generated UI can be backed by shared marimo state:
+The generated UI is backed by an owning config GUI:
 
 ```python
-form_state, json_state, bindings = create_config_state(RenderSettings)
-form = config_gui_panel(bindings, form_gui_state=form_state)
-form
+gui = create_config_gui(RenderSettings)
+gui.stacked()
 ```
 
 Then in a downstream cell:
 
 ```python
-submitted = form.value
+submitted = gui.validated_config()
 ```
 
 `submitted` is a typed `RenderSettings` instance when the current form payload

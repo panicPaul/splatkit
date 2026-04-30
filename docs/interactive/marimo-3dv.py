@@ -104,7 +104,7 @@ def _(primary_state, viewer_controls_gui):
 @app.cell
 def _(apply_viewer_config, controls, primary_state):
     apply_viewer_config(primary_state, controls.value)
-    return
+    return (camera,)
 
 
 @app.cell(hide_code=True)
@@ -128,7 +128,7 @@ def _(mo, viewer):
         `{camera.camera_convention}`.
         """
     )
-    return (camera,)
+    return (viewer_link,)
 
 
 @app.cell
@@ -138,7 +138,7 @@ def _(link_viewer_states, primary_state, secondary_state):
         secondary_state,
         fields=("camera_state", "show_axes", "show_stats"),
     )
-    return (viewer_link,)
+    return (linked_viewer,)
 
 
 @app.cell(hide_code=True)
@@ -151,7 +151,7 @@ def _(Viewer, render_direction_field, secondary_state):
         state=secondary_state,
     )
     linked_viewer
-    return (linked_viewer,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -197,55 +197,58 @@ def _(Viewer, ViewerState, broken_render_fn, mo):
 
 @app.cell(hide_code=True)
 def _(mo):
+    from textwrap import dedent as _dedent
+
     mo.md(
-        r"""
-        ---
+        _dedent(r"""
+    ---
 
-        ## Splat Ops
+    ## Splat Ops
 
-        The viewer is only one layer. Import `marimo_3dv.ops` when a notebook
-        needs splat loading, filtering, normalization, setup transforms, or
-        click-driven overlays:
+    The viewer is only one layer. Import `marimo_3dv.ops` when a notebook needs
+    splat loading, filtering, normalization, setup transforms, or click-driven
+    overlays:
 
-        ```python
-        from marimo_3dv.ops import (
-            SplatLoadConfig,
-            filter_opacity_op,
-            load_splat_scene_from_config,
-            pca_alignment_op,
-            paint_ray_op,
-        )
-        ```
-        """
+    ```python
+    from marimo_3dv.ops import (
+        SplatLoadConfig,
+        filter_opacity_op,
+        load_splat_scene_from_config,
+        pca_alignment_op,
+        paint_ray_op,
+    )
+    ```
+    """)
     )
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
+    from textwrap import dedent as _dedent
+
     mo.md(
-        r"""
-        ---
+        _dedent(r"""
+    ---
 
-        ## Reference
+    ## Reference
 
-        Common imports:
+    Common imports:
 
-        ```python
-        from marimo_3dv import (
-            Viewer,
-            ViewerState,
-            CameraState,
-            viewer_controls_gui,
-            apply_viewer_config,
-            link_viewer_states,
-        )
-        ```
+    ```python
+    from marimo_3dv import (
+        Viewer,
+        ViewerState,
+        CameraState,
+        viewer_controls_gui,
+        apply_viewer_config,
+        link_viewer_states,
+    )
+    ```
 
-        Use `Viewer(...)` for notebooks that should also run as scripts.
-        Use `marimo_viewer(...)` directly when a live browser widget is
-        required.
-        """
+    Use `Viewer(...)` for notebooks that should also run as scripts.
+    Use `marimo_viewer(...)` directly when a live browser widget is required.
+    """)
     )
     return
 

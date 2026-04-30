@@ -2,14 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from marimo_config_gui.api import (
-    config_gui_panel,
-    config_json_editor,
-    config_preset_selector,
-    config_status_panel,
-    create_config_state,
-    validated_config,
-)
+from marimo_config_gui.api import create_config_gui
 from marimo_config_gui.presets import (
     ConfigFile,
     ConfigPreset,
@@ -29,10 +22,5 @@ __all__ = [
     "ConfigPreset",
     "ConfigPresetCatalog",
     "__version__",
-    "config_gui_panel",
-    "config_json_editor",
-    "config_preset_selector",
-    "config_status_panel",
-    "create_config_state",
-    "validated_config",
+    "create_config_gui",
 ]

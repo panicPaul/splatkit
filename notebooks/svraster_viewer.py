@@ -2,7 +2,7 @@
 
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.23.3"
 app = marimo.App(width="columns")
 
 with app.setup:
@@ -21,7 +21,7 @@ with app.setup:
         ViewerState,
     )
     from marimo_3dv.ops.gs import cleanup_before_splat_reload
-    from marimo_config_gui import config_gui_panel, create_config_state
+    from marimo_config_gui import create_config_gui
     from pydantic import BaseModel
 
     NOTEBOOK_PATH = Path(__file__).resolve()
@@ -51,8 +51,14 @@ def _(viewer):
 
 
 @app.cell
-def _(load_form):
-    load_form
+def _(load_gui):
+    load_gui.gui_panel()
+    return
+
+
+@app.cell
+def _(load_gui):
+    load_gui.status_panel()
     return
 
 
@@ -104,19 +110,13 @@ class LoadConfig(BaseModel):
 
 @app.cell
 def _():
-    load_form_gui_state, _load_json_gui_state, load_bindings = (
-        create_config_state(
-            LoadConfig,
-            value=LoadConfig(),
-            path_defaults_source=NOTEBOOK_PATH,
-        )
-    )
-    load_form = config_gui_panel(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
+    load_gui = create_config_gui(
+        LoadConfig,
+        value=LoadConfig(),
+        path_defaults_source=NOTEBOOK_PATH,
         label="SV Raster Scene",
     )
-    return (load_form,)
+    return (load_gui,)
 
 
 @app.cell(hide_code=True)
@@ -275,17 +275,16 @@ def rasterize_scene(
 
 
 @app.cell
-def _(load_form, viewer_state):
-    iteration = (
-        None if load_form.value.iteration < 0 else load_form.value.iteration
-    )
+def _(load_gui, viewer_state):
+    load_config = load_gui.validated_config()
+    iteration = None if load_config.iteration < 0 else load_config.iteration
     cleanup_before_splat_reload(
         viewer_state,
         close_existing_viewer=True,
         empty_cuda_cache=True,
     )
     scene = ember.load_svraster_checkpoint(
-        load_form.value.run_path,
+        load_config.run_path,
         iteration=iteration,
     )
     if torch.cuda.is_available():

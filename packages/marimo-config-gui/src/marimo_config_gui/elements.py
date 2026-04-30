@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import html
 import json
+from collections.abc import Mapping, Sequence
 from typing import Any, Generic, Literal
 
 import marimo as mo
 from marimo._plugins.core.web_component import JSONType
 from marimo._plugins.ui._core.ui_element import UIElement
-from marimo._runtime.commands import UpdateUIElementCommand
-from marimo._runtime.context import ContextNotInitializedError, get_context
 from pydantic import BaseModel
 
 from marimo_config_gui.constants import (
@@ -27,6 +25,47 @@ from marimo_config_gui.constants import (
     UNION_ACTIVE_KEY,
 )
 from marimo_config_gui.state import ModelT
+
+CONFIG_FORM_VIEW_KEY = "__config_form__"
+CONFIG_JSON_VIEW_KEY = "__config_json__"
+DEFAULT_BACKGROUND = object()
+ConfigBackground = (
+    Literal["neutral", "warn", "success", "info", "danger"]
+    | Mapping[str, str]
+    | None
+)
+
+_BACKGROUND_BASE_STYLE: dict[str, str] = {
+    "border-radius": "8px",
+    "padding": "0.75rem",
+}
+_BACKGROUND_STYLES: dict[str, dict[str, str]] = {
+    "neutral": {
+        **_BACKGROUND_BASE_STYLE,
+        "background": "rgba(113, 113, 122, 0.10)",
+        "border": "1px solid rgba(113, 113, 122, 0.28)",
+    },
+    "warn": {
+        **_BACKGROUND_BASE_STYLE,
+        "background": "rgba(250, 204, 21, 0.14)",
+        "border": "1px solid rgba(202, 138, 4, 0.35)",
+    },
+    "success": {
+        **_BACKGROUND_BASE_STYLE,
+        "background": "rgba(34, 197, 94, 0.12)",
+        "border": "1px solid rgba(22, 163, 74, 0.32)",
+    },
+    "info": {
+        **_BACKGROUND_BASE_STYLE,
+        "background": "rgba(59, 130, 246, 0.11)",
+        "border": "1px solid rgba(37, 99, 235, 0.30)",
+    },
+    "danger": {
+        **_BACKGROUND_BASE_STYLE,
+        "background": "rgba(239, 68, 68, 0.11)",
+        "border": "1px solid rgba(220, 38, 38, 0.30)",
+    },
+}
 
 
 class NullableGui(UIElement[dict[str, JSONType], Any]):
@@ -666,7 +705,6 @@ class PydanticGui(
         self._last_json_error: str | None = None
         self._initial_payload = _resolve_initial_payload(model_cls, value)
         self._last_payload = self._initial_payload
-        self._sync_task: asyncio.Task[Any] | None = None
 
         field_specs, field_elements, form_layout = _build_model_gui(
             model_cls=model_cls,
@@ -1117,20 +1155,8 @@ class PydanticGui(
         for element, frontend_value in deduped.values():
             _set_local_frontend_value(element, frontend_value)
 
-        try:
-            ctx = get_context()
-            kernel = ctx._kernel
-            loop = asyncio.get_running_loop()
-        except (ContextNotInitializedError, RuntimeError, AttributeError):
-            return
-
-        command = UpdateUIElementCommand.from_ids_and_values(
-            [
-                (element._id, frontend_value)
-                for element, frontend_value in deduped.values()
-            ]
-        )
-        self._sync_task = loop.create_task(kernel.set_ui_element_value(command))
+        for element, frontend_value in deduped.values():
+            _send_frontend_value_update(element, frontend_value)
 
 
 class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
@@ -1168,7 +1194,6 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
         self._editor: UIElement[Any, Any] | None = None
         self._tabs: UIElement[Any, Any] | None = None
         self._composite_mode = False
-        self._sync_task: asyncio.Task[Any] | None = None
         layout_blocks: list[Any] = []
         self._elements = {}
 
@@ -1467,20 +1492,378 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
         for element, frontend_value in deduped.values():
             _set_local_frontend_value(element, frontend_value)
 
-        try:
-            ctx = get_context()
-            kernel = ctx._kernel
-            loop = asyncio.get_running_loop()
-        except (ContextNotInitializedError, RuntimeError, AttributeError):
+        for element, frontend_value in deduped.values():
+            _send_frontend_value_update(element, frontend_value)
+
+
+class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
+    """Owning config GUI that keeps form, JSON, status, and value in sync."""
+
+    _name = "marimo-dict"
+
+    def __init__(
+        self,
+        model_cls: type[ModelT],
+        *,
+        value: ModelT | dict[str, Any],
+        background: ConfigBackground = "neutral",
+        presets: Any | None = None,
+        label: str = "",
+        nested_models_multiple_open: bool = True,
+        nested_models_flat_after_level: int | None = None,
+        exclude_fields: set[str] | frozenset[str] = frozenset(),
+    ) -> None:
+        self._model_cls = model_cls
+        self._background = background
+        self._presets = presets
+        self._preset_selector: UIElement[Any, Any] | None = None
+        self._label = label
+        self._nested_models_multiple_open = nested_models_multiple_open
+        self._nested_models_flat_after_level = nested_models_flat_after_level
+        self._exclude_fields = frozenset(exclude_fields)
+        self._payload = _order_payload_for_model(
+            model_cls,
+            _resolve_initial_payload(model_cls, value),
+        )
+        self._json_text = _payload_to_json(self._payload)
+        self._error: str | None = None
+        self._validated_config = self._validate_payload(self._payload)
+
+        self._form = PydanticGui(
+            model_cls,
+            value=self._payload,
+            label=label,
+            include_json_editor=False,
+            bordered=False,
+            nested_models_multiple_open=nested_models_multiple_open,
+            nested_models_flat_after_level=nested_models_flat_after_level,
+            exclude_fields=self._exclude_fields,
+        )
+        self._json_editor = mo.ui.code_editor(
+            value=self._json_text,
+            language="json",
+            show_copy_button=True,
+            debounce=False,
+            label=label,
+        )
+        self._elements: dict[str, UIElement[Any, Any]] = {
+            CONFIG_FORM_VIEW_KEY: self._form,
+            CONFIG_JSON_VIEW_KEY: self._json_editor,
+        }
+        super().__init__(
+            component_name=self._name,
+            initial_value=self._current_frontend_value(),
+            label="",
+            args={
+                "element-ids": {
+                    element._id: name
+                    for name, element in self._elements.items()
+                }
+            },
+            slotted_html="",
+            on_change=None,
+        )
+        for name, element in self._elements.items():
+            element._register_as_view(parent=self, key=name)
+
+    @property
+    def elements(self) -> dict[str, UIElement[Any, Any]]:
+        """Return child views keyed by frontend payload field."""
+        return self._elements
+
+    def _clone(self) -> ConfigGui[ModelT]:
+        return type(self)(
+            self._model_cls,
+            value=self._payload,
+            background=self._background,
+            presets=self._presets,
+            label=self._label,
+            nested_models_multiple_open=self._nested_models_multiple_open,
+            nested_models_flat_after_level=self._nested_models_flat_after_level,
+            exclude_fields=self._exclude_fields,
+        )
+
+    def _current_frontend_value(self) -> dict[str, JSONType]:
+        return {
+            CONFIG_FORM_VIEW_KEY: _current_element_frontend_value(self._form),
+            CONFIG_JSON_VIEW_KEY: _current_element_frontend_value(
+                self._json_editor
+            ),
+        }
+
+    def _convert_value(self, value: dict[str, JSONType]) -> ModelT | None:
+        if not getattr(self, "_initialized", False):
+            return self._validated_config
+        if CONFIG_FORM_VIEW_KEY in value:
+            self._apply_form_update(value[CONFIG_FORM_VIEW_KEY])
+        if CONFIG_JSON_VIEW_KEY in value:
+            self._apply_json_update(value[CONFIG_JSON_VIEW_KEY])
+        return self._validated_config
+
+    def gui_panel(self, *, background: Any = DEFAULT_BACKGROUND) -> Any:
+        """Return the synchronized form view."""
+        return self._with_background(self._form, background)
+
+    def json_editor(self, *, background: Any = DEFAULT_BACKGROUND) -> Any:
+        """Return the synchronized JSON editor view."""
+        return self._with_background(self._json_editor, background)
+
+    def status_panel(self, *, background: Any = DEFAULT_BACKGROUND) -> Any:
+        """Return the current validation status output."""
+        if self._error is None:
+            return mo.md("")
+        return self._with_background(
+            mo.callout(
+                self._error,
+                kind="warn",
+            ),
+            background,
+        )
+
+    def preset_selector(
+        self,
+        *,
+        label: str = "Preset",
+        background: Any = DEFAULT_BACKGROUND,
+    ) -> Any:
+        """Return a preset selector bound to this GUI owner."""
+        if self._presets is None:
+            raise ValueError(
+                "preset_selector() requires create_config_gui(..., presets=...)."
+            )
+        if self._preset_selector is None:
+            presets = self._presets
+            options = {
+                preset.label or preset.name: name
+                for name, preset in presets.presets.items()
+            }
+            option_label_by_name = {
+                name: option_label for option_label, name in options.items()
+            }
+            current_value = self._payload.get(presets.preset_field or "preset")
+            if current_value not in presets.presets:
+                current_value = presets.default
+            current_label = option_label_by_name[current_value]
+
+            def _on_change(name: str) -> None:
+                config = _load_preset_config(presets, name)
+                next_payload = _order_payload_for_model(
+                    self._model_cls,
+                    _payload_for_config(config),
+                )
+                self._replace_payload(next_payload)
+
+            self._preset_selector = mo.ui.dropdown(
+                options=options,
+                value=current_label,
+                label=label,
+                on_change=_on_change,
+            )
+        return self._with_background(self._preset_selector, background)
+
+    def stacked(
+        self,
+        *,
+        background: Any = DEFAULT_BACKGROUND,
+        background_scope: Literal["panels", "stack"] = "panels",
+        widths: Literal["equal"] | Sequence[float] | None = (1, 1),
+        gap: float = 0.5,
+    ) -> Any:
+        """Return the default stacked form, JSON editor, and status layout."""
+        resolved_background = self._resolve_background(background)
+        if background_scope == "panels":
+            stack = mo.vstack(
+                [
+                    mo.hstack(
+                        [
+                            self.gui_panel(background=resolved_background),
+                            self.json_editor(background=resolved_background),
+                        ],
+                        widths=widths,
+                        align="start",
+                        gap=gap,
+                    ),
+                    self.status_panel(background=resolved_background),
+                ],
+                gap=gap,
+            )
+            return stack
+        if background_scope == "stack":
+            stack = mo.vstack(
+                [
+                    mo.hstack(
+                        [
+                            self.gui_panel(background=None),
+                            self.json_editor(background=None),
+                        ],
+                        widths=widths,
+                        align="start",
+                        gap=gap,
+                    ),
+                    self.status_panel(background=None),
+                ],
+                gap=gap,
+            )
+            return _with_config_background(stack, resolved_background)
+        raise ValueError("background_scope must be either 'panels' or 'stack'.")
+
+    def validated_config(self) -> ModelT:
+        """Return the valid config or stop the current consumer cell."""
+        if self._validated_config is not None:
+            return self._validated_config
+        error = self.validation_error() or "Config is invalid."
+        if mo.running_in_notebook():
+            mo.stop(True, self.status_panel())
+        raise ValueError(error)
+
+    def is_valid(self) -> bool:
+        """Return whether the current draft is valid without stopping."""
+        return self._validated_config is not None
+
+    def validation_error(self) -> str | None:
+        """Return the current validation error without stopping."""
+        return self._error
+
+    def _resolve_background(self, background: Any) -> ConfigBackground:
+        if background is DEFAULT_BACKGROUND:
+            return self._background
+        return background
+
+    def _with_background(self, item: Any, background: Any) -> Any:
+        return _with_config_background(
+            item,
+            self._resolve_background(background),
+        )
+
+    def _apply_form_update(self, form_value: JSONType) -> None:
+        if not isinstance(form_value, dict):
+            return
+        self._form._convert_value(form_value)
+        next_payload = _order_payload_for_model(
+            self._model_cls,
+            self._form._last_payload,
+        )
+        self._replace_payload(next_payload, sync_form=False)
+
+    def _apply_json_update(self, json_value: JSONType) -> None:
+        if not isinstance(json_value, str):
+            self._json_text = str(json_value)
+            self._error = "JSON editor value must be a string."
+            self._validated_config = None
             return
 
-        command = UpdateUIElementCommand.from_ids_and_values(
-            [
-                (element._id, frontend_value)
-                for element, frontend_value in deduped.values()
-            ]
+        _set_local_frontend_value(self._json_editor, json_value)
+        self._json_text = json_value
+        try:
+            parsed = json.loads(json_value)
+        except json.JSONDecodeError as exc:
+            self._error = f"json: {exc.msg}"
+            self._validated_config = None
+            return
+
+        if not isinstance(parsed, dict):
+            self._error = "json: top-level JSON value must be an object."
+            self._validated_config = None
+            return
+
+        try:
+            next_payload = _order_payload_for_model(self._model_cls, parsed)
+        except ValueError as exc:
+            self._error = str(exc)
+            self._validated_config = None
+            return
+
+        validated = self._validate_payload(next_payload)
+        if validated is None:
+            return
+
+        self._payload = next_payload
+        self._json_text = _payload_to_json(next_payload)
+        self._validated_config = validated
+        self._sync_json_editor(self._json_text)
+        self._sync_form_controls(next_payload)
+
+    def _replace_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        sync_form: bool = True,
+    ) -> None:
+        self._payload = payload
+        self._json_text = _payload_to_json(payload)
+        self._validated_config = self._validate_payload(payload)
+        self._sync_json_editor(self._json_text)
+        if sync_form:
+            self._sync_form_controls(payload)
+
+    def _validate_payload(self, payload: dict[str, Any]) -> ModelT | None:
+        value, error = _validate_payload_with_error(self._model_cls, payload)
+        self._error = error
+        return value
+
+    def _sync_json_editor(self, json_text: str) -> None:
+        self._sync_elements([(self._json_editor, json_text)])
+
+    def _sync_form_controls(self, payload: dict[str, Any]) -> None:
+        frontend_value = self._form._frontend_value_from_payload(payload)
+        _set_local_frontend_value(self._form, frontend_value)
+        self._form._last_payload = payload
+        self._form._sync_field_controls(payload, force=True)
+
+    def _sync_elements(
+        self,
+        updates: list[tuple[UIElement[Any, Any], JSONType]],
+        *,
+        force: bool = False,
+    ) -> None:
+        deduped: dict[str, tuple[UIElement[Any, Any], JSONType]] = {}
+        for element, frontend_value in updates:
+            if (
+                not force
+                and _current_element_frontend_value(element) == frontend_value
+            ):
+                continue
+            deduped[element._id] = (element, frontend_value)
+
+        if not deduped:
+            return
+
+        for element, frontend_value in deduped.values():
+            _set_local_frontend_value(element, frontend_value)
+
+        for element, frontend_value in deduped.values():
+            _send_frontend_value_update(element, frontend_value)
+
+
+def _with_config_background(
+    item: Any,
+    background: ConfigBackground,
+) -> Any:
+    if background is None:
+        return item
+    if isinstance(background, str) and background in _BACKGROUND_STYLES:
+        style = _BACKGROUND_STYLES[background]
+    elif isinstance(background, Mapping):
+        style = dict(background)
+    else:
+        names = ", ".join(sorted(_BACKGROUND_STYLES))
+        raise ValueError(
+            f"background must be one of {names}; a CSS style mapping; or None."
         )
-        self._sync_task = loop.create_task(kernel.set_ui_element_value(command))
+    return item.style(style)
+
+
+def _send_frontend_value_update(
+    element: UIElement[Any, Any],
+    frontend_value: JSONType,
+) -> None:
+    element._send_message(
+        {
+            "type": "marimo-ui-value-update",
+            "value": frontend_value,
+        },
+        buffers=None,
+    )
 
 
 def _build_model_gui(*args: Any, **kwargs: Any) -> Any:
@@ -1515,6 +1898,18 @@ def _validate_payload_with_error(*args: Any, **kwargs: Any) -> Any:
 
 def _payload_to_json(*args: Any, **kwargs: Any) -> Any:
     from marimo_config_gui.widgets import _payload_to_json as impl
+
+    return impl(*args, **kwargs)
+
+
+def _load_preset_config(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.presets import load_preset_config as impl
+
+    return impl(*args, **kwargs)
+
+
+def _payload_for_config(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.presets import payload_for_config as impl
 
     return impl(*args, **kwargs)
 

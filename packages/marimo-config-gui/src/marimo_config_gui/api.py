@@ -14,7 +14,7 @@ from marimo._plugins.ui._core.ui_element import UIElement
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from tyro.constructors import ConstructorRegistry, PrimitiveConstructorSpec
 
-from marimo_config_gui.elements import PydanticGui
+from marimo_config_gui.elements import ConfigBackground, ConfigGui, PydanticGui
 from marimo_config_gui.presets import (
     ConfigFileEntry,
     ConfigPresetCatalog,
@@ -453,6 +453,51 @@ def create_config_state(
     )
 
 
+def create_config_gui(
+    model_cls: type[ModelT],
+    *,
+    value: ModelT | dict[str, Any] | None = None,
+    script_loader: ScriptConfigLoader | None = None,
+    script_args: Sequence[str] | None = None,
+    presets: ConfigPresetCatalog[ModelT] | None = None,
+    overlays: Sequence[ConfigFileEntry] = (),
+    path_defaults: Sequence[ConfigFileEntry] = (),
+    path_defaults_source: str | Path | None = None,
+    background: ConfigBackground = "neutral",
+    label: str = "",
+    nested_models_multiple_open: bool = True,
+    nested_models_flat_after_level: int | None = None,
+    exclude_fields: set[str] | frozenset[str] = frozenset(),
+) -> ConfigGui[ModelT]:
+    """Create an owning synchronized config GUI for a Pydantic model.
+
+    The returned object owns the draft payload, JSON text, validation status,
+    and typed config value. Its `gui_panel()` and `json_editor()` views can be
+    displayed independently or together, including inside marimo layout
+    wrappers, while staying synchronized through the owner.
+    """
+    initial_payload = _initial_config_payload(
+        model_cls,
+        value=value,
+        script_loader=script_loader,
+        script_args=script_args,
+        presets=presets,
+        overlays=overlays,
+        path_defaults=path_defaults,
+        path_defaults_source=path_defaults_source,
+    )
+    return ConfigGui(
+        model_cls,
+        value=initial_payload,
+        background=background,
+        presets=presets,
+        label=label,
+        nested_models_multiple_open=nested_models_multiple_open,
+        nested_models_flat_after_level=nested_models_flat_after_level,
+        exclude_fields=exclude_fields,
+    )
+
+
 def config_gui_panel(
     state_or_model_cls: ConfigBindings[ModelT] | type[ModelT],
     *,
@@ -665,7 +710,7 @@ def validated_config(
     *,
     form_gui_state: Any,
     json_gui_state: Any,
-) -> ModelT | None:
+) -> ModelT:
     """Validate and return the current config value.
 
     Args:
@@ -675,7 +720,8 @@ def validated_config(
         json_gui_state: Reactive JSON draft state.
 
     Returns:
-        The validated model instance if valid, otherwise `None`.
+        The validated model instance. Invalid drafts stop the current notebook
+        cell or raise `ValueError` outside notebook mode.
     """
     model_cls = _resolve_bound_model_cls(state_or_model_cls)
     current_error = _current_config_error(
@@ -684,6 +730,8 @@ def validated_config(
         json_gui_state=json_gui_state,
     )
     if current_error is not None:
-        return None
+        if mo.running_in_notebook():
+            mo.stop(True, _build_error_view(current_error))
+        raise ValueError(current_error)
     value, _ = _validate_payload_with_error(model_cls, form_gui_state())
     return value

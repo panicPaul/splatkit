@@ -10,7 +10,7 @@ notebook as a script with `tyro` CLI or JSON input.
 For an interactive version, run from the repository root:
 
 ```bash
-marimo run docs/interactive/marimo-config-gui.py
+marimo run docs/marimo-config-gui.py
 ```
 
 ## Install
@@ -25,7 +25,7 @@ uv add "marimo-config-gui @ git+https://github.com/panicPaul/ember.git@main#subd
 The same docs are available as an interactive marimo app:
 
 ```bash
-marimo run docs/interactive/marimo-config-gui.py
+marimo run docs/marimo-config-gui.py
 ```
 
 ## The Main Workflow
@@ -33,10 +33,10 @@ marimo run docs/interactive/marimo-config-gui.py
 The common workflow is:
 
 1. Create a Pydantic `BaseModel` for the notebook config.
-2. Create shared GUI state with `create_config_state(...)`.
-3. Render the config GUIs with `config_gui_panel(...)`,
-   `config_json_editor(...)`, and `config_status_panel(...)`.
-4. Extract the current typed value with `validated_config(...)`.
+2. Create an owning GUI with `create_config_gui(...)`.
+3. Render any combination of `gui_panel()`, `json_editor()`, and
+   `status_panel()`.
+4. Extract the current typed value with `config_gui.validated_config()`.
 
 ```python
 from pathlib import Path
@@ -44,11 +44,7 @@ from typing import Literal
 
 import marimo as mo
 from marimo_config_gui import (
-    config_gui_panel,
-    config_json_editor,
-    config_status_panel,
-    create_config_state,
-    validated_config,
+    create_config_gui,
 )
 from pydantic import BaseModel, Field
 
@@ -67,75 +63,54 @@ class Config(BaseModel):
     max_steps: int = Field(30_000, ge=1)
 ```
 
-In a marimo notebook, keep the state in one place and pass the returned
-bindings into the GUI helpers:
+In a marimo notebook, keep the config GUI owner in one place:
 
 ```python
 with app.setup:
-    (
-        config_form_state,
-        config_json_state,
-        config_bindings,
-    ) = create_config_state(Config)
+    config_gui = create_config_gui(Config)
 ```
 
-Render the form, JSON editor, and validation output in separate cells when that
-makes the notebook layout easier to scan:
+Render the form, JSON editor, and validation output in separate cells or wrapped
+layouts when that makes the notebook easier to scan:
 
 ```python
-config_gui_panel(
-    config_bindings,
-    form_gui_state=config_form_state,
-)
+config_gui.stacked()
 ```
 
+`stacked()` renders the form and JSON editor side by side with the validation
+status below. By default each visible panel uses the `neutral` background. Pass
+`background=None` to `create_config_gui(...)`, `stacked(...)`, or an individual
+view method for unstyled output. Named backgrounds mirror marimo callout kinds:
+`neutral`, `warn`, `success`, `info`, and `danger`.
+
 ```python
-config_json_editor(
-    config_bindings,
-    form_gui_state=config_form_state,
-    json_gui_state=config_json_state,
-)
+config_gui.gui_panel()
 ```
 
 ```python
-config_status_panel(
-    config_bindings,
-    form_gui_state=config_form_state,
-    json_gui_state=config_json_state,
-)
+config_gui.json_editor()
 ```
+
+```python
+config_gui.status_panel()
+```
+
+The form and JSON editor synchronize both directions. For example, checking a
+boolean flag in the form updates the JSON to `true`, and editing the JSON to
+`true` updates the form checkbox.
 
 Then extract the current typed config wherever the notebook needs it:
 
 ```python
-config = validated_config(
-    config_bindings,
-    form_gui_state=config_form_state,
-    json_gui_state=config_json_state,
-)
-
-if config is None:
-    mo.stop(True, mo.callout("Fix the config before running.", kind="warn"))
+config = config_gui.validated_config()
 ```
 
-For cells that must not continue without a valid config, gate with marimo:
-
-```python
-config = validated_config(
-    config_bindings,
-    form_gui_state=config_form_state,
-    json_gui_state=config_json_state,
-)
-mo.stop(config is None, config_status_panel(
-    config_bindings,
-    form_gui_state=config_form_state,
-    json_gui_state=config_json_state,
-))
-```
+If the draft is invalid, `validated_config()` stops that consumer cell while
+the GUI and status cells remain live so the config can be fixed.
 
 ## Script Mode
 
-When the notebook is running as a script, `create_config_state(...)` loads the
+When the notebook is running as a script, `create_config_gui(...)` loads the
 initial config through `tyro`. With no positional config path, CLI flags are
 applied to the model defaults:
 
@@ -176,7 +151,7 @@ which makes the command-line interface ambiguous. If you need several panels,
 make them fields of one top-level `Config` model.
 
 For custom script behavior, pass `script_loader=...` to
-`create_config_state(...)`. The loader receives the model class, the optional
+`create_config_gui(...)`. The loader receives the model class, the optional
 default value, and the optional argument sequence.
 
 ## Local Path Defaults
@@ -212,7 +187,7 @@ For configs without JSON files or preset catalogs, pass a source path explicitly
 so the helper can look for the source's sibling `.path_defaults.json`:
 
 ```python
-create_config_state(
+create_config_gui(
     Config,
     value=Config(),
     path_defaults_source=NOTEBOOK_PATH,
@@ -229,26 +204,20 @@ too expensive to trigger on every draft edit. Use marimo gating when the user
 should edit a draft first and explicitly apply it:
 
 ```python
-draft_config = validated_config(
-    config_bindings,
-    form_gui_state=config_form_state,
-    json_gui_state=config_json_state,
-)
-
 load_button = mo.ui.run_button(
     label="Load scene",
-    disabled=draft_config is None,
+    disabled=not config_gui.is_valid(),
 )
 ```
 
 Then gate the expensive cell:
 
 ```python
-mo.stop(not load_button.value or draft_config is None)
-active_config = draft_config
+mo.stop(not load_button.value)
+active_config = config_gui.validated_config()
 ```
 
-Use `validated_config(...)` directly for cheap dependent controls. Use
+Use `config_gui.validated_config()` directly for cheap dependent controls. Use
 `mo.ui.run_button(...)` and `mo.stop(...)` for expensive work.
 
 ## Model Authoring Notes
@@ -260,7 +229,7 @@ Use `validated_config(...)` directly for cheap dependent controls. Use
 - Optional fields render with a `None`/configure control.
 - 1D and 2D NumPy or Torch arrays render as matrix widgets.
 - Validation constraints from Pydantic are enforced before
-  `validated_config(...)` returns a model.
+  `config_gui.validated_config()` returns a model.
 
 Field-level GUI hints can be provided through `json_schema_extra`:
 
@@ -290,14 +259,17 @@ class Config(BaseModel):
 
 ## marimo Patterns
 
-- Return `config_gui_panel(...)`, `config_json_editor(...)`,
-  `config_status_panel(...)`, and other reactive outputs directly from cells.
-  Avoid wrapping them in extra layout containers when the wrapped object itself
-  needs to stay reactive.
+- Prefer `create_config_gui(...)` and render `config_gui.gui_panel()`,
+  `config_gui.json_editor()`, and `config_gui.status_panel()`.
+- The owner API is designed for wrapped layouts such as
+  `mo.hstack([config_gui.gui_panel(), config_gui.json_editor()])` while keeping
+  JSON and form controls synchronized.
+- Use `config_gui.stacked()` for the default wrapped layout.
 - Keep config state creation in `app.setup` when the config should behave the
   same in notebook mode and script mode.
-- Treat `validated_config(...)` as `Config | None`; invalid JSON or failed
-  Pydantic validation returns `None`.
+- Treat `config_gui.validated_config()` as `Config`; invalid JSON or failed
+  Pydantic validation stops the consumer cell in notebooks or raises
+  `ValueError` in scripts.
 
 ## License
 

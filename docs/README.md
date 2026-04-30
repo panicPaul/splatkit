@@ -19,7 +19,7 @@ keeps the reading order and interactive marimo entrypoints easy to find.
 Run the interactive docs from the repository root:
 
 ```bash
-marimo run docs/interactive/marimo-config-gui.py
+marimo run docs/marimo-config-gui.py
 marimo run docs/interactive/marimo-3dv.py
 marimo run docs/interactive/ember/contracts.py
 marimo run docs/interactive/ember/data.py

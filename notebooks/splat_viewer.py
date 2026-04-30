@@ -44,12 +44,7 @@ with app.setup:
         apply_viewer_pipeline_config,
         viewer_pipeline_controls_gui,
     )
-    from marimo_config_gui import (
-        config_gui_panel,
-        config_status_panel,
-        create_config_state,
-        validated_config,
-    )
+    from marimo_config_gui import create_config_gui
 
     NOTEBOOK_PATH = Path(__file__).resolve()
     ember_fastgs_adapter.register()
@@ -125,7 +120,7 @@ def _(viewer):
     return
 
 
-@app.cell(column=1)
+@app.cell
 def _():
     view_mode_options = ["image", "alpha", "depth"]
     view_mode_required_outputs = {
@@ -176,25 +171,17 @@ def _():
 
 @app.cell
 def _():
-    (
-        load_form_gui_state,
-        load_json_gui_state,
-        load_bindings,
-    ) = create_config_state(
+    load_gui = create_config_gui(
         SplatLoadConfig,
         value=SplatLoadConfig(),
         path_defaults_source=NOTEBOOK_PATH,
     )
-    return load_bindings, load_form_gui_state, load_json_gui_state
+    return (load_gui,)
 
 
 @app.cell
-def _(load_bindings, load_form_gui_state, load_json_gui_state):
-    load_config = validated_config(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        json_gui_state=load_json_gui_state,
-    )
+def _(load_gui):
+    load_config = load_gui.validated_config()
     return (load_config,)
 
 
@@ -227,11 +214,7 @@ def _(load_config, viewer_state):
             close_existing_viewer=True,
             empty_cuda_cache=True,
         )
-        scene = (
-            None
-            if load_config is None
-            else load_gaussian_scene(load_config.ply_path)
-        )
+        scene = load_gaussian_scene(load_config.ply_path)
     else:
         picked_load_config = pick_splat_load_config()
         scene = (
@@ -562,7 +545,7 @@ def _(
     return (viewer,)
 
 
-@app.cell(column=2, hide_code=True)
+@app.cell(column=1, hide_code=True)
 def _():
     mo.md("""
     ## Scene Controls
@@ -649,29 +632,9 @@ def _(view_mode, view_mode_required_outputs):
 
 
 @app.cell
-def _(load_bindings, load_form_gui_state):
-    load_form = config_gui_panel(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        label="Scene",
-    )
+def _(load_gui):
+    load_form = load_gui.gui_panel()
     return (load_form,)
-
-
-@app.cell
-def _(load_bindings, load_form_gui_state, load_json_gui_state):
-    load_error = config_status_panel(
-        load_bindings,
-        form_gui_state=load_form_gui_state,
-        json_gui_state=load_json_gui_state,
-    )
-    return (load_error,)
-
-
-@app.cell
-def _(load_error):
-    load_error
-    return
 
 
 @app.cell(hide_code=True)
@@ -706,11 +669,11 @@ def _():
     from enum import Enum, Flag, IntFlag, auto
     from typing import Literal
 
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
 
     class Range(BaseModel):
         lower: int = 0
-        upper: int = 100
+        upper: int = Field(1, le=100)
 
     class Selection(Enum):
         RED = "red"
@@ -725,6 +688,7 @@ def _():
         option_field: Literal["a", "b"] = "a"
         range: Range = Range()
         range2: Range = Range()
+        tuple_range: tuple[float, float] = (0, 1)
         enum: Selection = Selection.GREEN
         int_flag: MultiSelection = MultiSelection.GREEN
         choice: bool = True
@@ -734,23 +698,25 @@ def _():
 
 @app.cell
 def _(ConfigTest):
-    gui_state, json_state, bindings = create_config_state(ConfigTest)
-    return bindings, gui_state, json_state
+    config_gui = create_config_gui(ConfigTest)
+    return (config_gui,)
 
 
 @app.cell
-def _(bindings, gui_state):
-    config_gui_panel(bindings, form_gui_state=gui_state)
+def _(config_gui):
+    config_gui.stacked()
     return
 
 
 @app.cell
-def _(bindings, gui_state, json_state):
-    from marimo_config_gui import config_json_editor
+def _(config_gui):
+    a = config_gui.validated_config().model_dump()
+    return (a,)
 
-    config_json_editor(
-        bindings, form_gui_state=gui_state, json_gui_state=json_state
-    )
+
+@app.cell
+def _(a):
+    a
     return
 
 

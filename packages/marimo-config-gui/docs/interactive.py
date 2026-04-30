@@ -20,12 +20,7 @@ with app.setup:
     from marimo_config_gui import (
         ConfigPreset,
         ConfigPresetCatalog,
-        config_gui_panel,
-        config_json_editor,
-        config_preset_selector,
-        config_status_panel,
-        create_config_state,
-        validated_config,
+        create_config_gui,
     )
     from marimo_config_gui.api import load_script_config
     from pydantic import BaseModel, Field
@@ -113,11 +108,11 @@ def _():
         The common workflow is:
 
         1. Create a Pydantic `BaseModel` for the notebook config.
-        2. Create shared GUI state with `create_config_state(...)`.
-        3. Render the form with `config_gui_panel(...)`.
+        2. Create an owning GUI with `create_config_gui(...)`.
+        3. Render the form with `gui.gui_panel()`.
         4. Render the linked JSON editor and validation status with
-           `config_json_editor(...)` and `config_status_panel(...)`.
-        5. Extract the current typed value with `validated_config(...)`.
+           `gui.json_editor()` and `gui.status_panel()`.
+        5. Extract the current typed value with `gui.validated_config()`.
 
         ### 1. Create a Pydantic BaseModel
 
@@ -184,20 +179,13 @@ def _():
         ### 2. Create shared GUI state
 
         ```python
-        (
-            config_form_state,
-            config_json_state,
-            config_bindings,
-        ) = create_config_state(Config, value=Config())
+        gui = create_config_gui(Config, value=Config())
         ```
 
         ### 3. Render the form
 
         ```python
-        config_gui_panel(
-            config_bindings,
-            form_gui_state=config_form_state,
-        )
+        gui.gui_panel()
         ```
 
         The live form below is produced by that call.
@@ -205,55 +193,28 @@ def _():
         ### 4. Render the linked JSON editor and validation status
 
         ```python
-        config_json_editor(
-            config_bindings,
-            form_gui_state=config_form_state,
-            json_gui_state=config_json_state,
-        )
+        gui.json_editor()
         ```
 
         ```python
-        config_status_panel(
-            config_bindings,
-            form_gui_state=config_form_state,
-            json_gui_state=config_json_state,
-        )
+        gui.status_panel()
         ```
 
         ### 5. Extract the current typed value
 
         ```python
-        config = validated_config(
-            config_bindings,
-            form_gui_state=config_form_state,
-            json_gui_state=config_json_state,
-        )
+        config = gui.validated_config()
         ```
 
-        Treat `validated_config(...)` as `Config | None` and stop dependent
-        cells while the draft is invalid:
-
-        ```python
-        mo.stop(
-            config is None,
-            config_status_panel(
-                config_bindings,
-                form_gui_state=config_form_state,
-                json_gui_state=config_json_state,
-            ),
-        )
-        ```
+        If the draft is invalid, `gui.validated_config()` stops that consumer
+        cell while the GUI and status cells remain live.
 
         Keep loader-backed config state creation in `app.setup` when notebook
         and script mode should share the same initialization path:
 
         ```python
         with app.setup:
-            (
-                config_form_state,
-                config_json_state,
-                config_bindings,
-            ) = create_config_state(Config)
+            config_gui = create_config_gui(Config)
         ```
 
         The live editor below defines the model used by the generated form
@@ -285,19 +246,11 @@ def _(main_workflow_error):
 @app.cell
 def _(main_workflow_error, main_workflow_model):
     mo.stop(main_workflow_error is not None or main_workflow_model is None)
-    (
-        main_workflow_form_state,
-        main_workflow_json_state,
-        main_workflow_bindings,
-    ) = create_config_state(
+    main_workflow_gui = create_config_gui(
         main_workflow_model,
         value=main_workflow_model(),
     )
-    return (
-        main_workflow_bindings,
-        main_workflow_form_state,
-        main_workflow_json_state,
-    )
+    return (main_workflow_gui,)
 
 
 @app.cell(hide_code=True)
@@ -307,25 +260,14 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(main_workflow_bindings, main_workflow_form_state):
-    config_gui_panel(
-        main_workflow_bindings,
-        form_gui_state=main_workflow_form_state,
-    )
+def _(main_workflow_gui):
+    main_workflow_gui.gui_panel()
     return
 
 
 @app.cell
-def _(
-    main_workflow_bindings,
-    main_workflow_form_state,
-    main_workflow_json_state,
-):
-    main_workflow_config = validated_config(
-        main_workflow_bindings,
-        form_gui_state=main_workflow_form_state,
-        json_gui_state=main_workflow_json_state,
-    )
+def _(main_workflow_gui):
+    main_workflow_config = main_workflow_gui.validated_config()
     return (main_workflow_config,)
 
 
@@ -337,11 +279,7 @@ def _(main_workflow_config):
 
 @app.cell(hide_code=True)
 def _(main_workflow_config):
-    mo.json(
-        None
-        if main_workflow_config is None
-        else main_workflow_config.model_dump(mode="json")
-    )
+    mo.json(main_workflow_config.model_dump(mode="json"))
     return
 
 
@@ -434,7 +372,7 @@ def _():
         """
         ### 2. Generated Form View
 
-        `config_gui_panel(...)` renders a structured form from the same model.
+        `gui.gui_panel()` renders a structured form from the same model.
         Edits here update the shared config draft, including the JSON editor
         below.
         """
@@ -443,11 +381,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(scratch_bindings, scratch_form_state):
-    config_gui_panel(
-        scratch_bindings,
-        form_gui_state=scratch_form_state,
-    )
+def _(scratch_gui):
+    scratch_gui.gui_panel()
     return
 
 
@@ -457,7 +392,7 @@ def _():
         """
         ### 3. JSON View of the Same Draft
 
-        `config_json_editor(...)` is not a separate config. It is linked to the
+        `gui.json_editor()` is not a separate config. It is linked to the
         form above. Editing either view updates the other, and validation still
         happens against the typed Pydantic model.
         """
@@ -466,12 +401,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(scratch_bindings, scratch_form_state, scratch_json_state):
-    config_json_editor(
-        scratch_bindings,
-        form_gui_state=scratch_form_state,
-        json_gui_state=scratch_json_state,
-    )
+def _(scratch_gui):
+    scratch_gui.json_editor()
     return
 
 
@@ -481,22 +412,18 @@ def _():
         """
         ### 4. Validation Status
 
-        `config_status_panel(...)` itself is intentionally empty when the draft
+        `gui.status_panel()` itself is intentionally empty when the draft
         is valid. The docs render an explicit success message in that case so
         the empty-valid state is visible. Downstream cells should still treat
-        `validated_config(...)` as `Config | None`.
+        `gui.validated_config()` as a strict `Config` value.
         """
     )
     return
 
 
 @app.cell(hide_code=True)
-def _(scratch_bindings, scratch_form_state, scratch_json_state):
-    status_panel = config_status_panel(
-        scratch_bindings,
-        form_gui_state=scratch_form_state,
-        json_gui_state=scratch_json_state,
-    )
+def _(scratch_gui):
+    status_panel = scratch_gui.status_panel()
     if status_panel.text == mo.md("").text:
         status_display = docs_md("No validation errors.")
     else:
@@ -527,18 +454,18 @@ def _(scratch_config):
 def _():
     docs_md(
         r"""
-        ### Known Bugs
+        ### Wrapped Layouts
 
-        Do not wrap `config_gui_panel(...)`, `config_json_editor(...)`,
-        `config_preset_selector(...)`, or `config_status_panel(...)` in
-        `mo.vstack(...)`, `mo.hstack(...)`, callouts, or other layout wrappers
-        when the wrapped object itself needs to stay reactive.
+        The owner API can be wrapped in marimo layouts while keeping the form,
+        JSON editor, and validation status synchronized.
 
-        The current marimo state wiring can lose updates through those wrappers,
-        especially for `config_json_editor(...)`: form-to-JSON updates may keep
-        working while JSON-to-form updates stop propagating.
+        ```python
+        gui.stacked()
+        ```
 
-        Return each reactive config element directly from its own cell.
+        The default background is `neutral`. Pass `background=None` to
+        `create_config_gui(...)` or to an individual view method for raw
+        unstyled output.
         """
     )
     return
@@ -552,7 +479,7 @@ def _():
 
         ## Script Mode
 
-        When the notebook is running as a script, `create_config_state(...)`
+        When the notebook is running as a script, `create_config_gui(...)`
         loads the initial config through `tyro`. With no positional config path,
         CLI flags are applied to the model defaults:
 
@@ -601,17 +528,11 @@ def _():
         r"""
         ### Notebook Preset Selector
 
-        `config_preset_selector(...)` is the notebook UI equivalent of
-        `--preset`. It loads a named JSON preset into the same shared config
-        draft used by the form and JSON editor.
+        Passing a `ConfigPresetCatalog` to `create_config_gui(...)` uses the
+        catalog default in notebook mode and enables `--preset` in script mode.
 
         ```python
-        config_preset_selector(
-            config_bindings,
-            presets=preset_catalog,
-            form_gui_state=config_form_state,
-            json_gui_state=config_json_state,
-        )
+        gui = create_config_gui(Config, presets=preset_catalog)
         ```
         """
     )
@@ -619,13 +540,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(preset_bindings, preset_catalog, preset_form_state, preset_json_state):
-    config_preset_selector(
-        preset_bindings,
-        presets=preset_catalog,
-        form_gui_state=preset_form_state,
-        json_gui_state=preset_json_state,
-    )
+def _(preset_gui):
+    preset_gui.json_editor()
     return
 
 
@@ -638,29 +554,20 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(preset_bindings, preset_form_state):
-    config_gui_panel(
-        preset_bindings,
-        form_gui_state=preset_form_state,
-    )
+def _(preset_gui):
+    preset_gui.gui_panel()
     return
 
 
 @app.cell
-def _(preset_bindings, preset_form_state, preset_json_state):
-    preset_config = validated_config(
-        preset_bindings,
-        form_gui_state=preset_form_state,
-        json_gui_state=preset_json_state,
-    )
+def _(preset_gui):
+    preset_config = preset_gui.validated_config()
     return (preset_config,)
 
 
 @app.cell(hide_code=True)
 def _(preset_config):
-    mo.json(
-        None if preset_config is None else preset_config.model_dump(mode="json")
-    )
+    mo.json(preset_config.model_dump(mode="json"))
     return
 
 
@@ -728,7 +635,7 @@ def _():
         model.
 
         For custom script behavior, pass `script_loader=...` to
-        `create_config_state(...)`. The loader receives the model class, the
+        `create_config_gui(...)`. The loader receives the model class, the
         optional default value, and the optional argument sequence.
         """
     )
@@ -827,7 +734,7 @@ def _():
         `.path_defaults.json`:
 
         ```python
-        create_config_state(
+        create_config_gui(
             Config,
             value=Config(),
             path_defaults_source=NOTEBOOK_PATH,
@@ -854,15 +761,9 @@ def _():
         gating when the user should edit a draft first and explicitly apply it:
 
         ```python
-        draft_config = validated_config(
-            config_bindings,
-            form_gui_state=config_form_state,
-            json_gui_state=config_json_state,
-        )
-
         load_button = mo.ui.run_button(
             label="Load scene",
-            disabled=draft_config is None,
+            disabled=not gui.is_valid(),
         )
         ```
 
@@ -870,9 +771,10 @@ def _():
         where the expensive work would run:
 
         ```python
-        if not load_button.value or draft_config is None:
+        if not load_button.value:
             mo.callout("Scene not loaded yet.", kind="warn")
         else:
+            draft_config = gui.validated_config()
             scene_path = getattr(draft_config, "scene_path", None)
             if scene_path is None:
                 mo.callout("Scene loaded.", kind="success")
@@ -880,7 +782,7 @@ def _():
                 mo.callout(f"Scene loaded: `{scene_path}`.", kind="success")
         ```
 
-        Use `validated_config(...)` directly for cheap dependent controls. Use
+        Use `gui.validated_config()` directly for cheap dependent controls. Use
         `mo.ui.run_button(...)` and `mo.stop(...)` for expensive work.
         """
     )
@@ -888,16 +790,17 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(draft_config, load_button):
+def _(load_button):
     load_button
     return
 
 
 @app.cell(hide_code=True)
-def _(draft_config, load_button):
-    if not load_button.value or draft_config is None:
+def _(load_button, scratch_gui):
+    if not load_button.value:
         load_status = mo.callout("Scene not loaded yet.", kind="warn")
     else:
+        draft_config = scratch_gui.validated_config()
         scene_path = getattr(draft_config, "scene_path", None)
         if scene_path is None:
             load_status = mo.callout("Scene loaded.", kind="success")
@@ -1107,35 +1010,24 @@ def _(model_source_editor):
 @app.cell
 def _(scratch_config_model, scratch_model_error):
     mo.stop(scratch_model_error is not None or scratch_config_model is None)
-    (
-        scratch_form_state,
-        scratch_json_state,
-        scratch_bindings,
-    ) = create_config_state(
+    scratch_gui = create_config_gui(
         scratch_config_model,
         value=scratch_config_model(),
     )
-    return scratch_bindings, scratch_form_state, scratch_json_state
+    return (scratch_gui,)
 
 
 @app.cell
-def _(scratch_bindings, scratch_form_state, scratch_json_state):
-    scratch_config = validated_config(
-        scratch_bindings,
-        form_gui_state=scratch_form_state,
-        json_gui_state=scratch_json_state,
-    )
-    if scratch_config is None:
-        mo.stop(True, mo.callout("Fix the config before running.", kind="warn"))
-    draft_config = scratch_config
-    return draft_config, scratch_config
+def _(scratch_gui):
+    scratch_config = scratch_gui.validated_config()
+    return (scratch_config,)
 
 
 @app.cell
-def _(draft_config):
+def _(scratch_gui):
     load_button = mo.ui.run_button(
         label="Load scene",
-        disabled=draft_config is None,
+        disabled=not scratch_gui.is_valid(),
     )
     return (load_button,)
 
@@ -1219,15 +1111,11 @@ def _(Config, base_config_path, bicycle_config_path):
 
 @app.cell
 def _(Config, preset_catalog):
-    (
-        preset_form_state,
-        preset_json_state,
-        preset_bindings,
-    ) = create_config_state(
+    preset_gui = create_config_gui(
         Config,
         presets=preset_catalog,
     )
-    return preset_bindings, preset_form_state, preset_json_state
+    return (preset_gui,)
 
 
 @app.cell
