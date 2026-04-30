@@ -1033,7 +1033,7 @@ def _():
             '        description="Leave unset for a fresh run.",',
             "    )",
         ),
-        "GUI hints: slider and JSON fields": code_example(
+        "GUI hints and sequence fields": code_example(
             "from pydantic import BaseModel, Field",
             "",
             "",
@@ -1055,6 +1055,18 @@ def _():
             "        json_schema_extra={",
             '            "marimo_config_gui": {"render": "json"},',
             "        },",
+            "    )",
+            "    opacity_range: tuple[float, float] = Field(",
+            "        (0.1, 0.9),",
+            '        description="Fixed tuples of length 2-5 render as compact fields.",',
+            "    )",
+            "    color_correction: tuple[float, float, float, float, float, float] = Field(",
+            "        (1.0, 0.0, 0.0, 1.0, 0.0, 1.0),",
+            '        description="Longer tuples fall back to JSON arrays.",',
+            "    )",
+            "    milestones: list[int] = Field(",
+            "        default_factory=lambda: [1000, 5000, 10000],",
+            '        description="Lists stay variable-length and render as JSON arrays.",',
             "    )",
         ),
     }

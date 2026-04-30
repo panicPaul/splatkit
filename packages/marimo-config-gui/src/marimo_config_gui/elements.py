@@ -514,6 +514,125 @@ class ModelTupleGui(UIElement[dict[str, JSONType], Any]):
         return frontend
 
 
+class PrimitiveTupleGui(UIElement[dict[str, JSONType], tuple[Any, ...]]):
+    """Render a short fixed tuple of primitive values side by side."""
+
+    _name = "marimo-dict"
+
+    def __init__(
+        self,
+        spec: _FieldSpec,
+        item_types: tuple[type[int] | type[float] | type[str], ...],
+        children: tuple[UIElement[Any, Any], ...],
+        *,
+        on_change: Any | None = None,
+    ) -> None:
+        self._spec = spec
+        self._item_types = item_types
+        self._children = children
+        self._elements = {
+            str(index): child for index, child in enumerate(children)
+        }
+        controls = mo.hstack(children, align="start", justify="start")
+        label = mo.md(
+            "<span style="
+            '"font-weight: 500;"'
+            ">"
+            f"{html.escape(spec.label())}"
+            "</span>"
+        )
+        layout_html = (
+            '<div style="'
+            "display: flex; "
+            "align-items: flex-start; "
+            "justify-content: flex-start; "
+            "gap: 0.5rem; "
+            'width: 100%;">'
+            f'<div style="flex: 0 0 7rem; padding-top: 0.125rem;">{label.text}</div>'
+            '<div style="flex: 1 1 0; min-width: 0; width: 100%;">'
+            f"{controls.text}"
+            "</div>"
+            "</div>"
+        )
+        super().__init__(
+            component_name=self._name,
+            initial_value=self._current_frontend_value(),
+            label="",
+            args={
+                "element-ids": {
+                    element._id: name
+                    for name, element in self._elements.items()
+                }
+            },
+            slotted_html=layout_html,
+            on_change=on_change,
+        )
+        for name, element in self._elements.items():
+            element._register_as_view(parent=self, key=name)
+
+    @property
+    def elements(self) -> dict[str, UIElement[Any, Any]]:
+        """Return child UI elements keyed by tuple index."""
+        return self._elements
+
+    def _clone(self) -> PrimitiveTupleGui:
+        return type(self)(
+            self._spec,
+            self._item_types,
+            tuple(child._clone() for child in self._children),
+            on_change=self._on_change,
+        )
+
+    def _current_frontend_value(self) -> dict[str, JSONType]:
+        return {
+            name: _current_element_frontend_value(element)
+            for name, element in self._elements.items()
+        }
+
+    def _convert_value(self, value: dict[str, JSONType]) -> tuple[Any, ...]:
+        return self._parse_frontend_value(value, update_children=True)
+
+    def _parse_frontend_value(
+        self,
+        value: JSONType,
+        *,
+        update_children: bool,
+    ) -> tuple[Any, ...]:
+        merged = self._current_frontend_value()
+        if isinstance(value, dict):
+            merged.update(value)
+
+        items: list[Any] = []
+        for index, (name, child) in enumerate(self._elements.items()):
+            child_frontend = merged.get(
+                name, _current_element_frontend_value(child)
+            )
+            if update_children and child._value_frontend != child_frontend:
+                _set_local_frontend_value(child, child_frontend)
+                python_value = child._value
+            else:
+                python_value = child._convert_value(child_frontend)
+            items.append(self._item_types[index](python_value))
+        return tuple(items)
+
+    def _frontend_value_from_payload(self, value: Any) -> dict[str, JSONType]:
+        values: tuple[Any, ...]
+        if isinstance(value, tuple):
+            values = value
+        elif isinstance(value, list):
+            values = tuple(value)
+        else:
+            values = tuple()
+
+        frontend: dict[str, JSONType] = {}
+        for index, item_type in enumerate(self._item_types):
+            default = "" if item_type is str else 0
+            frontend[str(index)] = (
+                values[index] if index < len(values) else default
+            )
+        return frontend
+
+
 class PydanticGui(
     UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]
 ):
@@ -926,6 +1045,13 @@ class PydanticGui(
                 _payload_for_branch_model(active_model, value),
                 updates,
             )
+            return
+
+        if isinstance(element, PrimitiveTupleGui):
+            tuple_frontend = element._frontend_value_from_payload(value)
+            _set_local_frontend_value(element, tuple_frontend)
+            for name, child in element.elements.items():
+                updates.append((child, tuple_frontend[name]))
             return
 
         if isinstance(element, PydanticGui):

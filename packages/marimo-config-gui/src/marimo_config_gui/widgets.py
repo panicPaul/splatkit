@@ -45,6 +45,7 @@ from marimo_config_gui.elements import (
     ModelTupleGui,
     ModelUnionGui,
     NullableGui,
+    PrimitiveTupleGui,
     PydanticGui,
     PydanticJsonGui,
 )
@@ -130,6 +131,12 @@ class _FieldSpec:
                 update_children=update_children,
             )
 
+        if isinstance(element, PrimitiveTupleGui):
+            return element._parse_frontend_value(
+                frontend_value,
+                update_children=update_children,
+            )
+
         if isinstance(element, PydanticGui):
             payload, _ = element._payload_from_frontend(
                 frontend_value,
@@ -150,7 +157,13 @@ class _FieldSpec:
             return value
         if _is_dict_type(self.effective_annotation):
             return _coerce_dict_value(self.name, value)
+        if _is_primitive_list_type(self.effective_annotation):
+            return _coerce_json_array_value(self.name, value)
+        if _is_json_sequence_type(self.effective_annotation):
+            return tuple(_coerce_json_array_value(self.name, value))
         if _is_model_tuple_type(self.effective_annotation):
+            return tuple(value)
+        if _is_compact_primitive_tuple_type(self.effective_annotation):
             return tuple(value)
         if self.effective_annotation is Path:
             return _coerce_path_value(self.info, value)
@@ -353,6 +366,7 @@ def _field_uses_direct_json_editor(
         or spec.effective_annotation is Path
         or _is_literal_type(spec.effective_annotation)
         or _is_enum_type(spec.effective_annotation)
+        or _is_compact_primitive_tuple_type(spec.effective_annotation)
     )
 
 
@@ -650,6 +664,9 @@ def _build_concrete_field_element(
             label=label,
         )
 
+    if _is_compact_primitive_tuple_type(annotation):
+        return _build_primitive_tuple_element(spec, value)
+
     if _is_model_type(annotation):
         nested_payload = value if isinstance(value, dict) else {}
         if spec.force_json_editor:
@@ -710,7 +727,65 @@ def _build_concrete_field_element(
             label=label,
         )
 
+    if _is_primitive_list_type(annotation) or _is_json_sequence_type(
+        annotation
+    ):
+        return mo.ui.code_editor(
+            value=_json_sequence_text(value),
+            language="json",
+            show_copy_button=True,
+            debounce=False,
+            label=label,
+        )
+
     return mo.ui.text(value=_text_value(value), label=label)
+
+
+def _build_primitive_tuple_element(
+    spec: _FieldSpec,
+    value: Any,
+) -> UIElement[Any, Any]:
+    item_types = _primitive_tuple_types(spec.effective_annotation)
+    values = value if isinstance(value, tuple | list) else ()
+    children: list[UIElement[Any, Any]] = []
+    labels = _primitive_tuple_item_labels(len(item_types))
+    for index, item_type in enumerate(item_types):
+        item_value = values[index] if index < len(values) else None
+        if item_type in (int, float):
+            children.append(
+                _build_numeric_element(
+                    item_type,
+                    spec.info,
+                    _default_primitive_item_value(item_type, item_value),
+                    labels[index],
+                    prefer_slider=spec.widget_mode == "slider",
+                )
+            )
+        else:
+            children.append(
+                mo.ui.text(
+                    value=str(
+                        _default_primitive_item_value(item_type, item_value)
+                    ),
+                    label=labels[index],
+                )
+            )
+    return PrimitiveTupleGui(spec, item_types, tuple(children))
+
+
+def _primitive_tuple_item_labels(length: int) -> tuple[str, ...]:
+    if length == 2:
+        return ("Min", "Max")
+    return tuple(str(index + 1) for index in range(length))
+
+
+def _default_primitive_item_value(
+    item_type: type[int] | type[float] | type[str],
+    value: Any,
+) -> int | float | str:
+    if value is None:
+        return "" if item_type is str else item_type()
+    return item_type(value)
 
 
 def _build_numeric_element(
@@ -1349,6 +1424,12 @@ def _default_value_for_annotation(
             _resolve_initial_payload(model_type, None)
             for model_type in _model_tuple_types(annotation)
         )
+    if _is_compact_primitive_tuple_type(annotation):
+        return tuple(item_type() for item_type in _primitive_tuple_types(annotation))
+    if _is_primitive_list_type(annotation):
+        return []
+    if _is_json_sequence_type(annotation):
+        return []
     if _is_array_annotation(annotation):
         return _default_array_value(annotation)
     if _is_dict_type(annotation):
@@ -1415,6 +1496,40 @@ def _is_model_union_type(annotation: Any) -> bool:
 def _is_dict_type(annotation: Any) -> bool:
     origin = get_origin(annotation)
     return annotation is dict or origin in (dict, Mapping)
+
+
+def _primitive_tuple_types(
+    annotation: Any,
+) -> tuple[type[int] | type[float] | type[str], ...]:
+    if get_origin(annotation) is not tuple:
+        return ()
+    args = get_args(annotation)
+    if not args or any(arg is Ellipsis for arg in args):
+        return ()
+    if not all(arg in (int, float, str) for arg in args):
+        return ()
+    return cast(tuple[type[int] | type[float] | type[str], ...], args)
+
+
+def _is_compact_primitive_tuple_type(annotation: Any) -> bool:
+    item_types = _primitive_tuple_types(annotation)
+    return 2 <= len(item_types) <= 5
+
+
+def _is_primitive_list_type(annotation: Any) -> bool:
+    if get_origin(annotation) is not list:
+        return False
+    args = get_args(annotation)
+    return len(args) == 1 and args[0] in (int, float, str)
+
+
+def _is_json_sequence_type(annotation: Any) -> bool:
+    if get_origin(annotation) is not tuple:
+        return False
+    item_types = _primitive_tuple_types(annotation)
+    if not item_types:
+        return False
+    return not _is_compact_primitive_tuple_type(annotation)
 
 
 def _union_kind_for_model(
@@ -1667,6 +1782,9 @@ def _uses_text_fallback(annotation: Any) -> bool:
         or _is_enum_type(annotation)
         or _is_model_type(annotation)
         or _is_model_union_type(annotation)
+        or _is_compact_primitive_tuple_type(annotation)
+        or _is_primitive_list_type(annotation)
+        or _is_json_sequence_type(annotation)
         or _is_array_annotation(annotation)
     )
 
@@ -1700,6 +1818,19 @@ def _coerce_dict_value(name: str, value: Any) -> dict[str, Any]:
     if not isinstance(value, str):
         raise ValueError(f"{name}: Expected a JSON object.")
     payload, error = _json_text_to_payload(value)
+    if error is not None:
+        raise ValueError(f"{name}: {error}") from None
+    return payload
+
+
+def _coerce_json_array_value(name: str, value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if not isinstance(value, str):
+        raise ValueError(f"{name}: Expected a JSON array.")
+    payload, error = _json_text_to_array(value)
     if error is not None:
         raise ValueError(f"{name}: {error}") from None
     return payload
@@ -1749,6 +1880,8 @@ def _frontend_value_for_element(
         return element._frontend_value_from_payload(value)
     if isinstance(element, ModelTupleGui):
         return element._frontend_value_from_payload(value)
+    if isinstance(element, PrimitiveTupleGui):
+        return element._frontend_value_from_payload(value)
     if isinstance(element, PydanticGui):
         return element._frontend_value_from_payload(
             _payload_for_branch_model(element._model_cls, value)
@@ -1775,6 +1908,10 @@ def _frontend_value_for_element(
         return value
     if _is_dict_type(annotation):
         return _payload_to_json(value if isinstance(value, dict) else {})
+    if _is_primitive_list_type(annotation) or _is_json_sequence_type(
+        annotation
+    ):
+        return _json_sequence_text(value)
     return _text_value(value)
 
 
@@ -1994,8 +2131,23 @@ def _json_text_to_payload(json_text: str) -> tuple[dict[str, Any], str | None]:
     return parsed, None
 
 
+def _json_text_to_array(json_text: str) -> tuple[list[Any], str | None]:
+    try:
+        parsed = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        return [], f"json: {exc.msg}"
+    if not isinstance(parsed, list):
+        return [], "json: top-level JSON value must be an array."
+    return parsed, None
+
+
 def _payload_to_json(payload: dict[str, Any]) -> str:
     return json.dumps(_jsonify(payload), indent=2)
+
+
+def _json_sequence_text(value: Any) -> str:
+    sequence = value if isinstance(value, list | tuple) else []
+    return json.dumps(_jsonify(list(sequence)), indent=2)
 
 
 def _jsonify_model_value(value: Any) -> dict[str, Any]:

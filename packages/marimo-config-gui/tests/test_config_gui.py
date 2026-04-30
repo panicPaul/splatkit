@@ -56,6 +56,27 @@ class _DictModel(BaseModel):
     )
 
 
+class _PrimitiveSequenceModel(BaseModel):
+    opacity_range: tuple[float, float] = (0.1, 0.9)
+    crop_origin: tuple[int, int, int] = (1, 2, 3)
+    weights: tuple[float, float, float, float, float] = (
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+    )
+    labels: list[str] = Field(default_factory=lambda: ["train", "eval"])
+
+
+class _VariableTupleModel(BaseModel):
+    values: tuple[int, ...] = (1, 2)
+
+
+class _LongTupleModel(BaseModel):
+    values: tuple[int, int, int, int, int, int] = (1, 2, 3, 4, 5, 6)
+
+
 class _OptionalModel(BaseModel):
     source: Path | None = Path("README.md")
 
@@ -812,6 +833,119 @@ def test_dict_form_rejects_non_object_json() -> None:
         ValueError, match="top-level JSON value must be an object"
     ):
         generated._convert_value({"payload": "[1, 2, 3]"})
+
+
+def test_short_primitive_tuple_form_uses_compact_widget() -> None:
+    generated = PydanticGui(_PrimitiveSequenceModel, include_json_editor=False)
+
+    assert type(generated.elements["opacity_range"]).__name__ == (
+        "PrimitiveTupleGui"
+    )
+    assert type(generated.elements["crop_origin"]).__name__ == (
+        "PrimitiveTupleGui"
+    )
+    assert type(generated.elements["weights"]).__name__ == (
+        "PrimitiveTupleGui"
+    )
+    assert generated.elements["opacity_range"]._value_frontend == {
+        "0": 0.1,
+        "1": 0.9,
+    }
+    assert generated.elements["weights"]._value_frontend == {
+        "0": 0.1,
+        "1": 0.2,
+        "2": 0.3,
+        "3": 0.4,
+        "4": 0.5,
+    }
+
+
+def test_short_primitive_tuple_form_parses_changes() -> None:
+    generated = PydanticGui(_PrimitiveSequenceModel, include_json_editor=False)
+
+    value = generated._convert_value(
+        {
+            "opacity_range": {"0": 0.2, "1": 0.8},
+            "crop_origin": {"0": 4, "1": 5, "2": 6},
+            "weights": {"0": 0.5, "1": 0.4, "2": 0.3, "3": 0.2, "4": 0.1},
+        }
+    )
+
+    assert value == _PrimitiveSequenceModel(
+        opacity_range=(0.2, 0.8),
+        crop_origin=(4, 5, 6),
+        weights=(0.5, 0.4, 0.3, 0.2, 0.1),
+    )
+
+
+def test_config_gui_panel_syncs_primitive_sequences_to_json(
+    notebook_runtime: None,
+) -> None:
+    form_gui_state, json_gui_state, bindings = _make_state(
+        _PrimitiveSequenceModel
+    )
+    form = config_gui_panel(
+        bindings,
+        form_gui_state=form_gui_state,
+    )
+
+    _dispatch_form_change(
+        form,
+        {
+            "opacity_range": {"0": 0.2, "1": 0.8},
+            "labels": '[\n  "train",\n  "test"\n]',
+        },
+    )
+
+    assert form_gui_state()["opacity_range"] == (0.2, 0.8)
+    assert form_gui_state()["labels"] == ["train", "test"]
+    assert '"opacity_range": [\n    0.2,\n    0.8\n  ]' in json_gui_state()
+    assert '"labels": [\n    "train",\n    "test"\n  ]' in json_gui_state()
+
+
+def test_primitive_list_form_uses_json_array_editor() -> None:
+    generated = PydanticGui(_PrimitiveSequenceModel, include_json_editor=False)
+
+    assert type(generated.elements["labels"]).__name__ == "code_editor"
+    assert generated.elements["labels"]._value_frontend == (
+        '[\n  "train",\n  "eval"\n]'
+    )
+
+
+def test_primitive_list_form_parses_variable_length_array() -> None:
+    generated = PydanticGui(_PrimitiveSequenceModel, include_json_editor=False)
+
+    value = generated._convert_value(
+        {"labels": '[\n  "train",\n  "val",\n  "test"\n]'}
+    )
+
+    assert value == _PrimitiveSequenceModel(
+        labels=["train", "val", "test"]
+    )
+
+
+def test_primitive_list_form_rejects_non_array_json() -> None:
+    generated = PydanticGui(_PrimitiveSequenceModel, include_json_editor=False)
+
+    with pytest.raises(
+        ValueError, match="top-level JSON value must be an array"
+    ):
+        generated._convert_value({"labels": '{"not": "an array"}'})
+
+
+def test_variable_tuple_does_not_use_compact_widget() -> None:
+    generated = PydanticGui(_VariableTupleModel, include_json_editor=False)
+
+    assert type(generated.elements["values"]).__name__ != "PrimitiveTupleGui"
+
+
+def test_long_fixed_tuple_uses_json_array_editor() -> None:
+    generated = PydanticGui(_LongTupleModel, include_json_editor=False)
+
+    assert type(generated.elements["values"]).__name__ == "code_editor"
+    assert generated.elements["values"]._value_frontend == (
+        "[\n  1,\n  2,\n  3,\n  4,\n  5,\n  6\n]"
+    )
 
 
 def test_enum_form_accepts_json_value_initial_payload() -> None:
