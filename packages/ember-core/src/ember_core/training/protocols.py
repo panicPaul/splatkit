@@ -44,6 +44,7 @@ class TrainState:
     step: int
     seed: int
     device: torch.device
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,12 @@ class LoadedCheckpoint:
 
 class TrainingHook(Protocol):
     """Optional training loop hook."""
+
+    def before_step(
+        self,
+        state: TrainState,
+    ) -> None:
+        """Run before dataloader transfer, rendering, and optimization."""
 
     def pre_backward(
         self,

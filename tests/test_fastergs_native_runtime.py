@@ -37,7 +37,7 @@ def test_preprocess_sort_blend_return_expected_shapes(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
@@ -52,13 +52,13 @@ def test_preprocess_sort_blend_return_expected_shapes(
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
-        proper_antialiasing=False,
+        image_width=image_width,
+        image_height=image_height,
+        focal_length_x=focal_length_x,
+        focal_length_y=focal_length_y,
+        principal_point_x=principal_point_x,
+        principal_point_y=principal_point_y,
+        mip_splatting_screen_filter=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
     )
     sort_result = sort(
@@ -70,8 +70,8 @@ def test_preprocess_sort_blend_return_expected_shapes(
         preprocess_result.conic_opacity,
         preprocess_result.visible_count,
         preprocess_result.instance_count,
-        width=width,
-        height=height,
+        image_width=image_width,
+        image_height=image_height,
     )
     blend_result = blend(
         sort_result.instance_primitive_indices,
@@ -83,8 +83,8 @@ def test_preprocess_sort_blend_return_expected_shapes(
         preprocess_result.colors_rgb,
         torch.zeros(3, device=cuda_scene.center_position.device),
         False,
-        width=width,
-        height=height,
+        image_width=image_width,
+        image_height=image_height,
     )
 
     assert preprocess_result.projected_means.shape == (3, 2)
@@ -99,7 +99,7 @@ def test_blend_metric_counts_returns_per_gaussian_counts(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
@@ -114,13 +114,13 @@ def test_blend_metric_counts_returns_per_gaussian_counts(
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
-        proper_antialiasing=False,
+        image_width=image_width,
+        image_height=image_height,
+        focal_length_x=focal_length_x,
+        focal_length_y=focal_length_y,
+        principal_point_x=principal_point_x,
+        principal_point_y=principal_point_y,
+        mip_splatting_screen_filter=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
     )
     sort_result = sort(
@@ -132,11 +132,11 @@ def test_blend_metric_counts_returns_per_gaussian_counts(
         preprocess_result.conic_opacity,
         preprocess_result.visible_count,
         preprocess_result.instance_count,
-        width=width,
-        height=height,
+        image_width=image_width,
+        image_height=image_height,
     )
     metric_map = torch.ones(
-        (height, width),
+        (image_height, image_width),
         device=cuda_scene.center_position.device,
         dtype=torch.int32,
     )
@@ -151,8 +151,8 @@ def test_blend_metric_counts_returns_per_gaussian_counts(
         torch.zeros(3, device=cuda_scene.center_position.device),
         metric_map.reshape(-1),
         False,
-        width=width,
-        height=height,
+        image_width=image_width,
+        image_height=image_height,
     )
     zero_counts = blend_metric_counts(
         sort_result.instance_primitive_indices,
@@ -165,8 +165,8 @@ def test_blend_metric_counts_returns_per_gaussian_counts(
         torch.zeros(3, device=cuda_scene.center_position.device),
         torch.zeros_like(metric_map).reshape(-1),
         False,
-        width=width,
-        height=height,
+        image_width=image_width,
+        image_height=image_height,
     )
 
     assert metric_counts.shape == (cuda_scene.center_position.shape[0],)
@@ -181,7 +181,7 @@ def test_render_fwd_matches_explicit_stage_composition(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
@@ -196,12 +196,12 @@ def test_render_fwd_matches_explicit_stage_composition(
         cam_to_world[:3, 3],
         0.01,
         1000.0,
-        width,
-        height,
-        focal_x,
-        focal_y,
-        center_x,
-        center_y,
+        image_width,
+        image_height,
+        focal_length_x,
+        focal_length_y,
+        principal_point_x,
+        principal_point_y,
         torch.zeros(3, device=cuda_scene.center_position.device),
         False,
         int(cuda_scene.feature.shape[1]),
@@ -217,13 +217,13 @@ def test_render_fwd_matches_explicit_stage_composition(
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
-        proper_antialiasing=False,
+        image_width=image_width,
+        image_height=image_height,
+        focal_length_x=focal_length_x,
+        focal_length_y=focal_length_y,
+        principal_point_x=principal_point_x,
+        principal_point_y=principal_point_y,
+        mip_splatting_screen_filter=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
     )
     sort_result = sort(
@@ -235,8 +235,8 @@ def test_render_fwd_matches_explicit_stage_composition(
         preprocess_result.conic_opacity,
         preprocess_result.visible_count,
         preprocess_result.instance_count,
-        width=width,
-        height=height,
+        image_width=image_width,
+        image_height=image_height,
     )
     blend_result = blend(
         sort_result.instance_primitive_indices,
@@ -248,8 +248,8 @@ def test_render_fwd_matches_explicit_stage_composition(
         preprocess_result.colors_rgb,
         torch.zeros(3, device=cuda_scene.center_position.device),
         False,
-        width=width,
-        height=height,
+        image_width=image_width,
+        image_height=image_height,
     )
 
     assert len(render_outputs) == 20
@@ -260,7 +260,7 @@ def test_render_fwd_matches_explicit_stage_composition(
 def test_render_backward_produces_finite_gradients(
     cuda_scene, cuda_camera
 ) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
@@ -288,14 +288,14 @@ def test_render_backward_produces_finite_gradients(
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
+        image_width=image_width,
+        image_height=image_height,
+        focal_length_x=focal_length_x,
+        focal_length_y=focal_length_y,
+        principal_point_x=principal_point_x,
+        principal_point_y=principal_point_y,
         bg_color=torch.zeros(3, device=center_positions.device),
-        proper_antialiasing=False,
+        mip_splatting_screen_filter=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
     )
     result.image.sum().backward()
@@ -313,7 +313,7 @@ def test_render_backward_produces_finite_gradients(
 
 
 def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cpu_camera)
     )
     cam_to_world = cpu_camera.cam_to_world[0]
@@ -325,7 +325,7 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
         opacities = mode.from_tensor(cpu_scene.logit_opacity[:, None])
         sh0 = mode.from_tensor(cpu_scene.feature[:, :1, :])
         shrest = mode.from_tensor(cpu_scene.feature[:, 1:, :])
-        world_2_camera = mode.from_tensor(torch.linalg.inv(cam_to_world))
+        world_to_camera_matrix = mode.from_tensor(torch.linalg.inv(cam_to_world))
         camera_position = mode.from_tensor(cam_to_world[:3, 3])
         bg_color = mode.from_tensor(
             torch.zeros(3, dtype=center_positions.dtype)
@@ -337,16 +337,16 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
             opacities,
             sh0,
             shrest,
-            world_2_camera,
+            world_to_camera_matrix,
             camera_position,
             0.01,
             1000.0,
-            width,
-            height,
-            focal_x,
-            focal_y,
-            center_x,
-            center_y,
+            image_width,
+            image_height,
+            focal_length_x,
+            focal_length_y,
+            principal_point_x,
+            principal_point_y,
             False,
             int(cpu_scene.feature.shape[1]),
         )
@@ -357,16 +357,16 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
             opacities,
             sh0,
             shrest,
-            world_2_camera,
+            world_to_camera_matrix,
             camera_position,
             0.01,
             1000.0,
-            width,
-            height,
-            focal_x,
-            focal_y,
-            center_x,
-            center_y,
+            image_width,
+            image_height,
+            focal_length_x,
+            focal_length_y,
+            principal_point_x,
+            principal_point_y,
             bg_color,
             False,
             int(cpu_scene.feature.shape[1]),
@@ -380,8 +380,8 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
             preprocess_result[1],
             preprocess_result[8],
             preprocess_result[9],
-            width,
-            height,
+            image_width,
+            image_height,
         )
         metric_counts = blend_metric_counts_fwd_op(
             sort_result[0],
@@ -392,10 +392,10 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
             preprocess_result[1],
             preprocess_result[2],
             bg_color,
-            mode.from_tensor(torch.ones((width * height,), dtype=torch.int32)),
+            mode.from_tensor(torch.ones((image_width * image_height,), dtype=torch.int32)),
             False,
-            width,
-            height,
+            image_width,
+            image_height,
         )
 
     assert preprocess_result[0].shape == (3, 2)
@@ -406,11 +406,11 @@ def test_raw_ops_support_fake_tensor_mode(cpu_scene, cpu_camera) -> None:
 
 @pytest.mark.cuda
 def test_render_op_supports_torch_compile(cuda_scene, cuda_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
-    world_2_camera = torch.linalg.inv(cam_to_world)
+    world_to_camera_matrix = torch.linalg.inv(cam_to_world)
     camera_position = cam_to_world[:3, 3]
     bg_color = torch.zeros(3, device=cuda_scene.center_position.device)
     active_sh_bases = int(cuda_scene.feature.shape[1])
@@ -423,18 +423,18 @@ def test_render_op_supports_torch_compile(cuda_scene, cuda_camera) -> None:
             cuda_scene.logit_opacity[:, None],
             cuda_scene.feature[:, :1, :],
             cuda_scene.feature[:, 1:, :],
-            world_2_camera,
+            world_to_camera_matrix,
             camera_position,
             near_plane=0.01,
             far_plane=1000.0,
-            width=width,
-            height=height,
-            focal_x=focal_x,
-            focal_y=focal_y,
-            center_x=center_x,
-            center_y=center_y,
+            image_width=image_width,
+            image_height=image_height,
+            focal_length_x=focal_length_x,
+            focal_length_y=focal_length_y,
+            principal_point_x=principal_point_x,
+            principal_point_y=principal_point_y,
             bg_color=bg_color,
-            proper_antialiasing=False,
+            mip_splatting_screen_filter=False,
             active_sh_bases=active_sh_bases,
         ).image.sum()
 

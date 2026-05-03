@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, fields, is_dataclass, replace
 from functools import partial
 from importlib import import_module
@@ -46,6 +47,10 @@ from ember_core.training.config import (
     ParameterTargetSpec,
     TensorViewSpec,
     TrainingConfig,
+)
+from ember_core.training.profiling import (
+    TrainingStepProfile,
+    build_training_profiler,
 )
 from ember_core.training.protocols import (
     LossFn,
@@ -767,6 +772,9 @@ class _TrainingDensificationRuntime(DensificationRuntime):
             for index in range(len(self._frame_dataset))
         )
 
+    def all_cameras(self) -> tuple[Any, ...]:
+        return self._frame_dataset.prepared_cameras()
+
     def render_raw(self, model: InitializedModel, camera: Any) -> Any:
         return self._raw_render_fn(model, camera)
 
@@ -1116,6 +1124,16 @@ def _call_pre_backward_hooks(
             pre_backward(state, batch, render_output, loss_result)
 
 
+def _call_before_step_hooks(
+    hooks: Sequence[TrainingHook],
+    state: TrainState,
+) -> None:
+    for hook in hooks:
+        before_step = getattr(hook, "before_step", None)
+        if before_step is not None:
+            before_step(state)
+
+
 def _call_post_backward_hooks(
     hooks: Sequence[TrainingHook],
     state: TrainState,
@@ -1153,6 +1171,27 @@ def _call_post_optimizer_step_hooks(
             post_optimizer_step(state, batch, render_output, loss_result)
 
 
+def _profile_phase(
+    profile: TrainingStepProfile | None,
+    name: str,
+) -> Any:
+    if profile is None:
+        return nullcontext()
+    return profile.phase(name)
+
+
+def _consume_step_diagnostics(state: TrainState) -> dict[str, float]:
+    diagnostics = getattr(state, "diagnostics", None)
+    if not isinstance(diagnostics, dict):
+        return {}
+    raw_values = diagnostics.pop("metrics", {})
+    return {
+        str(name): float(value)
+        for name, value in dict(raw_values).items()
+        if isinstance(value, int | float)
+    }
+
+
 def train_step(
     state: TrainState,
     batch: Any,
@@ -1164,21 +1203,28 @@ def train_step(
     densification: DensificationMethod | None = None,
     probe_runtime: DensificationRuntime | None = None,
     hooks: Sequence[TrainingHook] = (),
+    profile: TrainingStepProfile | None = None,
 ) -> dict[str, float]:
     """Run one optimization step."""
-    resolved_batch = _move_batch_to_device(batch, state.device)
-    for optimizer_binding in optimizers:
-        optimizer_binding.zero_grad()
-    render_output = (
-        render_fn(state.model, resolved_batch.camera)
-        if densification is None or render_fn_with_requirements is None
-        else render_fn_with_requirements(
-            state.model,
-            resolved_batch.camera,
-            densification.get_render_requirements(state),
+    with _profile_phase(profile, "before_hooks"):
+        _call_before_step_hooks(hooks, state)
+    with _profile_phase(profile, "transfer"):
+        resolved_batch = _move_batch_to_device(batch, state.device)
+    with _profile_phase(profile, "zero_grad"):
+        for optimizer_binding in optimizers:
+            optimizer_binding.zero_grad()
+    with _profile_phase(profile, "render"):
+        render_output = (
+            render_fn(state.model, resolved_batch.camera)
+            if densification is None or render_fn_with_requirements is None
+            else render_fn_with_requirements(
+                state.model,
+                resolved_batch.camera,
+                densification.get_render_requirements(state),
+            )
         )
-    )
-    loss_result = loss_fn(state, resolved_batch, render_output)
+    with _profile_phase(profile, "loss"):
+        loss_result = loss_fn(state, resolved_batch, render_output)
     densification_context = None
     if densification is not None:
         densification_context = make_context(
@@ -1189,53 +1235,64 @@ def train_step(
             optimizers=list(optimizers),
             runtime=probe_runtime,
         )
-        densification.pre_backward(densification_context)
-    _call_pre_backward_hooks(
-        hooks,
-        state,
-        resolved_batch,
-        render_output,
-        loss_result,
-    )
-    loss_result.loss.backward()
+        with _profile_phase(profile, "densification_pre_backward"):
+            densification.pre_backward(densification_context)
+    with _profile_phase(profile, "pre_backward_hooks"):
+        _call_pre_backward_hooks(
+            hooks,
+            state,
+            resolved_batch,
+            render_output,
+            loss_result,
+        )
+    with _profile_phase(profile, "backward"):
+        loss_result.loss.backward()
     if densification_context is not None:
-        densification.post_backward(densification_context)
-    _call_post_backward_hooks(
-        hooks,
-        state,
-        resolved_batch,
-        render_output,
-        loss_result,
-    )
-    for optimizer_binding in optimizers:
-        optimizer_binding.step()
+        with _profile_phase(profile, "densification_post_backward"):
+            densification.post_backward(densification_context)
+    with _profile_phase(profile, "post_backward_hooks"):
+        _call_post_backward_hooks(
+            hooks,
+            state,
+            resolved_batch,
+            render_output,
+            loss_result,
+        )
+    with _profile_phase(profile, "optimizer"):
+        for optimizer_binding in optimizers:
+            optimizer_binding.step()
     if densification_context is not None:
-        densification.post_optimizer_step(densification_context)
-    _call_post_optimizer_step_hooks(
-        hooks,
-        state,
-        resolved_batch,
-        render_output,
-        loss_result,
-    )
+        with _profile_phase(profile, "densification_post_optimizer"):
+            densification.post_optimizer_step(densification_context)
+    with _profile_phase(profile, "post_optimizer_hooks"):
+        _call_post_optimizer_step_hooks(
+            hooks,
+            state,
+            resolved_batch,
+            render_output,
+            loss_result,
+        )
     state.step += 1
     metrics = {
         "loss": float(loss_result.loss.detach().item()),
         **loss_result.metrics,
+        **_consume_step_diagnostics(state),
     }
     if densification_context is not None:
-        densification.after_step(
-            make_context(
-                state=state,
-                batch=resolved_batch,
-                render_output=render_output,
-                loss_result=loss_result,
-                optimizers=list(optimizers),
-                runtime=probe_runtime,
-            ),
-            metrics,
-        )
-    _call_after_step_hooks(hooks, state, metrics)
+        with _profile_phase(profile, "densification_after_step"):
+            densification.after_step(
+                make_context(
+                    state=state,
+                    batch=resolved_batch,
+                    render_output=render_output,
+                    loss_result=loss_result,
+                    optimizers=list(optimizers),
+                    runtime=probe_runtime,
+                ),
+                metrics,
+            )
+    with _profile_phase(profile, "after_step_hooks"):
+        _call_after_step_hooks(hooks, state, metrics)
     return metrics
 
 
@@ -1324,6 +1381,8 @@ def materialize_training_config(
 def run_training(
     frame_dataset: PreparedFrameDataset,
     config: TrainingConfig | TrainingConfigSource,
+    *,
+    runtime_hooks: Sequence[TrainingHook] = (),
 ) -> TrainingResult:
     """Run the declarative training loop and export a checkpoint directory."""
     from ember_core.training.checkpoints import (
@@ -1370,7 +1429,7 @@ def run_training(
         context=run_context,
     )
     loss_fn = build_loss_fn(config)
-    hooks = build_hooks(config)
+    hooks = [*build_hooks(config), *runtime_hooks]
     optimizers = build_optimizer_set(state, config, context=run_context)
     densification = bind_densification(densification, state, optimizers)
     probe_runtime: DensificationRuntime | None = None
@@ -1391,20 +1450,26 @@ def run_training(
         )
     history: list[dict[str, float]] = []
     iterator = _cycle(dataloader)
+    profiler = build_training_profiler(config.profiler)
     for _ in range(config.runtime.max_steps):
-        history.append(
-            train_step(
-                state,
-                next(iterator),
-                render_fn=render_fn,
-                render_fn_with_requirements=render_fn_with_requirements,
-                loss_fn=loss_fn,
-                optimizers=optimizers,
-                densification=densification,
-                probe_runtime=probe_runtime,
-                hooks=hooks,
-            )
+        profile = None if profiler is None else profiler.start_step(state)
+        with _profile_phase(profile, "dataloader"):
+            batch = next(iterator)
+        metrics = train_step(
+            state,
+            batch,
+            render_fn=render_fn,
+            render_fn_with_requirements=render_fn_with_requirements,
+            loss_fn=loss_fn,
+            optimizers=optimizers,
+            densification=densification,
+            probe_runtime=probe_runtime,
+            hooks=hooks,
+            profile=profile,
         )
+        if profiler is not None:
+            profiler.finish_step(state, metrics, profile)
+        history.append(metrics)
     from ember_core.training.checkpoints import save_checkpoint_dir
 
     if densification is not None:

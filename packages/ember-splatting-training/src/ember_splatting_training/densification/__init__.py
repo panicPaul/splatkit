@@ -6,13 +6,13 @@ from ember_splatting_training.densification.mcmc import (
     relocation_adjustment,
 )
 from ember_splatting_training.fastergs import (
-    GaussianMipSplattingAntialiasing,
+    GaussianMipSplatting3DFilter,
     GaussianMortonOrdering,
 )
 
 __all__ = [
     "GaussianMCMC",
-    "GaussianMipSplattingAntialiasing",
+    "GaussianMipSplatting3DFilter",
     "GaussianMortonOrdering",
     "add_noise",
     "relocation_adjustment",

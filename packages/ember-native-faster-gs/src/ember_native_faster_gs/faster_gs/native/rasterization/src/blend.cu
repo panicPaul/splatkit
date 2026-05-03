@@ -37,7 +37,7 @@ blend_fwd_wrapper(
     const torch::Tensor& conic_opacity,
     const torch::Tensor& colors_rgb,
     const torch::Tensor& bg_color,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int width,
     int height) {
     check_cuda_int_tensor(instance_primitive_indices, "instance_primitive_indices");
@@ -79,7 +79,7 @@ blend_fwd_wrapper(
     torch::Tensor conic_opacity_c = conic_opacity.contiguous();
     torch::Tensor colors_rgb_c = colors_rgb.contiguous();
     torch::Tensor bg_color_c = bg_color.contiguous();
-    (void)proper_antialiasing;
+    (void)mip_splatting_screen_filter;
 
     // The vendored blend kernel writes both the image and the per-bucket
     // backward surfaces in a single pass.
@@ -128,7 +128,7 @@ torch::Tensor blend_metric_counts_fwd_wrapper(
     const torch::Tensor& colors_rgb,
     const torch::Tensor& bg_color,
     const torch::Tensor& metric_map,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int width,
     int height) {
     check_cuda_int_tensor(instance_primitive_indices, "instance_primitive_indices");
@@ -179,7 +179,7 @@ torch::Tensor blend_metric_counts_fwd_wrapper(
     torch::Tensor colors_rgb_c = colors_rgb.contiguous();
     torch::Tensor bg_color_c = bg_color.contiguous();
     torch::Tensor metric_map_c = metric_map.contiguous();
-    (void)proper_antialiasing;
+    (void)mip_splatting_screen_filter;
 
     forward_kernels::blend_cu<<<dim3(grid_width, grid_height, 1),
                                 dim3(config::tile_width, config::tile_height, 1)>>>(
@@ -225,7 +225,7 @@ blend_bwd_wrapper(
     const torch::Tensor& tile_n_processed,
     const torch::Tensor& bucket_tile_index,
     const torch::Tensor& bucket_color_transmittance,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int width,
     int height) {
     check_cuda_float_tensor(grad_image, "grad_image");
@@ -316,7 +316,7 @@ blend_bwd_wrapper(
             static_cast<uint>(width),
             static_cast<uint>(height),
             static_cast<uint>(grid_width),
-            proper_antialiasing
+            mip_splatting_screen_filter
         );
         CHECK_CUDA(config::debug, "blend_bwd")
     }

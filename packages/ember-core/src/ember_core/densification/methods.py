@@ -439,25 +439,7 @@ class FastGS(BaseDensificationMethod):
             clone_mask = clone_mask[keep_mask]
             split_mask = split_mask[keep_mask]
 
-        added_count = 0
-        if torch.any(clone_mask):
-            added_count = int(clone_mask.sum().item())
-            self.family_ops.clone(clone_mask)
-        if torch.any(split_mask):
-            padded_split_mask = split_mask
-            if added_count > 0:
-                padded_split_mask = torch.cat(
-                    [
-                        split_mask,
-                        torch.zeros(
-                            added_count,
-                            dtype=torch.bool,
-                            device=split_mask.device,
-                        ),
-                    ],
-                    dim=0,
-                )
-            self.family_ops.split(padded_split_mask)
+        self.family_ops.clone_and_split(clone_mask, split_mask)
 
         self.family_ops.reset_opacity(0.8)
         self._reset_buffers(context.state.model.scene)

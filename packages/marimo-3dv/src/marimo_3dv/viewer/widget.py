@@ -1455,6 +1455,7 @@ class _NativeViewerAnyWidget(anywidget.AnyWidget):
     render_fps = traitlets.Float(0.0).tag(sync=True)
     last_click_json = traitlets.Unicode("").tag(sync=True)
     is_rendering = traitlets.Bool(False).tag(sync=True)
+    closed = traitlets.Bool(False).tag(sync=True)
     error_text = traitlets.Unicode("").tag(sync=True)
     show_axes = traitlets.Bool(False).tag(sync=True)
     show_horizon = traitlets.Bool(False).tag(sync=True)
@@ -1610,6 +1611,10 @@ class MarimoViewer(_StableMarimoAnyWidget):
         if self._closed:
             return
         self._closed = True
+        self.widget.closed = True
+        self.widget.interaction_active = False
+        self.widget.is_rendering = False
+        self.widget.send_state(["closed", "interaction_active", "is_rendering"])
         _ACTIVE_MARIMO_VIEWERS.pop(id(self), None)
         self.widget.unobserve(
             self._on_camera_revision_change, names=["_camera_revision"]

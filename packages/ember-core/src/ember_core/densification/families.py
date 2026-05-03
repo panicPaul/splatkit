@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, fields, replace
 from typing import Any
@@ -139,6 +140,199 @@ def _default_split_tensor(
     )
 
 
+def _split_offsets(
+    scene: GaussianScene,
+    mask: Tensor,
+    num_children: int,
+) -> Tensor:
+    repeated_scales = torch.exp(scene.log_scales[mask]).repeat_interleave(
+        num_children,
+        dim=0,
+    )
+    offsets = torch.normal(
+        mean=torch.zeros_like(repeated_scales),
+        std=repeated_scales,
+    )
+    rotations = _quaternion_to_rotation_matrix(
+        scene.quaternion_orientation[mask]
+    ).repeat_interleave(num_children, dim=0)
+    return torch.bmm(
+        rotations,
+        offsets.unsqueeze(-1),
+    ).squeeze(-1)
+
+
+def _grown_clone_split_tensor(
+    *,
+    name: str,
+    value: Tensor,
+    clone_mask: Tensor,
+    split_mask: Tensor,
+    num_children: int,
+    rotated_offsets: Tensor,
+    scale_shrink: float,
+) -> Tensor:
+    retained = torch.cat([value[~split_mask], value[clone_mask]], dim=0)
+    if name == "center_position":
+        children = (
+            value[split_mask].repeat_interleave(num_children, dim=0)
+            + rotated_offsets
+        )
+    elif name == "log_scales":
+        child_scale_multiplier = torch.log(
+            torch.tensor(
+                scale_shrink,
+                dtype=value.dtype,
+                device=value.device,
+            )
+        )
+        children = (
+            value[split_mask].repeat_interleave(num_children, dim=0)
+            + child_scale_multiplier
+        )
+    else:
+        children = value[split_mask].repeat_interleave(num_children, dim=0)
+    return torch.cat([retained, children], dim=0)
+
+
+def _clone_split_tensor_segments(
+    *,
+    name: str,
+    value: Tensor,
+    clone_mask: Tensor,
+    split_mask: Tensor,
+    num_children: int,
+    rotated_offsets: Tensor,
+    scale_shrink: float,
+) -> tuple[Tensor, Tensor, Tensor]:
+    retained = value[~split_mask]
+    clones = value[clone_mask]
+    if name == "center_position":
+        children = (
+            value[split_mask].repeat_interleave(num_children, dim=0)
+            + rotated_offsets
+        )
+    elif name == "log_scales":
+        child_scale_multiplier = torch.log(
+            torch.tensor(
+                scale_shrink,
+                dtype=value.dtype,
+                device=value.device,
+            )
+        )
+        children = (
+            value[split_mask].repeat_interleave(num_children, dim=0)
+            + child_scale_multiplier
+        )
+    else:
+        children = value[split_mask].repeat_interleave(num_children, dim=0)
+    return retained, clones, children
+
+
+def _clone_split_tensor_final(
+    *,
+    name: str,
+    value: Tensor,
+    clone_mask: Tensor,
+    split_mask: Tensor,
+    num_children: int,
+    rotated_offsets: Tensor,
+    scale_shrink: float,
+    keep_mask: Tensor | None,
+) -> Tensor:
+    retained, clones, children = _clone_split_tensor_segments(
+        name=name,
+        value=value,
+        clone_mask=clone_mask,
+        split_mask=split_mask,
+        num_children=num_children,
+        rotated_offsets=rotated_offsets,
+        scale_shrink=scale_shrink,
+    )
+    if keep_mask is None:
+        return torch.cat([retained, clones, children], dim=0)
+    retained_count = int(retained.shape[0])
+    clone_count = int(clones.shape[0])
+    keep_retained = keep_mask[:retained_count]
+    keep_clones = keep_mask[retained_count : retained_count + clone_count]
+    keep_children = keep_mask[retained_count + clone_count :]
+    return torch.cat(
+        [
+            retained[keep_retained],
+            clones[keep_clones],
+            children[keep_children],
+        ],
+        dim=0,
+    )
+
+
+def _grown_clone_split_state(
+    old_value: Tensor,
+    clone_mask: Tensor,
+    split_mask: Tensor,
+    num_children: int,
+) -> Tensor:
+    clone_state = torch.zeros_like(old_value[clone_mask])
+    split_shape = (
+        int(split_mask.sum()) * num_children,
+        *old_value.shape[1:],
+    )
+    split_state = torch.zeros(
+        split_shape,
+        dtype=old_value.dtype,
+        device=old_value.device,
+    )
+    return torch.cat([old_value[~split_mask], clone_state, split_state], dim=0)
+
+
+def _clone_split_state_final(
+    old_value: Tensor,
+    clone_mask: Tensor,
+    split_mask: Tensor,
+    num_children: int,
+    keep_mask: Tensor | None,
+) -> Tensor:
+    retained = old_value[~split_mask]
+    clone_state = torch.zeros_like(old_value[clone_mask])
+    split_shape = (
+        int(split_mask.sum()) * num_children,
+        *old_value.shape[1:],
+    )
+    split_state = torch.zeros(
+        split_shape,
+        dtype=old_value.dtype,
+        device=old_value.device,
+    )
+    if keep_mask is None:
+        return torch.cat([retained, clone_state, split_state], dim=0)
+    retained_count = int(retained.shape[0])
+    clone_count = int(clone_state.shape[0])
+    keep_retained = keep_mask[:retained_count]
+    keep_clones = keep_mask[retained_count : retained_count + clone_count]
+    keep_split = keep_mask[retained_count + clone_count :]
+    return torch.cat(
+        [
+            retained[keep_retained],
+            clone_state[keep_clones],
+            split_state[keep_split],
+        ],
+        dim=0,
+    )
+
+
+def _record_metrics(state: Any, metrics: dict[str, float]) -> None:
+    diagnostics = getattr(state, "diagnostics", None)
+    if not isinstance(diagnostics, dict):
+        return
+    diagnostics.setdefault("metrics", {}).update(metrics)
+
+
+def _cuda_allocated(device: torch.device) -> int | None:
+    if device.type != "cuda":
+        return None
+    return int(torch.cuda.memory_allocated(device))
+
+
 def _gaussian_scene_extent(scene: GaussianScene) -> float:
     positions = scene.center_position.detach()
     extent = positions.max(dim=0).values - positions.min(dim=0).values
@@ -270,21 +464,7 @@ class GaussianFamilyOps:
         if int(mask.sum()) == 0:
             return
         behaviors = field_behaviors or {}
-        repeated_scales = torch.exp(scene.log_scales[mask]).repeat_interleave(
-            num_children,
-            dim=0,
-        )
-        offsets = torch.normal(
-            mean=torch.zeros_like(repeated_scales),
-            std=repeated_scales,
-        )
-        rotations = _quaternion_to_rotation_matrix(
-            scene.quaternion_orientation[mask]
-        ).repeat_interleave(num_children, dim=0)
-        rotated_offsets = torch.bmm(
-            rotations,
-            offsets.unsqueeze(-1),
-        ).squeeze(-1)
+        rotated_offsets = _split_offsets(scene, mask, num_children)
         child_scale_multiplier = torch.log(
             torch.tensor(
                 scale_shrink,
@@ -350,6 +530,160 @@ class GaussianFamilyOps:
             )
         self._replace_scene(scene, updates, state_transforms)
 
+    def clone_and_split(
+        self,
+        clone_mask: Bool[Tensor, " num_splats"],
+        split_mask: Bool[Tensor, " num_splats"],
+        *,
+        num_children: int = 2,
+        scale_shrink: float = 0.8,
+        prune_fn: Callable[[GaussianScene], Tensor] | None = None,
+        prune_field_names: Sequence[str] | None = None,
+    ) -> None:
+        """Apply clone, split, and optional prune in one scene replacement."""
+        start = time.perf_counter()
+        scene = self.scene
+        device = scene.center_position.device
+        memory_before = _cuda_allocated(device)
+        primitive_count_before = int(scene.center_position.shape[0])
+        clone_count = int(clone_mask.sum())
+        split_count = int(split_mask.sum())
+        if clone_count == 0 and split_count == 0:
+            if prune_fn is not None:
+                before_prune = int(scene.center_position.shape[0])
+                self.prune(prune_fn(scene))
+                after_prune = int(self.scene.center_position.shape[0])
+                self._record_refinement_metrics(
+                    clone_count=0,
+                    split_count=0,
+                    num_children=num_children,
+                    primitive_count_before=before_prune,
+                    primitive_count_after=after_prune,
+                    memory_before=memory_before,
+                    elapsed_ms=(time.perf_counter() - start) * 1000.0,
+                )
+            return
+        rotated_offsets = (
+            _split_offsets(scene, split_mask, num_children)
+            if split_count > 0
+            else torch.empty(
+                (0, scene.center_position.shape[1]),
+                dtype=scene.center_position.dtype,
+                device=scene.center_position.device,
+            )
+        )
+        num_splats = int(scene.center_position.shape[0])
+        grown_updates: dict[str, Tensor] = {}
+        prune_field_name_set = (
+            None if prune_field_names is None else set(prune_field_names)
+        )
+        for field_def in fields(scene):
+            name = field_def.name
+            value = getattr(scene, name)
+            if not _is_per_splat_tensor(name, value, num_splats):
+                continue
+            if prune_field_name_set is not None and name not in prune_field_name_set:
+                continue
+            grown_updates[name] = _grown_clone_split_tensor(
+                name=name,
+                value=value,
+                clone_mask=clone_mask,
+                split_mask=split_mask,
+                num_children=num_children,
+                rotated_offsets=rotated_offsets,
+                scale_shrink=scale_shrink,
+            )
+        keep_mask = None
+        if prune_fn is not None:
+            grown_scene = replace(scene, **grown_updates)
+            keep_mask = prune_fn(grown_scene)
+        updates: dict[str, Tensor] = {}
+        state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
+        for field_def in fields(scene):
+            name = field_def.name
+            value = getattr(scene, name)
+            if not _is_per_splat_tensor(name, value, num_splats):
+                continue
+            grown_value = grown_updates.get(name)
+            new_value = (
+                _clone_split_tensor_final(
+                    name=name,
+                    value=value,
+                    clone_mask=clone_mask,
+                    split_mask=split_mask,
+                    num_children=num_children,
+                    rotated_offsets=rotated_offsets,
+                    scale_shrink=scale_shrink,
+                    keep_mask=keep_mask,
+                )
+                if grown_value is None
+                else (
+                    grown_value
+                    if keep_mask is None
+                    else grown_value[keep_mask]
+                )
+            )
+            updates[name] = new_value.detach().requires_grad_(
+                value.requires_grad
+            )
+            state_transforms[name] = (
+                lambda _key,
+                old_value,
+                local_clone=clone_mask,
+                local_split=split_mask,
+                local_keep=keep_mask,
+                repeats=num_children: (
+                    _clone_split_state_final(
+                        old_value,
+                        local_clone,
+                        local_split,
+                        repeats,
+                        local_keep,
+                    )
+                )
+            )
+        self._replace_scene(scene, updates, state_transforms)
+        self._record_refinement_metrics(
+            clone_count=clone_count,
+            split_count=split_count,
+            num_children=num_children,
+            primitive_count_before=primitive_count_before,
+            primitive_count_after=int(self.scene.center_position.shape[0]),
+            memory_before=memory_before,
+            elapsed_ms=(time.perf_counter() - start) * 1000.0,
+        )
+
+    def _record_refinement_metrics(
+        self,
+        *,
+        clone_count: int,
+        split_count: int,
+        num_children: int,
+        primitive_count_before: int,
+        primitive_count_after: int,
+        memory_before: int | None,
+        elapsed_ms: float,
+    ) -> None:
+        memory_after = _cuda_allocated(self.scene.center_position.device)
+        metrics = {
+            "refinement_clone_count": float(clone_count),
+            "refinement_split_count": float(split_count),
+            "refinement_prune_count": float(
+                primitive_count_before
+                + clone_count
+                + split_count * (num_children - 1)
+                - primitive_count_after
+            ),
+            "refinement_primitives_before": float(primitive_count_before),
+            "refinement_primitives_after": float(primitive_count_after),
+            "refinement_elapsed_ms": float(elapsed_ms),
+        }
+        if memory_before is not None and memory_after is not None:
+            metrics["refinement_cuda_allocated_delta_bytes"] = float(
+                memory_after - memory_before
+            )
+        _record_metrics(self._state, metrics)
+
     def prune(self, keep_mask: Bool[Tensor, " num_splats"]) -> None:
         scene = self.scene
         updates: dict[str, Tensor] = {}
@@ -411,6 +745,26 @@ class GaussianFamilyOps:
             state_transforms[name] = lambda _key, old_value: old_value
         self._replace_scene(scene, updates, state_transforms)
 
+    def copy_to_indices(
+        self,
+        assignments: Sequence[tuple[Tensor, Tensor, dict[str, Tensor]]],
+    ) -> None:
+        """Copy several source-index selections into targets in one update."""
+        scene = self.scene
+        updates: dict[str, Tensor] = {}
+        state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
+        for name in self._tensor_field_names():
+            value = getattr(scene, name)
+            copied = value.detach().clone()
+            for target_indices, source_indices, overrides in assignments:
+                copied[target_indices] = overrides.get(
+                    name,
+                    value[source_indices],
+                )
+            updates[name] = copied.requires_grad_(value.requires_grad)
+            state_transforms[name] = lambda _key, old_value: old_value
+        self._replace_scene(scene, updates, state_transforms)
+
     def append_from_indices(
         self,
         source_indices: Int[Tensor, " num_sources"],
@@ -425,6 +779,34 @@ class GaussianFamilyOps:
             appended = overrides.get(name, value[source_indices])
             updates[name] = (
                 torch.cat([value, appended], dim=0)
+                .detach()
+                .requires_grad_(value.requires_grad)
+            )
+            state_transforms[name] = (
+                lambda _key, old_value, local_indices=source_indices: torch.cat(
+                    [old_value, torch.zeros_like(old_value[local_indices])],
+                    dim=0,
+                )
+            )
+        self._replace_scene(scene, updates, state_transforms)
+
+    def copy_and_append_from_indices(
+        self,
+        source_indices: Int[Tensor, " num_sources"],
+        field_overrides: dict[str, Tensor] | None = None,
+    ) -> None:
+        """Update source rows with overrides and append the same rows once."""
+        scene = self.scene
+        overrides = field_overrides or {}
+        updates: dict[str, Tensor] = {}
+        state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
+        for name in self._tensor_field_names():
+            value = getattr(scene, name)
+            copied = value.detach().clone()
+            appended = overrides.get(name, value[source_indices])
+            copied[source_indices] = appended
+            updates[name] = (
+                torch.cat([copied, appended], dim=0)
                 .detach()
                 .requires_grad_(value.requires_grad)
             )

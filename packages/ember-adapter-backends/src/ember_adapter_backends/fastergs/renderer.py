@@ -39,7 +39,7 @@ class FasterGSRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
-    proper_antialiasing: bool = False
+    mip_splatting_screen_filter: bool = True
     active_sh_bases: int | None = None
     clamp_output: bool = True
     collect_densification_info: bool = False
@@ -70,12 +70,12 @@ def _build_rasterizer_settings(
     options: FasterGSRenderOptions,
 ) -> RasterizerSettings:
     intrinsics = camera.get_intrinsics()[camera_index]
-    cam_to_world = camera.cam_to_world[camera_index]
-    width = int(camera.width[camera_index].item())
-    height = int(camera.height[camera_index].item())
+    camera_to_world_matrix = camera.cam_to_world[camera_index]
+    image_width = int(camera.width[camera_index].item())
+    image_height = int(camera.height[camera_index].item())
     return RasterizerSettings(
-        w2c=torch.linalg.inv(cam_to_world),
-        cam_position=cam_to_world[:3, 3].contiguous(),
+        w2c=torch.linalg.inv(camera_to_world_matrix),
+        cam_position=camera_to_world_matrix[:3, 3].contiguous(),
         bg_color=options.background_color.to(
             device=scene.center_position.device,
             dtype=scene.center_position.dtype,
@@ -85,15 +85,15 @@ def _build_rasterizer_settings(
             if options.active_sh_bases is None
             else options.active_sh_bases
         ),
-        width=width,
-        height=height,
+        width=image_width,
+        height=image_height,
         focal_x=float(intrinsics[0, 0].item()),
         focal_y=float(intrinsics[1, 1].item()),
         center_x=float(intrinsics[0, 2].item()),
         center_y=float(intrinsics[1, 2].item()),
         near_plane=options.near_plane,
         far_plane=options.far_plane,
-        proper_antialiasing=options.proper_antialiasing,
+        proper_antialiasing=options.mip_splatting_screen_filter,
     )
 
 
@@ -143,7 +143,7 @@ def render_fastergs(
 
     options = options or FasterGSRenderOptions()
     sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)
-    renders: list[Float[Tensor, "height width 3"]] = []
+    renders: list[Float[Tensor, "image_height image_width 3"]] = []
     densification_info = (
         torch.zeros(
             (2, scene.center_position.shape[0]),

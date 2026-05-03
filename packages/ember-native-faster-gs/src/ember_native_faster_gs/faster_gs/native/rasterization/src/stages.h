@@ -28,7 +28,7 @@ preprocess_fwd_wrapper(
     const torch::Tensor& opacities,
     const torch::Tensor& sh_coefficients_0,
     const torch::Tensor& sh_coefficients_rest,
-    const torch::Tensor& w2c,
+    const torch::Tensor& world_to_camera_matrix,
     const torch::Tensor& cam_position,
     float near_plane,
     float far_plane,
@@ -38,7 +38,7 @@ preprocess_fwd_wrapper(
     float focal_y,
     float center_x,
     float center_y,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int active_sh_bases);
 
 // Runs the FasterGS preprocess backward stage and returns gradients for the
@@ -56,7 +56,7 @@ preprocess_bwd_wrapper(
     const torch::Tensor& rotations,
     const torch::Tensor& opacities,
     const torch::Tensor& sh_coefficients_rest,
-    const torch::Tensor& w2c,
+    const torch::Tensor& world_to_camera_matrix,
     const torch::Tensor& cam_position,
     const torch::Tensor& num_touched_tiles,
     const torch::Tensor& grad_projected_means,
@@ -70,7 +70,7 @@ preprocess_bwd_wrapper(
     float focal_y,
     float center_x,
     float center_y,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int active_sh_bases);
 
 // Runs the FasterGS sort stage and returns per-instance ordering plus per-tile
@@ -106,7 +106,7 @@ blend_fwd_wrapper(
     const torch::Tensor& conic_opacity,
     const torch::Tensor& colors_rgb,
     const torch::Tensor& bg_color,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int width,
     int height);
 
@@ -122,7 +122,7 @@ torch::Tensor blend_metric_counts_fwd_wrapper(
     const torch::Tensor& colors_rgb,
     const torch::Tensor& bg_color,
     const torch::Tensor& metric_map,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int width,
     int height);
 
@@ -144,7 +144,7 @@ blend_bwd_wrapper(
     const torch::Tensor& tile_n_processed,
     const torch::Tensor& bucket_tile_index,
     const torch::Tensor& bucket_color_transmittance,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int width,
     int height);
 

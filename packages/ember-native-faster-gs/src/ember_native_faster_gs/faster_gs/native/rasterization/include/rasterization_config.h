@@ -8,8 +8,8 @@ namespace faster_gs::rasterization::config {
     DEF bool debug = false;
     // rendering constants
     DEF float dilation = 0.3f;
-    DEF float dilation_proper_antialiasing = 0.1f;
-    DEF bool detach_dilation_proper_antialiasing_from_cov2d = true; // note: detaching leads to more stable gradients and less degenerate Gaussians
+    DEF float dilation_mip_splatting_screen_filter = 0.1f;
+    DEF bool detach_dilation_mip_splatting_screen_filter_from_cov2d = true; // note: detaching leads to more stable gradients and less degenerate Gaussians
     DEF float min_cov2d_determinant = 1e-6f; // note: backward pass includes factor of 1 / (determinant^2)
     DEF bool original_opacity_interpretation = true; // whether to interpret opacity as part of the Gaussian as in 3DGS or as a separate property
     DEF float one_minus_alpha_eps = 1e-6f;

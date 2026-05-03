@@ -295,6 +295,7 @@ def render_bwd_op(
         grad_conic_opacity,
         grad_colors_rgb,
         grad_primitive_depth,
+        torch.empty(0, device=grad_projected_means.device),
         width,
         height,
         focal_x,

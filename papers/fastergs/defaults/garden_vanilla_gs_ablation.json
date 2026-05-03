@@ -1,5 +1,5 @@
 {
-  "preset": "garden_mcmc",
+  "preset": "garden_vanilla_gs_ablation",
   "scene": {
     "path": "dataset/mipnerf360/garden",
     "image_root": null,
@@ -35,7 +35,7 @@
     },
     "initialization": {
       "sh_degree": 3,
-      "use_mcmc": true,
+      "use_mcmc": false,
       "default_color": [
         0.5,
         0.5,
@@ -62,7 +62,7 @@
         "center_position_lr_step_offset": 1,
         "sh_dc_lr": 0.0025,
         "sh_rest_lr": 0.000125,
-        "logit_opacity_lr": 0.05,
+        "logit_opacity_lr": 0.025,
         "log_scales_lr": 0.005,
         "quaternion_orientation_lr": 0.001
       }
@@ -70,22 +70,25 @@
     "loss": {
       "lambda_l1": 0.8,
       "lambda_dssim": 0.2,
-      "lambda_opacity_regularization": 0.01,
-      "lambda_scale_regularization": 0.01
+      "lambda_opacity_regularization": 0.0,
+      "lambda_scale_regularization": 0.0
     },
     "densification": {
-      "mode": "mcmc",
-      "mcmc": {
+      "mode": "vanilla",
+      "vanilla": {
         "refine_every": 100,
         "start_iter": 600,
-        "stop_iter": 24900,
-        "min_opacity": 0.005,
-        "max_primitives": 1000000,
-        "noise_lr_scale": 500000.0
+        "stop_iter": 14900,
+        "grad_threshold": 0.0002,
+        "dense_fraction": 0.01,
+        "prune_opacity_threshold": 0.005,
+        "opacity_reset_every": 3000,
+        "extra_opacity_reset_iter": null,
+        "max_reset_opacity": 0.01
       },
       "morton": {
         "schedule": {
-          "end_iteration": 25000,
+          "end_iteration": 15000,
           "frequency": 5000
         }
       },
@@ -94,15 +97,15 @@
       }
     },
     "checkpoint": {
-      "output_dir": "checkpoints/papers/fastergs/garden_mcmc/faster_gs.core",
+      "output_dir": "checkpoints/papers/fastergs/garden_vanilla_gs_ablation/faster_gs.core",
       "export_ply": true
     },
     "mip_splatting": {
-      "enabled": true,
-      "screen_filter_enabled": true,
+      "enabled": false,
+      "screen_filter_enabled": false,
       "three_dimensional_filter": {
         "recompute_schedule": {
-          "start_iteration": 25000,
+          "start_iteration": 15000,
           "end_iteration": 29899,
           "frequency": 100
         },

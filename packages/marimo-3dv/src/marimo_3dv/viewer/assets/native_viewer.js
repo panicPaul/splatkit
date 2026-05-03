@@ -1303,41 +1303,23 @@ function updateCameraMatrix() {
   const onOriginChange = () => {
     drawHorizon();
   };
-
-  model.on("change:camera_state_json", onCameraChange);
-  model.on("change:aspect_ratio", onAspectRatioChange);
-  model.on("change:interaction_active", onInteractionActiveChange);
-  model.on("change:stream_port", onStreamConfigChange);
-  model.on("change:stream_path", onStreamConfigChange);
-  model.on("change:stream_token", onStreamConfigChange);
-  model.on("change:transport_mode", onStreamConfigChange);
-  model.on("change:frame_packet", onFramePacketChange);
-  model.on("change:render_fps", onRenderFpsChange);
-  model.on("change:show_axes", onShowAxesChange);
-  model.on("change:show_horizon", onShowHorizonChange);
-  model.on("change:show_origin", onShowOriginChange);
-  model.on("change:show_stats", onShowStatsChange);
-  model.on("change:viewer_rotation_x_degrees", onViewerRotationChange);
-  model.on("change:viewer_rotation_y_degrees", onViewerRotationChange);
-  model.on("change:viewer_rotation_z_degrees", onViewerRotationChange);
-  model.on("change:origin_x", onOriginChange);
-  model.on("change:origin_y", onOriginChange);
-  model.on("change:origin_z", onOriginChange);
-
-  updateAspectRatio();
-  updateLatencyBadge();
-  drawAxesGizmo();
-  drawHorizon();
-  onFramePacketChange();
-  connectFrameStream();
-  pushCameraState();
-
-  return () => {
+  const cleanup = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    pressedKeys.clear();
+    interaction = null;
+    interactionActive = false;
     resizeObserver.disconnect();
     if (animationFrame !== null) {
       cancelAnimationFrame(animationFrame);
+      animationFrame = null;
     }
-    closed = true;
+    if (settleTimeoutId !== null) {
+      clearTimeout(settleTimeoutId);
+      settleTimeoutId = null;
+    }
     disconnectFrameStream();
     model.off("change:camera_state_json", onCameraChange);
     model.off("change:aspect_ratio", onAspectRatioChange);
@@ -1358,10 +1340,44 @@ function updateCameraMatrix() {
     model.off("change:origin_x", onOriginChange);
     model.off("change:origin_y", onOriginChange);
     model.off("change:origin_z", onOriginChange);
-    if (settleTimeoutId !== null) {
-      clearTimeout(settleTimeoutId);
+    model.off("change:closed", onClosedChange);
+  };
+  const onClosedChange = () => {
+    if (Boolean(model.get("closed"))) {
+      cleanup();
     }
   };
+
+  model.on("change:camera_state_json", onCameraChange);
+  model.on("change:aspect_ratio", onAspectRatioChange);
+  model.on("change:interaction_active", onInteractionActiveChange);
+  model.on("change:stream_port", onStreamConfigChange);
+  model.on("change:stream_path", onStreamConfigChange);
+  model.on("change:stream_token", onStreamConfigChange);
+  model.on("change:transport_mode", onStreamConfigChange);
+  model.on("change:frame_packet", onFramePacketChange);
+  model.on("change:render_fps", onRenderFpsChange);
+  model.on("change:show_axes", onShowAxesChange);
+  model.on("change:show_horizon", onShowHorizonChange);
+  model.on("change:show_origin", onShowOriginChange);
+  model.on("change:show_stats", onShowStatsChange);
+  model.on("change:viewer_rotation_x_degrees", onViewerRotationChange);
+  model.on("change:viewer_rotation_y_degrees", onViewerRotationChange);
+  model.on("change:viewer_rotation_z_degrees", onViewerRotationChange);
+  model.on("change:origin_x", onOriginChange);
+  model.on("change:origin_y", onOriginChange);
+  model.on("change:origin_z", onOriginChange);
+  model.on("change:closed", onClosedChange);
+
+  updateAspectRatio();
+  updateLatencyBadge();
+  drawAxesGizmo();
+  drawHorizon();
+  onFramePacketChange();
+  connectFrameStream();
+  pushCameraState();
+
+  return cleanup;
 }
 
 const widget = { render };

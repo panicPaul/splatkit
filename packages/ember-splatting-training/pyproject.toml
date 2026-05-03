@@ -24,6 +24,7 @@ dependencies = [
     "beartype>=0.22.9",
     "jaxtyping>=0.3.9",
     "ember-core",
+    "marimo-3dv",
     "ember-native-faster-gs",
     "fused_ssim",
     "torch>=2.11.0",
@@ -61,6 +62,7 @@ conflicts = [
 [tool.uv.sources]
 ember-core = { path = "../ember-core", editable = true }
 ember-native-faster-gs = { path = "../ember-native-faster-gs", editable = true }
+marimo-3dv = { path = "../marimo-3dv", editable = true }
 fused_ssim = { git = "https://github.com/rahul-goel/fused-ssim", rev = "328dc9836f513d00c4b5bc38fe30478b4435cbb5" }
 max = { index = "modular-nightly" }
 mojo = { index = "modular-nightly" }

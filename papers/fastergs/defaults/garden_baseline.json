@@ -29,7 +29,7 @@
     "batching": {
       "batch_size": 1,
       "shuffle": true,
-      "num_workers": 4,
+      "num_workers": 8,
       "persistent_workers": true,
       "pin_memory": true
     },
@@ -43,10 +43,9 @@
       ]
     },
     "render": {
-      "backend": "adapter.fastergs",
+      "backend": "faster_gs.core",
       "near_plane": 0.2,
       "far_plane": 10000.0,
-      "proper_antialiasing": true,
       "background_color": [
         0.0,
         0.0,
@@ -58,7 +57,7 @@
       "recipe": {
         "optimizer": "ember_splatting_training.FusedAdam",
         "center_position_lr_init": 0.00016,
-        "center_position_lr_final": 0.0000016,
+        "center_position_lr_final": 1.6e-06,
         "center_position_lr_max_steps": 30000,
         "center_position_lr_step_offset": 1,
         "sh_dc_lr": 0.0025,
@@ -93,21 +92,25 @@
           "frequency": 5000
         }
       },
-      "antialiasing": {
+      "final_cleanup": {
+        "min_opacity": 0.00392156862745098
+      }
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/fastergs/garden_baseline/faster_gs.core",
+      "export_ply": true
+    },
+    "mip_splatting": {
+      "enabled": true,
+      "screen_filter_enabled": true,
+      "three_dimensional_filter": {
         "recompute_schedule": {
           "start_iteration": 15000,
           "end_iteration": 29899,
           "frequency": 100
         },
         "near_plane": 0.2
-      },
-      "final_cleanup": {
-        "min_opacity": 0.00392156862745098
       }
-    },
-    "checkpoint": {
-      "output_dir": "checkpoints/papers/fastergs/garden_baseline/adapter.fastergs",
-      "export_ply": true
     }
   }
 }

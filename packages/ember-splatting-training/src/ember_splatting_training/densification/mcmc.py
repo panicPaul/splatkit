@@ -189,15 +189,11 @@ class GaussianMCMC(BaseDensificationMethod):
             "logit_opacity": adjusted_opacities,
             "log_scales": adjusted_scales,
         }
-        self._family_ops.copy_from_indices(
-            sampled_indices,
-            sampled_indices,
-            field_overrides=overrides,
-        )
-        self._family_ops.copy_from_indices(
-            dead_indices,
-            sampled_indices,
-            field_overrides=overrides,
+        self._family_ops.copy_to_indices(
+            (
+                (sampled_indices, sampled_indices, overrides),
+                (dead_indices, sampled_indices, overrides),
+            )
         )
         self._family_ops.reset_optimizer_state(sampled_indices)
 
@@ -223,12 +219,7 @@ class GaussianMCMC(BaseDensificationMethod):
             "logit_opacity": adjusted_opacities,
             "log_scales": adjusted_scales,
         }
-        self._family_ops.copy_from_indices(
-            sampled_indices,
-            sampled_indices,
-            field_overrides=overrides,
-        )
-        self._family_ops.append_from_indices(
+        self._family_ops.copy_and_append_from_indices(
             sampled_indices,
             field_overrides=overrides,
         )

@@ -13,7 +13,7 @@ namespace faster_gs::rasterization {
         const float4* rotations,
         const float* opacities,
         const float3* sh_coefficients_rest,
-        const float4* w2c,
+        const float4* world_to_camera_matrix,
         const float3* cam_position,
         const float3* bg_color,
         char* primitive_buffers_blob,
@@ -41,6 +41,6 @@ namespace faster_gs::rasterization {
         const float focal_y,
         const float center_x,
         const float center_y,
-        const bool proper_antialiasing);
+        const bool mip_splatting_screen_filter);
 
 }

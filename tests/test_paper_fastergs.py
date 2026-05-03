@@ -59,13 +59,13 @@ def test_fastergs_resolved_training_config_supports_both_backends(
         )
 
         assert training_config.render.backend == backend
-        assert training_config.batching.num_workers == 4
+        assert training_config.batching.num_workers == 8
         assert training_config.batching.persistent_workers is True
         assert training_config.batching.pin_memory is True
         assert training_config.render.backend_options == {
             "near_plane": 0.2,
             "far_plane": 10_000.0,
-            "proper_antialiasing": True,
+            "mip_splatting_screen_filter": True,
             "background_color": [0.0, 0.0, 0.0],
         }
         assert (
@@ -107,9 +107,33 @@ def test_fastergs_resolved_training_config_supports_both_backends(
             training_config.densification.builders[-1].target
             == "papers.fastergs.notebook.FasterGSFinalCleanup"
         )
+        assert any(
+            builder.target
+            == "ember_splatting_training.GaussianMipSplatting3DFilter"
+            for builder in training_config.densification.builders
+        )
         assert training_config.model_dump(mode="json")["render"][
             "backend_options"
         ]["background_color"] == [0.0, 0.0, 0.0]
+
+
+def test_fastergs_vanilla_gs_ablation_disables_mip_splatting(
+    fastergs_config_module,
+) -> None:
+    config = load_fastergs_preset(
+        fastergs_config_module, "garden_vanilla_gs_ablation"
+    )
+    training_config = fastergs_config_module.resolve_training_config(config)
+
+    assert config.training.mip_splatting.enabled is False
+    assert training_config.render.backend_options[
+        "mip_splatting_screen_filter"
+    ] is False
+    assert all(
+        builder.target
+        != "ember_splatting_training.GaussianMipSplatting3DFilter"
+        for builder in training_config.densification.builders
+    )
 
 
 def test_fastergs_script_loader_applies_preset_then_cli_overrides(
@@ -124,6 +148,10 @@ def test_fastergs_script_loader_applies_preset_then_cli_overrides(
             "faster_gs.core",
             "--training.runtime.max-steps",
             "5",
+            "--training.profiler.enabled",
+            "True",
+            "--training.profiler.log-every",
+            "7",
         ],
     )
 
@@ -134,6 +162,8 @@ def test_fastergs_script_loader_applies_preset_then_cli_overrides(
     assert loaded.preset == "garden_mcmc"
     assert loaded.training.render.backend == "faster_gs.core"
     assert loaded.training.runtime.max_steps == 5
+    assert loaded.training.profiler.enabled is True
+    assert loaded.training.profiler.log_every == 7
     assert loaded.training.loss.lambda_opacity_regularization == 0.01
     assert loaded.training.densification.mode == "mcmc"
     assert loaded.training.optimization.recipe.logit_opacity_lr == 0.05
@@ -144,6 +174,8 @@ def test_fastergs_script_loader_applies_preset_then_cli_overrides(
         training_config.densification.builders[0].target
         == "papers.fastergs.notebook.build_fastergs_mcmc_densification"
     )
+    assert training_config.profiler.enabled is True
+    assert training_config.profiler.log_every == 7
 
 
 def test_fastergs_user_config_does_not_expose_runtime_kwargs(
@@ -246,7 +278,7 @@ def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
         / "papers"
         / "fastergs"
         / "garden_baseline"
-        / "adapter.fastergs"
+        / "faster_gs.core"
     )
     assert mcmc.training.checkpoint.output_dir == (
         REPO_ROOT
@@ -254,7 +286,7 @@ def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
         / "papers"
         / "fastergs"
         / "garden_mcmc"
-        / "adapter.fastergs"
+        / "faster_gs.core"
     )
     assert debug.training.checkpoint.output_dir == (
         REPO_ROOT
@@ -262,7 +294,7 @@ def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
         / "papers"
         / "fastergs"
         / "garden_debug_val"
-        / "adapter.fastergs"
+        / "faster_gs.core"
     )
     assert debug.data.split_target == "val"
     assert debug.data.image_scale_factor == 0.1

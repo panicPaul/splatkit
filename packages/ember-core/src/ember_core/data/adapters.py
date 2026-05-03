@@ -27,9 +27,12 @@ from ember_core.data.contracts import (
     PreparedFrameSample,
     ResizeSpec,
     SceneRecord,
+    horizontal_fov_degrees,
 )
 from ember_core.data.preprocess import (
     prepare_decoded_image_and_camera,
+    resize_intrinsics,
+    resolve_resize_shape,
 )
 
 
@@ -275,6 +278,41 @@ class PreparedFrameDataset(Dataset[PreparedFrameSample]):
                 self._prepared_samples[index] = prepared_sample
             return prepared_sample
         return self._prepare_sample(index)
+
+    def prepared_camera(self, index: int) -> CameraState:
+        """Return the prepared camera for an indexed frame without loading RGB."""
+        source_index = self.indices[index]
+        frame = self.camera_stream.frames[source_index]
+        camera = _select_camera(self.camera_stream.camera, source_index)
+        original_width = frame.width
+        original_height = frame.height
+        resized_width, resized_height = resolve_resize_shape(
+            original_width,
+            original_height,
+            self.preparation.resize,
+        )
+        intrinsics = camera.get_intrinsics()[0]
+        resized_intrinsics = resize_intrinsics(
+            intrinsics,
+            original_width=original_width,
+            original_height=original_height,
+            resized_width=resized_width,
+            resized_height=resized_height,
+        )
+        return replace(
+            camera,
+            width=torch.tensor([resized_width], dtype=torch.int64),
+            height=torch.tensor([resized_height], dtype=torch.int64),
+            fov_degrees=torch.tensor(
+                [horizontal_fov_degrees(resized_width, resized_intrinsics)],
+                dtype=torch.float32,
+            ),
+            intrinsics=resized_intrinsics[None],
+        )
+
+    def prepared_cameras(self) -> tuple[CameraState, ...]:
+        """Return all prepared cameras without loading RGB images."""
+        return tuple(self.prepared_camera(index) for index in range(len(self)))
 
 
 def collate_frame_samples(

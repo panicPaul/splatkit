@@ -130,6 +130,9 @@ class DensificationRuntime(Protocol):
     def all_views(self) -> tuple[Any, ...]:
         """Return all prepared training views."""
 
+    def all_cameras(self) -> tuple[Any, ...]:
+        """Return all prepared training cameras without loading frame images."""
+
     def sample_views(self, count: int) -> tuple[Any, ...]:
         """Sample prepared probe views from the active training dataset."""
 

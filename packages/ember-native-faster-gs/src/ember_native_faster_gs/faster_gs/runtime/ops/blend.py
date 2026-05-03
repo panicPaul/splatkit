@@ -29,9 +29,9 @@ def blend_fwd_op(
     conic_opacity: Tensor,
     colors_rgb: Tensor,
     bg_color: Tensor,
-    proper_antialiasing: bool,
-    width: int,
-    height: int,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """Low-level native blend forward op."""
     return backend().blend_fwd(
@@ -43,9 +43,9 @@ def blend_fwd_op(
         conic_opacity,
         colors_rgb,
         bg_color,
-        proper_antialiasing,
-        width,
-        height,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
     )
 
 
@@ -59,9 +59,9 @@ def _blend_fwd_fake(
     conic_opacity: Tensor,
     colors_rgb: Tensor,
     bg_color: Tensor,
-    proper_antialiasing: bool,
-    width: int,
-    height: int,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     del (
         instance_primitive_indices,
@@ -70,14 +70,14 @@ def _blend_fwd_fake(
         conic_opacity,
         colors_rgb,
         bg_color,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
     )
     device = projected_means.device
     dtype = projected_means.dtype
     tile_count = int(tile_instance_ranges.shape[0])
     tile_pixels = tile_count * BLOCK_SIZE_BLEND
     return (
-        torch.empty((3, height, width), device=device, dtype=dtype),
+        torch.empty((3, image_height, image_width), device=device, dtype=dtype),
         torch.empty((tile_pixels,), device=device, dtype=dtype),
         torch.empty((tile_count,), device=device, dtype=torch.int32),
         torch.empty((tile_pixels,), device=device, dtype=torch.int32),
@@ -104,9 +104,9 @@ def blend_bwd_op(
     tile_n_processed: Tensor,
     bucket_tile_index: Tensor,
     bucket_color_transmittance: Tensor,
-    proper_antialiasing: bool,
-    width: int,
-    height: int,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
 ) -> tuple[Tensor, Tensor, Tensor]:
     """Low-level native blend backward op."""
     return backend().blend_bwd(
@@ -124,9 +124,9 @@ def blend_bwd_op(
         tile_n_processed,
         bucket_tile_index,
         bucket_color_transmittance,
-        proper_antialiasing,
-        width,
-        height,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
     )
 
 
@@ -146,9 +146,9 @@ def _blend_bwd_fake(
     tile_n_processed: Tensor,
     bucket_tile_index: Tensor,
     bucket_color_transmittance: Tensor,
-    proper_antialiasing: bool,
-    width: int,
-    height: int,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
 ) -> tuple[Tensor, Tensor, Tensor]:
     del (
         grad_image,
@@ -162,9 +162,9 @@ def _blend_bwd_fake(
         tile_n_processed,
         bucket_tile_index,
         bucket_color_transmittance,
-        proper_antialiasing,
-        width,
-        height,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
     )
     return (
         torch.empty_like(projected_means),
@@ -184,9 +184,9 @@ def blend_metric_counts_fwd_op(
     colors_rgb: Tensor,
     bg_color: Tensor,
     metric_map: Tensor,
-    proper_antialiasing: bool,
-    width: int,
-    height: int,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
 ) -> Tensor:
     """Low-level native blend metric-count attribution op."""
     return backend().blend_metric_counts_fwd(
@@ -199,9 +199,9 @@ def blend_metric_counts_fwd_op(
         colors_rgb,
         bg_color,
         metric_map,
-        proper_antialiasing,
-        width,
-        height,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
     )
 
 
@@ -216,9 +216,9 @@ def _blend_metric_counts_fwd_fake(
     colors_rgb: Tensor,
     bg_color: Tensor,
     metric_map: Tensor,
-    proper_antialiasing: bool,
-    width: int,
-    height: int,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
 ) -> Tensor:
     del (
         instance_primitive_indices,
@@ -229,9 +229,9 @@ def _blend_metric_counts_fwd_fake(
         colors_rgb,
         bg_color,
         metric_map,
-        proper_antialiasing,
-        width,
-        height,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
     )
     return torch.empty(
         (projected_means.shape[0],),
@@ -249,9 +249,9 @@ def _blend_impl(
     conic_opacity: Tensor,
     colors_rgb: Tensor,
     bg_color: Tensor,
-    proper_antialiasing: bool,
-    width: int,
-    height: int,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """Autograd-enabled blend op."""
     return blend_fwd_op(
@@ -263,9 +263,9 @@ def _blend_impl(
         conic_opacity,
         colors_rgb,
         bg_color,
-        proper_antialiasing,
-        width,
-        height,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
     )
 
 
@@ -297,9 +297,9 @@ def _blend_setup_context(
         blend_result.bucket_tile_index,
         blend_result.bucket_color_transmittance,
     )
-    ctx.proper_antialiasing = inputs[8]
-    ctx.width = inputs[9]
-    ctx.height = inputs[10]
+    ctx.mip_splatting_screen_filter = inputs[8]
+    ctx.image_width = inputs[9]
+    ctx.image_height = inputs[10]
 
 
 def _blend_backward(
@@ -321,9 +321,9 @@ def _blend_backward(
     grad_projected_means, grad_conic_opacity, grad_colors_rgb = blend_bwd_op(
         grad_image,
         *ctx.saved_tensors,
-        ctx.proper_antialiasing,
-        ctx.width,
-        ctx.height,
+        ctx.mip_splatting_screen_filter,
+        ctx.image_width,
+        ctx.image_height,
     )
     return (
         None,

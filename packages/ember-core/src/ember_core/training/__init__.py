@@ -26,6 +26,12 @@ from ember_core.training.config import (
     TensorSliceSpec,
     TensorViewSpec,
     TrainingConfig,
+    TrainingProfilerConfig,
+)
+from ember_core.training.profiling import (
+    TrainingProfiler,
+    TrainingStepProfile,
+    build_training_profiler,
 )
 from ember_core.training.protocols import (
     LoadedCheckpoint,
@@ -92,8 +98,11 @@ __all__ = [
     "TrainingConfig",
     "TrainingConfigSource",
     "TrainingHook",
+    "TrainingProfiler",
+    "TrainingProfilerConfig",
     "TrainingResult",
     "TrainingRunContext",
+    "TrainingStepProfile",
     "build_checkpoint_metadata",
     "build_dataloader",
     "build_densification_for_context",
@@ -106,6 +115,7 @@ __all__ = [
     "build_raw_render_fn",
     "build_render_fn",
     "build_render_fn_with_requirements",
+    "build_training_profiler",
     "build_training_render_fn",
     "build_training_run_context",
     "compute_frame_camera_extent",

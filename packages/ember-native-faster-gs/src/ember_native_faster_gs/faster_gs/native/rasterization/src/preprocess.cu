@@ -23,7 +23,7 @@ namespace {
 
 __global__ void compute_primitive_depth_cu(
     const float3* __restrict__ means,
-    const float4* __restrict__ w2c,
+    const float4* __restrict__ world_to_camera_matrix,
     float* __restrict__ primitive_depth,
     const uint n_primitives
 ) {
@@ -32,9 +32,9 @@ __global__ void compute_primitive_depth_cu(
         return;
     }
     const float3 mean3d = means[primitive_idx];
-    const float4 w2c_r3 = w2c[2];
-    primitive_depth[primitive_idx] = w2c_r3.x * mean3d.x + w2c_r3.y * mean3d.y +
-                                     w2c_r3.z * mean3d.z + w2c_r3.w;
+    const float4 world_to_camera_row_3 = world_to_camera_matrix[2];
+    primitive_depth[primitive_idx] = world_to_camera_row_3.x * mean3d.x + world_to_camera_row_3.y * mean3d.y +
+                                     world_to_camera_row_3.z * mean3d.z + world_to_camera_row_3.w;
 }
 
 }  // namespace
@@ -59,7 +59,7 @@ preprocess_fwd_wrapper(
     const torch::Tensor& opacities,
     const torch::Tensor& sh_coefficients_0,
     const torch::Tensor& sh_coefficients_rest,
-    const torch::Tensor& w2c,
+    const torch::Tensor& world_to_camera_matrix,
     const torch::Tensor& cam_position,
     float near_plane,
     float far_plane,
@@ -69,7 +69,7 @@ preprocess_fwd_wrapper(
     float focal_y,
     float center_x,
     float center_y,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int active_sh_bases) {
     check_cuda_float_tensor(means, "means");
     check_cuda_float_tensor(scales, "scales");
@@ -77,7 +77,7 @@ preprocess_fwd_wrapper(
     check_cuda_float_tensor(opacities, "opacities");
     check_cuda_float_tensor(sh_coefficients_0, "sh_coefficients_0");
     check_cuda_float_tensor(sh_coefficients_rest, "sh_coefficients_rest");
-    check_cuda_float_tensor(w2c, "w2c");
+    check_cuda_float_tensor(world_to_camera_matrix, "world_to_camera_matrix");
     check_cuda_float_tensor(cam_position, "cam_position");
 
     const int n_primitives = means.size(0);
@@ -105,13 +105,13 @@ preprocess_fwd_wrapper(
     torch::Tensor opacities_c = opacities.reshape({-1}).contiguous();
     torch::Tensor sh0_c = sh_coefficients_0.squeeze(1).contiguous();
     torch::Tensor shrest_c = sh_coefficients_rest.contiguous();
-    torch::Tensor w2c_c = w2c.contiguous();
+    torch::Tensor contiguous_world_to_camera_matrix = world_to_camera_matrix.contiguous();
     torch::Tensor cam_position_c = cam_position.contiguous();
 
     compute_primitive_depth_cu<<<div_round_up(n_primitives, config::block_size_preprocess),
                                  config::block_size_preprocess>>>(
         reinterpret_cast<float3*>(means_c.data_ptr<float>()),
-        reinterpret_cast<float4*>(w2c_c.data_ptr<float>()),
+        reinterpret_cast<float4*>(contiguous_world_to_camera_matrix.data_ptr<float>()),
         primitive_depth.data_ptr<float>(),
         static_cast<uint>(n_primitives)
     );
@@ -128,7 +128,7 @@ preprocess_fwd_wrapper(
             opacities_c.data_ptr<float>(),
             reinterpret_cast<float3*>(sh0_c.data_ptr<float>()),
             reinterpret_cast<float3*>(shrest_c.data_ptr<float>()),
-            reinterpret_cast<float4*>(w2c_c.data_ptr<float>()),
+            reinterpret_cast<float4*>(contiguous_world_to_camera_matrix.data_ptr<float>()),
             reinterpret_cast<float3*>(cam_position_c.data_ptr<float>()),
             reinterpret_cast<uint*>(depth_keys.data_ptr<int>()),
             reinterpret_cast<uint*>(primitive_indices.data_ptr<int>()),
@@ -152,7 +152,7 @@ preprocess_fwd_wrapper(
             center_y,
             near_plane,
             far_plane,
-            proper_antialiasing
+            mip_splatting_screen_filter
         );
     CHECK_CUDA(config::debug, "preprocess_fwd")
 
@@ -185,7 +185,7 @@ preprocess_bwd_wrapper(
     const torch::Tensor& rotations,
     const torch::Tensor& opacities,
     const torch::Tensor& sh_coefficients_rest,
-    const torch::Tensor& w2c,
+    const torch::Tensor& world_to_camera_matrix,
     const torch::Tensor& cam_position,
     const torch::Tensor& num_touched_tiles,
     const torch::Tensor& grad_projected_means,
@@ -199,14 +199,14 @@ preprocess_bwd_wrapper(
     float focal_y,
     float center_x,
     float center_y,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int active_sh_bases) {
     check_cuda_float_tensor(means, "means");
     check_cuda_float_tensor(scales, "scales");
     check_cuda_float_tensor(rotations, "rotations");
     check_cuda_float_tensor(opacities, "opacities");
     check_cuda_float_tensor(sh_coefficients_rest, "sh_coefficients_rest");
-    check_cuda_float_tensor(w2c, "w2c");
+    check_cuda_float_tensor(world_to_camera_matrix, "world_to_camera_matrix");
     check_cuda_float_tensor(cam_position, "cam_position");
     check_cuda_int_tensor(num_touched_tiles, "num_touched_tiles");
     check_cuda_float_tensor(grad_projected_means, "grad_projected_means");
@@ -254,7 +254,7 @@ preprocess_bwd_wrapper(
     torch::Tensor rotations_c = rotations.contiguous();
     torch::Tensor opacities_c = opacities.reshape({-1}).contiguous();
     torch::Tensor shrest_c = sh_coefficients_rest.contiguous();
-    torch::Tensor w2c_c = w2c.contiguous();
+    torch::Tensor contiguous_world_to_camera_matrix = world_to_camera_matrix.contiguous();
     torch::Tensor cam_position_c = cam_position.contiguous();
     torch::Tensor touched_c = num_touched_tiles.contiguous();
     torch::Tensor grad_depth_c = grad_primitive_depth.reshape({n_primitives, 1}).contiguous();
@@ -269,7 +269,7 @@ preprocess_bwd_wrapper(
             reinterpret_cast<float4*>(rotations_c.data_ptr<float>()),
             opacities_c.data_ptr<float>(),
             reinterpret_cast<float3*>(shrest_c.data_ptr<float>()),
-            reinterpret_cast<float4*>(w2c_c.data_ptr<float>()),
+            reinterpret_cast<float4*>(contiguous_world_to_camera_matrix.data_ptr<float>()),
             reinterpret_cast<float3*>(cam_position_c.data_ptr<float>()),
             reinterpret_cast<const uint*>(touched_c.data_ptr<int>()),
             reinterpret_cast<float2*>(grad_mean2d.data_ptr<float>()),
@@ -292,12 +292,13 @@ preprocess_bwd_wrapper(
             focal_y,
             center_x,
             center_y,
-            proper_antialiasing
+            mip_splatting_screen_filter
         );
     CHECK_CUDA(config::debug, "preprocess_bwd")
 
-    const torch::Tensor w2c_depth_row = w2c_c.select(0, 2).narrow(0, 0, 3);
-    grad_means.add_(grad_depth_c * w2c_depth_row);
+    const torch::Tensor world_to_camera_depth_row =
+        contiguous_world_to_camera_matrix.select(0, 2).narrow(0, 0, 3);
+    grad_means.add_(grad_depth_c * world_to_camera_depth_row);
 
     return {
         grad_means,

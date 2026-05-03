@@ -78,37 +78,37 @@ def morton_order(positions: Tensor) -> Tensor:
     return torch.argsort(morton_codes(positions), stable=True)
 
 
-def update_3d_filter(
+def update_mip_splatting_3d_filter(
     positions: Tensor,
-    w2c: Tensor,
-    filter_3d: Tensor,
+    world_to_camera_matrix: Tensor,
+    mip_splatting_3d_filter: Tensor,
     visibility_mask: Tensor,
     *,
-    width: int,
-    height: int,
-    focal_x: float,
-    focal_y: float,
-    center_x: float,
-    center_y: float,
+    image_width: int,
+    image_height: int,
+    focal_length_x: float,
+    focal_length_y: float,
+    principal_point_x: float,
+    principal_point_y: float,
     near_plane: float,
     clipping_tolerance: float,
-    distance2filter: float,
+    distance_to_filter_scale: float,
 ) -> None:
     """Update Mip-Splatting 3D filter buffers in-place for one camera."""
-    load_extension().update_3d_filter(
+    load_extension().update_mip_splatting_3d_filter(
         positions.contiguous(),
-        w2c.contiguous(),
-        filter_3d,
+        world_to_camera_matrix.contiguous(),
+        mip_splatting_3d_filter,
         visibility_mask,
-        width,
-        height,
-        focal_x,
-        focal_y,
-        center_x,
-        center_y,
+        image_width,
+        image_height,
+        focal_length_x,
+        focal_length_y,
+        principal_point_x,
+        principal_point_y,
         near_plane,
         clipping_tolerance,
-        distance2filter,
+        distance_to_filter_scale,
     )
 
 
@@ -155,5 +155,5 @@ __all__ = [
     "morton_codes",
     "morton_order",
     "relocation_adjustment",
-    "update_3d_filter",
+    "update_mip_splatting_3d_filter",
 ]

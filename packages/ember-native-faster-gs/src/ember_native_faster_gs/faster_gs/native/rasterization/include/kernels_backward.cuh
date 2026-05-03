@@ -18,7 +18,7 @@ namespace faster_gs::rasterization::kernels::backward {
         const float4* __restrict__ rotations,
         const float* __restrict__ opacities,
         const float3* __restrict__ sh_coefficients_rest,
-        const float4* __restrict__ w2c,
+        const float4* __restrict__ world_to_camera_matrix,
         const float3* __restrict__ cam_position,
         const uint* __restrict__ primitive_n_touched_tiles,
         const float2* __restrict__ grad_mean2d,
@@ -39,7 +39,7 @@ namespace faster_gs::rasterization::kernels::backward {
         const float focal_y,
         const float center_x,
         const float center_y,
-        const bool proper_antialiasing)
+        const bool mip_splatting_screen_filter)
     {
         const uint primitive_idx = blockIdx.x * blockDim.x + threadIdx.x;
         if (primitive_idx >= n_primitives || primitive_n_touched_tiles[primitive_idx] == 0) return;
@@ -54,12 +54,12 @@ namespace faster_gs::rasterization::kernels::backward {
             active_sh_bases, total_sh_bases
         );
 
-        const float4 w2c_r3 = w2c[2];
-        const float depth = w2c_r3.x * mean3d.x + w2c_r3.y * mean3d.y + w2c_r3.z * mean3d.z + w2c_r3.w;
-        const float4 w2c_r1 = w2c[0];
-        const float x = (w2c_r1.x * mean3d.x + w2c_r1.y * mean3d.y + w2c_r1.z * mean3d.z + w2c_r1.w) / depth;
-        const float4 w2c_r2 = w2c[1];
-        const float y = (w2c_r2.x * mean3d.x + w2c_r2.y * mean3d.y + w2c_r2.z * mean3d.z + w2c_r2.w) / depth;
+        const float4 world_to_camera_row_3 = world_to_camera_matrix[2];
+        const float depth = world_to_camera_row_3.x * mean3d.x + world_to_camera_row_3.y * mean3d.y + world_to_camera_row_3.z * mean3d.z + world_to_camera_row_3.w;
+        const float4 world_to_camera_row_1 = world_to_camera_matrix[0];
+        const float x = (world_to_camera_row_1.x * mean3d.x + world_to_camera_row_1.y * mean3d.y + world_to_camera_row_1.z * mean3d.z + world_to_camera_row_1.w) / depth;
+        const float4 world_to_camera_row_2 = world_to_camera_matrix[1];
+        const float y = (world_to_camera_row_2.x * mean3d.x + world_to_camera_row_2.y * mean3d.y + world_to_camera_row_2.z * mean3d.z + world_to_camera_row_2.w) / depth;
 
         // compute 3d covariance from scale and rotation
         const float3 raw_scale = scales[primitive_idx];
@@ -93,14 +93,14 @@ namespace faster_gs::rasterization::kernels::backward {
         const float j22 = focal_y / depth;
         const float j23 = -j22 * y_clipped;
         const float3 jw_r1 = make_float3(
-            j11 * w2c_r1.x + j13 * w2c_r3.x,
-            j11 * w2c_r1.y + j13 * w2c_r3.y,
-            j11 * w2c_r1.z + j13 * w2c_r3.z
+            j11 * world_to_camera_row_1.x + j13 * world_to_camera_row_3.x,
+            j11 * world_to_camera_row_1.y + j13 * world_to_camera_row_3.y,
+            j11 * world_to_camera_row_1.z + j13 * world_to_camera_row_3.z
         );
         const float3 jw_r2 = make_float3(
-            j22 * w2c_r2.x + j23 * w2c_r3.x,
-            j22 * w2c_r2.y + j23 * w2c_r3.y,
-            j22 * w2c_r2.z + j23 * w2c_r3.z
+            j22 * world_to_camera_row_2.x + j23 * world_to_camera_row_3.x,
+            j22 * world_to_camera_row_2.y + j23 * world_to_camera_row_3.y,
+            j22 * world_to_camera_row_2.z + j23 * world_to_camera_row_3.z
         );
         const float3 jwc_r1 = make_float3(
             jw_r1.x * cov3d.m11 + jw_r1.y * cov3d.m12 + jw_r1.z * cov3d.m13,
@@ -115,7 +115,7 @@ namespace faster_gs::rasterization::kernels::backward {
 
         // 2d covariance gradient
         const float a_raw = dot(jwc_r1, jw_r1), b = dot(jwc_r1, jw_r2), c_raw = dot(jwc_r2, jw_r2);
-        const float kernel_size = proper_antialiasing ? config::dilation_proper_antialiasing : config::dilation;
+        const float kernel_size = mip_splatting_screen_filter ? config::dilation_mip_splatting_screen_filter : config::dilation;
         const float a = a_raw + kernel_size, c = c_raw + kernel_size;
         const float aa = a * a, bb = b * b, cc = c * c;
         const float ac = a * c, ab = a * b, bc = b * c;
@@ -133,8 +133,8 @@ namespace faster_gs::rasterization::kernels::backward {
             2.0f * ab * dL_dconic.y - bb * dL_dconic.x - aa * dL_dconic.z
         );
 
-        // account for proper antialiasing
-        if (proper_antialiasing) {
+        // account for Mip-Splatting screen-space filtering
+        if (mip_splatting_screen_filter) {
             const float opacity = sigmoid(opacities[primitive_idx]);
             const float dL_dopacity_conv_factor = grad_opacities[primitive_idx];
             const float determinant_raw = a_raw * c_raw - bb;
@@ -143,7 +143,7 @@ namespace faster_gs::rasterization::kernels::backward {
             const float dL_dopacity = dL_dopacity_conv_factor * conv_factor * opacity * (1.0f - opacity);
             grad_opacities[primitive_idx] = dL_dopacity;
             // the remaining part works but causes exploding gradients that lead to lots of degenerate Gaussians
-            if constexpr (!config::detach_dilation_proper_antialiasing_from_cov2d) {
+            if constexpr (!config::detach_dilation_mip_splatting_screen_filter_from_cov2d) {
                 // based on https://github.com/nerfstudio-project/gsplat/blob/65042cc501d1cdbefaf1d6f61a9a47575eec8c71/gsplat/cuda/include/Utils.cuh#L390
                 const float3 conic = make_float3(
                     c / determinant,
@@ -182,10 +182,10 @@ namespace faster_gs::rasterization::kernels::backward {
         );
 
         // gradient of non-zero entries in J
-        const float dL_dj11 = w2c_r1.x * dL_djw_r1.x + w2c_r1.y * dL_djw_r1.y + w2c_r1.z * dL_djw_r1.z;
-        const float dL_dj22 = w2c_r2.x * dL_djw_r2.x + w2c_r2.y * dL_djw_r2.y + w2c_r2.z * dL_djw_r2.z;
-        const float dL_dj13 = w2c_r3.x * dL_djw_r1.x + w2c_r3.y * dL_djw_r1.y + w2c_r3.z * dL_djw_r1.z;
-        const float dL_dj23 = w2c_r3.x * dL_djw_r2.x + w2c_r3.y * dL_djw_r2.y + w2c_r3.z * dL_djw_r2.z;
+        const float dL_dj11 = world_to_camera_row_1.x * dL_djw_r1.x + world_to_camera_row_1.y * dL_djw_r1.y + world_to_camera_row_1.z * dL_djw_r1.z;
+        const float dL_dj22 = world_to_camera_row_2.x * dL_djw_r2.x + world_to_camera_row_2.y * dL_djw_r2.y + world_to_camera_row_2.z * dL_djw_r2.z;
+        const float dL_dj13 = world_to_camera_row_3.x * dL_djw_r1.x + world_to_camera_row_3.y * dL_djw_r1.y + world_to_camera_row_3.z * dL_djw_r1.z;
+        const float dL_dj23 = world_to_camera_row_3.x * dL_djw_r2.x + world_to_camera_row_3.y * dL_djw_r2.y + world_to_camera_row_3.z * dL_djw_r2.z;
 
         // load gradient of 2d mean
         const float2 dL_dmean2d = grad_mean2d[primitive_idx];
@@ -218,9 +218,9 @@ namespace faster_gs::rasterization::kernels::backward {
 
         // 3d mean gradient from splatting
         const float3 dL_dmean3d_from_splatting = make_float3(
-            w2c_r1.x * dL_dmean3d_cam.x + w2c_r2.x * dL_dmean3d_cam.y + w2c_r3.x * dL_dmean3d_cam.z,
-            w2c_r1.y * dL_dmean3d_cam.x + w2c_r2.y * dL_dmean3d_cam.y + w2c_r3.y * dL_dmean3d_cam.z,
-            w2c_r1.z * dL_dmean3d_cam.x + w2c_r2.z * dL_dmean3d_cam.y + w2c_r3.z * dL_dmean3d_cam.z
+            world_to_camera_row_1.x * dL_dmean3d_cam.x + world_to_camera_row_2.x * dL_dmean3d_cam.y + world_to_camera_row_3.x * dL_dmean3d_cam.z,
+            world_to_camera_row_1.y * dL_dmean3d_cam.x + world_to_camera_row_2.y * dL_dmean3d_cam.y + world_to_camera_row_3.y * dL_dmean3d_cam.z,
+            world_to_camera_row_1.z * dL_dmean3d_cam.x + world_to_camera_row_2.z * dL_dmean3d_cam.y + world_to_camera_row_3.z * dL_dmean3d_cam.z
         );
 
         // write total 3d mean gradient
@@ -280,7 +280,7 @@ namespace faster_gs::rasterization::kernels::backward {
         const uint width,
         const uint height,
         const uint grid_width,
-        const bool proper_antialiasing)
+        const bool mip_splatting_screen_filter)
     {
         auto block = cg::this_thread_block();
         auto warp = cg::tiled_partition<32>(block);
@@ -462,7 +462,7 @@ namespace faster_gs::rasterization::kernels::backward {
             atomicAdd(&grad_conic[primitive_idx], dL_dconic_accum.x);
             atomicAdd(&grad_conic[n_primitives + primitive_idx], dL_dconic_accum.y);
             atomicAdd(&grad_conic[2 * n_primitives + primitive_idx], dL_dconic_accum.z);
-            const float dL_dopacity = proper_antialiasing ? dL_dopacity_accum : opacity * (1.0f - opacity) * dL_dopacity_accum;
+            const float dL_dopacity = mip_splatting_screen_filter ? dL_dopacity_accum : opacity * (1.0f - opacity) * dL_dopacity_accum;
             atomicAdd(&grad_opacity[primitive_idx], dL_dopacity);
             atomicAdd(&grad_sh_coefficients_0[primitive_idx].x, dL_dcolor_accum.x);
             atomicAdd(&grad_sh_coefficients_0[primitive_idx].y, dL_dcolor_accum.y);

@@ -114,35 +114,39 @@ def test_morton_order_sorts_simple_cuda_points() -> None:
     )
 
 
-def test_update_3d_filter_marks_visible_cuda_point() -> None:
+def test_update_mip_splatting_3d_filter_marks_visible_cuda_point() -> None:
     _require_cuda()
-    from ember_native_faster_gs.faster_gs.training import update_3d_filter
+    from ember_native_faster_gs.faster_gs.training import (
+        update_mip_splatting_3d_filter,
+    )
 
     positions = torch.tensor(
         [[0.0, 0.0, 1.0]],
         dtype=torch.float32,
         device="cuda",
     )
-    filter_3d = torch.full((1, 1), float("inf"), device="cuda")
+    mip_splatting_3d_filter = torch.full((1, 1), float("inf"), device="cuda")
     visibility_mask = torch.zeros((1, 1), dtype=torch.bool, device="cuda")
 
-    update_3d_filter(
+    update_mip_splatting_3d_filter(
         positions,
         torch.eye(4, dtype=torch.float32, device="cuda"),
-        filter_3d,
+        mip_splatting_3d_filter,
         visibility_mask,
-        width=10,
-        height=10,
-        focal_x=10.0,
-        focal_y=10.0,
-        center_x=5.0,
-        center_y=5.0,
+        image_width=10,
+        image_height=10,
+        focal_length_x=10.0,
+        focal_length_y=10.0,
+        principal_point_x=5.0,
+        principal_point_y=5.0,
         near_plane=0.01,
         clipping_tolerance=0.15,
-        distance2filter=0.1,
+        distance_to_filter_scale=0.1,
     )
 
-    torch.testing.assert_close(filter_3d.cpu(), torch.tensor([[0.1]]))
+    torch.testing.assert_close(
+        mip_splatting_3d_filter.cpu(), torch.tensor([[0.1]])
+    )
     assert visibility_mask.item() is True
 
 

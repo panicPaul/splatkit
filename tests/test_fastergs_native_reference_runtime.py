@@ -73,7 +73,7 @@ def _run_torch_backward(device: torch.device) -> None:
 
 
 def _run_native_backward(cuda_scene, cuda_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
@@ -100,14 +100,14 @@ def _run_native_backward(cuda_scene, cuda_camera) -> None:
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
+        image_width=image_width,
+        image_height=image_height,
+        focal_length_x=focal_length_x,
+        focal_length_y=focal_length_y,
+        principal_point_x=principal_point_x,
+        principal_point_y=principal_point_y,
         bg_color=torch.zeros(3, device=center_positions.device),
-        proper_antialiasing=False,
+        mip_splatting_screen_filter=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
     )
     result.image.sum().backward()
@@ -124,7 +124,7 @@ def _run_native_backward(cuda_scene, cuda_camera) -> None:
 
 
 def _run_depth_backward(cuda_scene, cuda_camera) -> None:
-    width, height, focal_x, focal_y, center_x, center_y = (
+    image_width, image_height, focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
         _extract_camera_params(cuda_camera)
     )
     cam_to_world = cuda_camera.cam_to_world[0]
@@ -151,12 +151,12 @@ def _run_depth_backward(cuda_scene, cuda_camera) -> None:
         cam_to_world[:3, 3],
         near_plane=0.01,
         far_plane=1000.0,
-        width=width,
-        height=height,
-        focal_x=focal_x,
-        focal_y=focal_y,
-        center_x=center_x,
-        center_y=center_y,
+        width=image_width,
+        height=image_height,
+        focal_x=focal_length_x,
+        focal_y=focal_length_y,
+        center_x=principal_point_x,
+        center_y=principal_point_y,
         bg_color=torch.zeros(3, device=center_positions.device),
         proper_antialiasing=False,
         active_sh_bases=int(cuda_scene.feature.shape[1]),
@@ -217,12 +217,12 @@ def test_render_matches_reference_cuda_backend(cuda_scene, cuda_camera) -> None:
             )
             cam_to_world = camera.cam_to_world[0]
             intrinsics = camera.get_intrinsics()[0]
-            width = int(camera.width[0].item())
-            height = int(camera.height[0].item())
-            focal_x = float(intrinsics[0, 0].item())
-            focal_y = float(intrinsics[1, 1].item())
-            center_x = float(intrinsics[0, 2].item())
-            center_y = float(intrinsics[1, 2].item())
+            image_width = int(camera.width[0].item())
+            image_height = int(camera.height[0].item())
+            focal_length_x = float(intrinsics[0, 0].item())
+            focal_length_y = float(intrinsics[1, 1].item())
+            principal_point_x = float(intrinsics[0, 2].item())
+            principal_point_y = float(intrinsics[1, 2].item())
 
             native = render(
                 scene.center_position,
@@ -235,14 +235,14 @@ def test_render_matches_reference_cuda_backend(cuda_scene, cuda_camera) -> None:
                 cam_to_world[:3, 3],
                 near_plane=0.01,
                 far_plane=1000.0,
-                width=width,
-                height=height,
-                focal_x=focal_x,
-                focal_y=focal_y,
-                center_x=center_x,
-                center_y=center_y,
+                image_width=image_width,
+                image_height=image_height,
+                focal_length_x=focal_length_x,
+                focal_length_y=focal_length_y,
+                principal_point_x=principal_point_x,
+                principal_point_y=principal_point_y,
                 bg_color=torch.zeros(3, device="cuda"),
-                proper_antialiasing=False,
+                mip_splatting_screen_filter=False,
                 active_sh_bases=int(scene.feature.shape[1]),
             ).image
             reference = diff_rasterize(
@@ -258,12 +258,12 @@ def test_render_matches_reference_cuda_backend(cuda_scene, cuda_camera) -> None:
                     cam_position=cam_to_world[:3, 3].contiguous(),
                     bg_color=torch.zeros(3, device="cuda"),
                     active_sh_bases=int(scene.feature.shape[1]),
-                    width=width,
-                    height=height,
-                    focal_x=focal_x,
-                    focal_y=focal_y,
-                    center_x=center_x,
-                    center_y=center_y,
+                    width=image_width,
+                    height=image_height,
+                    focal_x=focal_length_x,
+                    focal_y=focal_length_y,
+                    center_x=principal_point_x,
+                    center_y=principal_point_y,
                     near_plane=0.01,
                     far_plane=1000.0,
                     proper_antialiasing=False,
@@ -321,19 +321,19 @@ def test_render_gradients_match_reference_cuda_backend(
             )
             cam_to_world = camera.cam_to_world[0]
             intrinsics = camera.get_intrinsics()[0]
-            width = int(camera.width[0].item())
-            height = int(camera.height[0].item())
-            focal_x = float(intrinsics[0, 0].item())
-            focal_y = float(intrinsics[1, 1].item())
-            center_x = float(intrinsics[0, 2].item())
-            center_y = float(intrinsics[1, 2].item())
+            image_width = int(camera.width[0].item())
+            image_height = int(camera.height[0].item())
+            focal_length_x = float(intrinsics[0, 0].item())
+            focal_length_y = float(intrinsics[1, 1].item())
+            principal_point_x = float(intrinsics[0, 2].item())
+            principal_point_y = float(intrinsics[1, 2].item())
             weights = torch.linspace(
                 0.5,
                 1.5,
-                steps=3 * height * width,
+                steps=3 * image_height * image_width,
                 device="cuda",
                 dtype=torch.float32,
-            ).view(3, height, width)
+            ).view(3, image_height, image_width)
 
             native_inputs = [
                 scene.center_position.detach().clone().requires_grad_(True),
@@ -358,14 +358,14 @@ def test_render_gradients_match_reference_cuda_backend(
                 cam_to_world[:3, 3],
                 near_plane=0.01,
                 far_plane=1000.0,
-                width=width,
-                height=height,
-                focal_x=focal_x,
-                focal_y=focal_y,
-                center_x=center_x,
-                center_y=center_y,
+                image_width=image_width,
+                image_height=image_height,
+                focal_length_x=focal_length_x,
+                focal_length_y=focal_length_y,
+                principal_point_x=principal_point_x,
+                principal_point_y=principal_point_y,
                 bg_color=torch.zeros(3, device="cuda"),
-                proper_antialiasing=False,
+                mip_splatting_screen_filter=False,
                 active_sh_bases=int(scene.feature.shape[1]),
             ).image
             (native_image * weights).sum().backward()
@@ -383,12 +383,12 @@ def test_render_gradients_match_reference_cuda_backend(
                     cam_position=cam_to_world[:3, 3].contiguous(),
                     bg_color=torch.zeros(3, device="cuda"),
                     active_sh_bases=int(scene.feature.shape[1]),
-                    width=width,
-                    height=height,
-                    focal_x=focal_x,
-                    focal_y=focal_y,
-                    center_x=center_x,
-                    center_y=center_y,
+                    width=image_width,
+                    height=image_height,
+                    focal_x=focal_length_x,
+                    focal_y=focal_length_y,
+                    center_x=principal_point_x,
+                    center_y=principal_point_y,
                     near_plane=0.01,
                     far_plane=1000.0,
                     proper_antialiasing=False,

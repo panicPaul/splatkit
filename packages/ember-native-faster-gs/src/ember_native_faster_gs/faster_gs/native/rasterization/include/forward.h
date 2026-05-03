@@ -18,7 +18,7 @@ namespace faster_gs::rasterization {
         const float* opacities,
         const float3* sh_coefficients_0,
         const float3* sh_coefficients_rest,
-        const float4* w2c,
+        const float4* world_to_camera_matrix,
         const float3* cam_position,
         const float3* bg_color,
         float* image,
@@ -33,7 +33,7 @@ namespace faster_gs::rasterization {
         const float center_y,
         const float near_plane,
         const float far_plane,
-        const bool proper_antialiasing);
+        const bool mip_splatting_screen_filter);
 
     template <typename KeyT>
     void diff_rasterize(

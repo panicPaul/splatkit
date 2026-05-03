@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import replace
+import threading
+import time
+from dataclasses import fields, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -41,13 +44,20 @@ from ember_native_faster_gs.gaussian_pop.renderer import (
     GaussianPopNativeRenderOptions,
 )
 from ember_splatting_training.fastergs import (
-    GaussianMipSplattingAntialiasing,
+    GaussianMipSplatting3DFilter,
     active_sh_bases_for_step,
     fastergs_training_backend_options,
 )
 from ember_splatting_training.recipes import (
     Gaussian3DGSOptimizationRecipe,
     gaussian_3dgs_optimization_config,
+)
+from ember_splatting_training.training_viewer import (
+    TrainingViewerCancelled,
+    TrainingViewerConfig,
+    TrainingViewerHandle,
+    TrainingViewerHook,
+    create_training_viewer,
 )
 from torch.optim import Optimizer
 
@@ -58,6 +68,13 @@ def test_fastergs_active_sh_schedule() -> None:
     assert active_sh_bases_for_step(1000) == 4
     assert active_sh_bases_for_step(2000) == 9
     assert active_sh_bases_for_step(3000) == 16
+
+
+def test_fastergs_morton_helpers_are_root_exports() -> None:
+    from ember_splatting_training import morton_codes, morton_order
+
+    assert callable(morton_codes)
+    assert callable(morton_order)
     assert active_sh_bases_for_step(30_000) == 16
 
 
@@ -75,12 +92,12 @@ def test_fastergs_training_backend_options_use_state_step() -> None:
     }
 
 
-def test_gaussian_mip_splatting_antialiasing_requests_proper_aa() -> None:
-    method = GaussianMipSplattingAntialiasing()
+def test_gaussian_mip_splatting_3d_filter_has_no_render_requirements() -> None:
+    method = GaussianMipSplatting3DFilter()
 
     requirements = method.get_render_requirements(object())
 
-    assert requirements.backend_options == {"proper_antialiasing": True}
+    assert requirements.backend_options == {}
 
 
 class RecordingOptimizer(Optimizer):
@@ -228,6 +245,49 @@ def _state_for_scene(scene: GaussianScene3D) -> TrainState:
         seed=0,
         device=torch.device("cpu"),
     )
+
+
+def _trainable_scene(scene: GaussianScene3D) -> GaussianScene3D:
+    updates = {}
+    for field_def in fields(scene):
+        value = getattr(scene, field_def.name)
+        if isinstance(value, torch.Tensor):
+            updates[field_def.name] = value.detach().clone().requires_grad_(
+                value.is_floating_point()
+            )
+    return replace(scene, **updates)
+
+
+def _assert_scene_tensors_equal(
+    left: GaussianScene3D,
+    right: GaussianScene3D,
+) -> None:
+    for field_def in fields(left):
+        left_value = getattr(left, field_def.name)
+        right_value = getattr(right, field_def.name)
+        if isinstance(left_value, torch.Tensor):
+            assert torch.equal(left_value, right_value), field_def.name
+
+
+def _logit_optimizer_binding(
+    state: TrainState,
+) -> tuple[torch.optim.Adam, OptimizerBinding]:
+    optimizer = torch.optim.Adam([state.model.scene.logit_opacity], lr=0.1)
+    binding = OptimizerBinding(
+        target=scene_target("logit_opacity"),
+        optimizer=optimizer,
+        base_parameter=state.model.scene.logit_opacity,
+        field_name="logit_opacity",
+    )
+    state.model.scene.logit_opacity.sum().backward()
+    binding.step()
+    binding.zero_grad()
+    return optimizer, binding
+
+
+def _exp_avg(optimizer: torch.optim.Optimizer) -> torch.Tensor:
+    parameter = optimizer.param_groups[0]["params"][0]
+    return optimizer.state[parameter]["exp_avg"]
 
 
 def test_initialized_model_to_moves_buffers(cpu_scene: GaussianScene3D) -> None:
@@ -411,13 +471,623 @@ def test_gaussian_family_ops_updates_all_bindings_for_shared_scene_field(
     assert torch.equal(reordered_rest, before_reorder_rest[order])
 
 
+def test_gaussian_family_ops_clone_and_split_matches_separate_ops(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    old_state = _state_for_scene(_trainable_scene(cpu_scene))
+    new_state = _state_for_scene(_trainable_scene(cpu_scene))
+    old_optimizer, old_binding = _logit_optimizer_binding(old_state)
+    new_optimizer, new_binding = _logit_optimizer_binding(new_state)
+    clone_mask = torch.tensor([True, False, True])
+    split_mask = torch.tensor([False, True, False])
+
+    torch.manual_seed(123)
+    old_ops = GaussianFamilyOps(old_state, [old_binding])
+    old_ops.clone(clone_mask)
+    padded_split_mask = torch.cat(
+        [
+            split_mask,
+            torch.zeros(
+                int(clone_mask.sum().item()),
+                dtype=torch.bool,
+            ),
+        ]
+    )
+    old_ops.split(padded_split_mask, num_children=2, scale_shrink=0.625)
+
+    torch.manual_seed(123)
+    new_ops = GaussianFamilyOps(new_state, [new_binding])
+    new_ops.clone_and_split(
+        clone_mask,
+        split_mask,
+        num_children=2,
+        scale_shrink=0.625,
+    )
+
+    _assert_scene_tensors_equal(old_state.model.scene, new_state.model.scene)
+    assert torch.equal(_exp_avg(old_optimizer), _exp_avg(new_optimizer))
+
+
+def test_gaussian_family_ops_clone_split_prune_matches_separate_ops(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    old_state = _state_for_scene(_trainable_scene(cpu_scene))
+    new_state = _state_for_scene(_trainable_scene(cpu_scene))
+    old_optimizer, old_binding = _logit_optimizer_binding(old_state)
+    new_optimizer, new_binding = _logit_optimizer_binding(new_state)
+    clone_mask = torch.tensor([True, False, True])
+    split_mask = torch.tensor([False, True, False])
+
+    def keep_fn(scene: GaussianScene3D) -> torch.Tensor:
+        keep = torch.ones(scene.center_position.shape[0], dtype=torch.bool)
+        keep[0] = False
+        keep[-1] = False
+        return keep
+
+    torch.manual_seed(321)
+    old_ops = GaussianFamilyOps(old_state, [old_binding])
+    old_ops.clone(clone_mask)
+    padded_split_mask = torch.cat(
+        [
+            split_mask,
+            torch.zeros(
+                int(clone_mask.sum().item()),
+                dtype=torch.bool,
+            ),
+        ]
+    )
+    old_ops.split(padded_split_mask, num_children=2, scale_shrink=0.625)
+    old_ops.prune(keep_fn(old_ops.scene))
+
+    torch.manual_seed(321)
+    new_ops = GaussianFamilyOps(new_state, [new_binding])
+    new_ops.clone_and_split(
+        clone_mask,
+        split_mask,
+        num_children=2,
+        scale_shrink=0.625,
+        prune_fn=keep_fn,
+        prune_field_names=("center_position",),
+    )
+
+    _assert_scene_tensors_equal(old_state.model.scene, new_state.model.scene)
+    assert torch.equal(_exp_avg(old_optimizer), _exp_avg(new_optimizer))
+    assert new_state.diagnostics["metrics"]["refinement_clone_count"] == 2.0
+    assert new_state.diagnostics["metrics"]["refinement_split_count"] == 1.0
+    assert new_state.diagnostics["metrics"]["refinement_prune_count"] == 2.0
+
+
+def test_gaussian_family_ops_fused_copy_helpers_match_separate_ops(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    old_state = _state_for_scene(_trainable_scene(cpu_scene))
+    new_state = _state_for_scene(_trainable_scene(cpu_scene))
+    old_optimizer, old_binding = _logit_optimizer_binding(old_state)
+    new_optimizer, new_binding = _logit_optimizer_binding(new_state)
+    sampled_indices = torch.tensor([1])
+    dead_indices = torch.tensor([0])
+    overrides = {"logit_opacity": torch.tensor([4.0])}
+
+    old_ops = GaussianFamilyOps(old_state, [old_binding])
+    old_ops.copy_from_indices(
+        sampled_indices,
+        sampled_indices,
+        field_overrides=overrides,
+    )
+    old_ops.copy_from_indices(
+        dead_indices,
+        sampled_indices,
+        field_overrides=overrides,
+    )
+
+    new_ops = GaussianFamilyOps(new_state, [new_binding])
+    new_ops.copy_to_indices(
+        (
+            (sampled_indices, sampled_indices, overrides),
+            (dead_indices, sampled_indices, overrides),
+        )
+    )
+
+    _assert_scene_tensors_equal(old_state.model.scene, new_state.model.scene)
+    assert torch.equal(_exp_avg(old_optimizer), _exp_avg(new_optimizer))
+
+    old_ops.append_from_indices(sampled_indices, field_overrides=overrides)
+    new_ops.copy_and_append_from_indices(
+        sampled_indices,
+        field_overrides=overrides,
+    )
+
+    _assert_scene_tensors_equal(old_state.model.scene, new_state.model.scene)
+    assert torch.equal(_exp_avg(old_optimizer), _exp_avg(new_optimizer))
+
+
 def test_splatting_training_package_exports() -> None:
     splatting_training = pytest.importorskip("ember_splatting_training")
     assert hasattr(splatting_training, "FusedAdam")
     assert hasattr(splatting_training, "GaussianMCMC")
+    assert hasattr(splatting_training, "create_training_viewer")
+
+
+class _FakeTrainingViewerHandle:
+    def __init__(self) -> None:
+        self.config = TrainingViewerConfig(
+            update_every_steps=2,
+            min_update_seconds=0.0,
+            pause_poll_seconds=0.0,
+        )
+        self.viewer = object()
+        self.attach_count = 0
+        self.render_count = 0
+        self.pause_count = 0
+        self.progress_count = 0
+        self.active_checks = 0
+
+    @property
+    def interaction_active(self) -> bool:
+        self.active_checks += 1
+        return self.active_checks == 1
+
+    def attach_state(self, state: TrainState) -> None:
+        del state
+        self.attach_count += 1
+
+    def raise_if_stop_requested(self) -> None:
+        return
+
+    def pause_for_interaction(self) -> None:
+        self.pause_count += 1
+
+    def update_progress(
+        self,
+        state: TrainState,
+        metrics: dict[str, float],
+    ) -> None:
+        del state, metrics
+        self.progress_count += 1
+
+    def maybe_rerender_after_step(self, state: TrainState) -> None:
+        del state
+        self.render_count += 1
+
+
+def test_training_viewer_hook_updates_and_renders_after_step() -> None:
+    handle = _FakeTrainingViewerHandle()
+    hook = TrainingViewerHook(handle)
+    state = TrainState(
+        model=None,
+        step=2,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+
+    hook.before_step(state)
+    hook.after_step(state, {"loss": 1.0})
+
+    assert handle.attach_count == 1
+    assert handle.pause_count == 1
+    assert handle.progress_count == 1
+    assert handle.render_count == 1
+
+
+class _RecordingViewer:
+    def __init__(self) -> None:
+        self.wait_values: list[bool] = []
+
+    def rerender(self, *, wait: bool) -> None:
+        self.wait_values.append(wait)
+
+
+def test_training_viewer_rerender_is_nonblocking_by_default() -> None:
+    viewer = _RecordingViewer()
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(),
+        viewer=viewer,
+    )
+
+    handle.rerender()
+
+    assert viewer.wait_values == [False]
+
+
+def test_training_viewer_rerender_can_wait_when_configured() -> None:
+    viewer = _RecordingViewer()
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(wait_for_render=True),
+        viewer=viewer,
+    )
+
+    handle.rerender()
+
+    assert viewer.wait_values == [True]
+
+
+def test_training_viewer_is_noop_outside_notebook(monkeypatch, tmp_path: Path) -> None:
+    del tmp_path
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: False,
+    )
+
+    handle = create_training_viewer(object(), object())
+
+    assert handle.viewer is None
+    assert handle.runtime_hooks() == ()
+    assert handle.start_training(object(), object()) is False
+
+
+def test_training_viewer_progress_hook_does_not_require_viewer() -> None:
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(enabled=False, show_progress=True),
+        _running_in_notebook=True,
+    )
+
+    hooks = handle.runtime_hooks()
+
+    assert len(hooks) == 1
+
+
+class _FakeProgressBar:
+    def __init__(self) -> None:
+        self.updates: list[int] = []
+        self.subtitles: list[str | None] = []
+
+    def update(self, *, increment: int, subtitle: str | None = None) -> None:
+        self.updates.append(increment)
+        self.subtitles.append(subtitle)
+
+
+class _FakeProgressContext:
+    def __init__(self) -> None:
+        self.bar = _FakeProgressBar()
+        self.closed = False
+
+    def __enter__(self) -> _FakeProgressBar:
+        return self.bar
+
+    def __exit__(self, *args: object) -> None:
+        del args
+        self.closed = True
+
+
+def test_training_viewer_progress_updates_are_throttled(monkeypatch) -> None:
+    progress_context = _FakeProgressContext()
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.status.progress_bar",
+        lambda **kwargs: progress_context,
+    )
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(
+            enabled=False,
+            show_progress=True,
+            progress_every_steps=10,
+        ),
+        _training_config=SimpleNamespace(
+            runtime=SimpleNamespace(max_steps=25),
+        ),
+        _running_in_notebook=True,
+    )
+
+    for step in range(1, 26):
+        handle.update_progress(
+            TrainState(
+                model=InitializedModel(
+                    scene=GaussianScene3D(
+                        center_position=torch.zeros((3, 3)),
+                        log_scales=torch.zeros((3, 3)),
+                        quaternion_orientation=torch.zeros((3, 4)),
+                        logit_opacity=torch.zeros((3,)),
+                        feature=torch.zeros((3, 1, 3)),
+                        sh_degree=0,
+                    ),
+                    modules={},
+                    parameters={},
+                ),
+                step=step,
+                seed=0,
+                device=torch.device("cpu"),
+            ),
+            {"loss": 1.0},
+        )
+
+    assert progress_context.bar.updates == [10, 10, 5]
+    assert progress_context.bar.subtitles[-1] == "loss=1 | primitives=3"
+    assert progress_context.closed is True
+
+
+def test_training_viewer_snapshot_reports_throughput_and_eta() -> None:
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(enabled=False, show_progress=False),
+        _training_config=SimpleNamespace(runtime=SimpleNamespace(max_steps=10)),
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=GaussianScene3D(
+                center_position=torch.zeros((3, 3)),
+                log_scales=torch.zeros((3, 3)),
+                quaternion_orientation=torch.zeros((3, 4)),
+                logit_opacity=torch.zeros((3,)),
+                feature=torch.zeros((3, 1, 3)),
+                sh_degree=0,
+            ),
+            modules={},
+            parameters={},
+        ),
+        step=1,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+
+    handle._started_at = time.monotonic() - 2.0
+    handle.update_progress(state, {"loss": 1.0})
+    handle._throughput_at -= 0.5
+    state.step = 3
+    handle.update_progress(state, {"loss": 0.5})
+
+    snapshot = handle.snapshot()
+    assert snapshot.iterations_per_second == pytest.approx(4.0, abs=1e-3)
+    assert snapshot.elapsed_seconds == pytest.approx(2.0, abs=0.1)
+    assert snapshot.eta_seconds == pytest.approx(1.75, abs=1e-3)
+
+
+def test_training_viewer_start_training_rejects_duplicate_runs(monkeypatch) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_run_training(*args, **kwargs):
+        del args, kwargs
+        started.set()
+        release.wait(timeout=2.0)
+        return SimpleNamespace(
+            state=TrainState(
+                model=InitializedModel(
+                    scene=GaussianScene3D(
+                        center_position=torch.zeros((1, 3)),
+                        log_scales=torch.zeros((1, 3)),
+                        quaternion_orientation=torch.zeros((1, 4)),
+                        logit_opacity=torch.zeros((1,)),
+                        feature=torch.zeros((1, 1, 3)),
+                        sh_degree=0,
+                    ),
+                    modules={},
+                    parameters={},
+                ),
+                step=1,
+                seed=0,
+                device=torch.device("cpu"),
+            ),
+            history=[{"loss": 1.0}],
+            checkpoint_dir="checkpoint",
+        )
+
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.run_training",
+        fake_run_training,
+    )
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(enabled=False, show_progress=False),
+        _training_config=SimpleNamespace(runtime=SimpleNamespace(max_steps=1)),
+        _running_in_notebook=True,
+    )
+
+    assert handle.start_training(object()) is True
+    assert started.wait(timeout=2.0)
+    assert handle.start_training(object()) is False
+    release.set()
+    assert handle._thread is not None
+    handle._thread.join(timeout=2.0)
+
+    snapshot = handle.snapshot()
+    assert snapshot.status == "complete"
+    assert snapshot.result is not None
+
+
+def test_training_viewer_snapshot_records_failed_run(monkeypatch) -> None:
+    def fake_run_training(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.run_training",
+        fake_run_training,
+    )
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(enabled=False, show_progress=False),
+        _training_config=SimpleNamespace(runtime=SimpleNamespace(max_steps=1)),
+        _running_in_notebook=True,
+    )
+
+    assert handle.start_training(object()) is True
+    assert handle._thread is not None
+    handle._thread.join(timeout=2.0)
+
+    snapshot = handle.snapshot()
+    assert snapshot.status == "failed"
+    assert snapshot.error_text is not None
+    assert "RuntimeError: boom" in snapshot.error_text
+
+
+def test_training_viewer_request_stop_cancels_run_at_step_boundary(
+    monkeypatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    state = TrainState(
+        model=InitializedModel(
+            scene=GaussianScene3D(
+                center_position=torch.zeros((1, 3)),
+                log_scales=torch.zeros((1, 3)),
+                quaternion_orientation=torch.zeros((1, 4)),
+                logit_opacity=torch.zeros((1,)),
+                feature=torch.zeros((1, 1, 3)),
+                sh_degree=0,
+            ),
+            modules={},
+            parameters={},
+        ),
+        step=0,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+
+    def fake_run_training(*args, **kwargs):
+        del args
+        hooks = kwargs["runtime_hooks"]
+        started.set()
+        release.wait(timeout=2.0)
+        with pytest.raises(TrainingViewerCancelled):
+            hooks[0].before_step(state)
+        raise TrainingViewerCancelled
+
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.run_training",
+        fake_run_training,
+    )
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(enabled=False, show_progress=True),
+        _training_config=SimpleNamespace(runtime=SimpleNamespace(max_steps=10)),
+        _running_in_notebook=True,
+    )
+
+    assert handle.start_training(object()) is True
+    assert started.wait(timeout=2.0)
+    handle.request_stop()
+    release.set()
+    assert handle._thread is not None
+    handle._thread.join(timeout=2.0)
+
+    snapshot = handle.snapshot()
+    assert snapshot.status == "cancelled"
+    assert snapshot.error_text is None
+
+
+def test_training_viewer_rerender_cadence_respects_step_and_time() -> None:
+    viewer = _RecordingViewer()
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(
+            update_every_steps=2,
+            min_update_seconds=0.0,
+        ),
+        viewer=viewer,
+    )
+    state = TrainState(
+        model=None,
+        step=2,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+
+    handle.maybe_rerender_after_step(state)
+    handle.maybe_rerender_after_step(state)
+
+    assert viewer.wait_values == [False]
+
+
+class _ViewerCamera:
+    height = torch.tensor([2])
+    width = torch.tensor([2])
+
+    def to(self, device: torch.device) -> _ViewerCamera:
+        del device
+        return self
+
+
+def test_training_viewer_render_uses_stable_snapshot() -> None:
+    scene = GaussianScene3D(
+        center_position=torch.zeros((1, 3)),
+        log_scales=torch.zeros((1, 3)),
+        quaternion_orientation=torch.zeros((1, 4)),
+        logit_opacity=torch.zeros((1,)),
+        feature=torch.ones((1, 1, 3)),
+        sh_degree=0,
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=scene,
+            modules={},
+            parameters={},
+        ),
+        step=1,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    handle = TrainingViewerHandle(config=TrainingViewerConfig())
+    handle._render_fn = lambda model, camera: model.scene.feature[0, 0].expand(
+        2,
+        2,
+        3,
+    )
+
+    handle.update_render_snapshot(state)
+    state.model.scene.feature.data.zero_()
+
+    rendered = handle.render(_ViewerCamera())
+
+    assert torch.equal(rendered, torch.ones((2, 2, 3)))
+
+
+def test_training_viewer_render_falls_back_to_dc_features_for_black_frame() -> None:
+    scene = GaussianScene3D(
+        center_position=torch.zeros((1, 3)),
+        log_scales=torch.zeros((1, 3)),
+        quaternion_orientation=torch.zeros((1, 4)),
+        logit_opacity=torch.zeros((1,)),
+        feature=torch.tensor([[[0.8, 0.4, 0.2], [-10.0, -10.0, -10.0]]]),
+        sh_degree=1,
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=scene,
+            modules={},
+            parameters={},
+        ),
+        step=1,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    handle = TrainingViewerHandle(config=TrainingViewerConfig())
+
+    def render_feature_sum(model, camera):
+        del camera
+        return model.scene.feature.sum(dim=1)[0].expand(2, 2, 3)
+
+    handle._render_fn = render_feature_sum
+    handle.update_render_snapshot(state)
+
+    rendered = handle.render(_ViewerCamera())
+
+    assert torch.equal(
+        rendered,
+        torch.tensor([0.8, 0.4, 0.2]).expand(2, 2, 3),
+    )
+
+
+def test_training_viewer_interaction_boost_uses_boost_cadence() -> None:
+    viewer = _RecordingViewer()
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(
+            update_every_steps=100,
+            min_update_seconds=0.0,
+            interaction_boost_seconds=3.0,
+            boost_update_every_steps=1,
+            boost_min_update_seconds=0.0,
+        ),
+        viewer=viewer,
+    )
+    state = TrainState(
+        model=None,
+        step=1,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+
+    handle.maybe_rerender_after_step(state)
+    handle.start_interaction_boost()
+    handle.maybe_rerender_after_step(state)
+
+    assert viewer.wait_values == [False]
 
 
 def test_faster_gs_family_antialiasing_defaults_enabled() -> None:
-    assert FasterGSNativeRenderOptions().proper_antialiasing is True
+    assert FasterGSNativeRenderOptions().mip_splatting_screen_filter is True
     assert FasterGSDepthNativeRenderOptions().proper_antialiasing is True
     assert GaussianPopNativeRenderOptions().proper_antialiasing is True

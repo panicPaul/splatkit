@@ -43,6 +43,16 @@ class RuntimeConfig(TrainingConfigBase):
     max_steps: int = Field(default=1, ge=1)
 
 
+class TrainingProfilerConfig(TrainingConfigBase):
+    """Optional training profiler settings."""
+
+    enabled: bool = False
+    log_every: int = Field(default=10, ge=1)
+    cuda_memory: bool = True
+    sync_timing: bool = False
+    output_path: Path | None = None
+
+
 class BatchingConfig(TrainingConfigBase):
     """Dataloader batching settings."""
 
@@ -177,6 +187,9 @@ class TrainingConfig(TrainingConfigBase):
     """Top-level declarative training configuration."""
 
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    profiler: TrainingProfilerConfig = Field(
+        default_factory=TrainingProfilerConfig
+    )
     batching: BatchingConfig = Field(default_factory=BatchingConfig)
     initialization: InitializationSpec = Field(
         default_factory=InitializationSpec
@@ -228,4 +241,5 @@ __all__ = [
     "TensorSliceSpec",
     "TensorViewSpec",
     "TrainingConfig",
+    "TrainingProfilerConfig",
 ]

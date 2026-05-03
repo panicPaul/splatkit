@@ -79,6 +79,7 @@ from ember_core.training.config import (
     RuntimeConfig,
     TensorSliceSpec,
     TensorViewSpec,
+    TrainingProfilerConfig,
 )
 from ember_core.training.protocols import TrainState
 from PIL import Image
@@ -276,10 +277,15 @@ def context_device_initializer(
 
 class CountingHook:
     def __init__(self) -> None:
+        self.before_count = 0
         self.pre_count = 0
         self.post_count = 0
         self.post_optimizer_count = 0
         self.after_count = 0
+
+    def before_step(self, state: TrainState) -> None:
+        del state
+        self.before_count += 1
 
     def pre_backward(
         self,
@@ -714,11 +720,69 @@ def test_train_step_supports_modules_parameters_and_hooks(
     )
 
     assert state.step == 1
+    assert hook.before_count == 1
     assert hook.pre_count == 1
     assert hook.post_count == 1
     assert hook.post_optimizer_count == 1
     assert hook.after_count == 1
     assert "loss" in metrics
+
+
+def test_run_training_supports_runtime_only_hooks(tmp_path: Path) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    hook = CountingHook()
+
+    result = run_training(dataset, config, runtime_hooks=[hook])
+
+    assert len(result.history) == config.runtime.max_steps
+    assert hook.before_count == config.runtime.max_steps
+    assert hook.after_count == config.runtime.max_steps
+
+
+def test_run_training_profiler_disabled_adds_no_profile_metrics(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+
+    result = run_training(dataset, config)
+
+    assert result.history
+    assert not any(
+        name.startswith("time_") or name.startswith("cuda_")
+        for metrics in result.history
+        for name in metrics
+    )
+
+
+def test_run_training_profiler_records_phase_metrics(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run").model_copy(
+        update={
+            "profiler": TrainingProfilerConfig(
+                enabled=True,
+                log_every=1,
+                cuda_memory=False,
+                output_path=tmp_path / "profile.jsonl",
+            )
+        }
+    )
+
+    result = run_training(dataset, config)
+    captured = capsys.readouterr()
+
+    assert "time_render_ms" in result.history[-1]
+    assert "time_backward_ms" in result.history[-1]
+    assert result.history[-1]["primitives"] == 1.0
+    assert (tmp_path / "profile.jsonl").read_text().count("\n") == 3
+    assert '"step": 3' in captured.out
 
 
 def test_train_step_supports_direct_densification_injection(

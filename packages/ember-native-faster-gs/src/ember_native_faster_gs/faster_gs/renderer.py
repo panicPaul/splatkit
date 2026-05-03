@@ -44,7 +44,7 @@ class FasterGSNativeRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
-    proper_antialiasing: bool = True
+    mip_splatting_screen_filter: bool = True
     active_sh_bases: int | None = None
     clamp_output: bool = True
     collect_densification_info: bool = False
@@ -144,8 +144,8 @@ def render_faster_gs_native(
     )
 
     for camera_index in range(camera.cam_to_world.shape[0]):
-        cam_to_world = camera.cam_to_world[camera_index]
-        world_2_camera = torch.linalg.inv(cam_to_world)
+        camera_to_world_matrix = camera.cam_to_world[camera_index]
+        world_to_camera_matrix = torch.linalg.inv(camera_to_world_matrix)
         camera_intrinsics = intrinsics[camera_index]
         render_result = render_runtime(
             scene.center_position.contiguous(),
@@ -154,18 +154,18 @@ def render_faster_gs_native(
             scene.logit_opacity[:, None].contiguous(),
             sh_coefficients_0.contiguous(),
             sh_coefficients_rest.contiguous(),
-            world_2_camera.contiguous(),
-            cam_to_world[:3, 3].contiguous(),
+            world_to_camera_matrix.contiguous(),
+            camera_to_world_matrix[:3, 3].contiguous(),
             near_plane=options.near_plane,
             far_plane=options.far_plane,
-            width=int(camera.width[camera_index].item()),
-            height=int(camera.height[camera_index].item()),
-            focal_x=float(camera_intrinsics[0, 0].item()),
-            focal_y=float(camera_intrinsics[1, 1].item()),
-            center_x=float(camera_intrinsics[0, 2].item()),
-            center_y=float(camera_intrinsics[1, 2].item()),
+            image_width=int(camera.width[camera_index].item()),
+            image_height=int(camera.height[camera_index].item()),
+            focal_length_x=float(camera_intrinsics[0, 0].item()),
+            focal_length_y=float(camera_intrinsics[1, 1].item()),
+            principal_point_x=float(camera_intrinsics[0, 2].item()),
+            principal_point_y=float(camera_intrinsics[1, 2].item()),
             bg_color=background_color,
-            proper_antialiasing=options.proper_antialiasing,
+            mip_splatting_screen_filter=options.mip_splatting_screen_filter,
             active_sh_bases=active_sh_bases,
             densification_info=densification_info,
         )

@@ -6,7 +6,7 @@ from ember_native_faster_gs.faster_gs.training.runtime import (
     morton_codes,
     morton_order,
     relocation_adjustment,
-    update_3d_filter,
+    update_mip_splatting_3d_filter,
 )
 
 __all__ = [
@@ -15,5 +15,5 @@ __all__ = [
     "morton_codes",
     "morton_order",
     "relocation_adjustment",
-    "update_3d_filter",
+    "update_mip_splatting_3d_filter",
 ]

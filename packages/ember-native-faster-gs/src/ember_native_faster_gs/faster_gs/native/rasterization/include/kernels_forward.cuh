@@ -18,7 +18,7 @@ namespace faster_gs::rasterization::kernels::forward {
         const float* __restrict__ opacities,
         const float3* __restrict__ sh_coefficients_0,
         const float3* __restrict__ sh_coefficients_rest,
-        const float4* __restrict__ w2c,
+        const float4* __restrict__ world_to_camera_matrix,
         const float3* __restrict__ cam_position,
         uint* __restrict__ primitive_depth_keys,
         uint* __restrict__ primitive_indices,
@@ -42,7 +42,7 @@ namespace faster_gs::rasterization::kernels::forward {
         const float center_y,
         const float near_plane,
         const float far_plane,
-        const bool proper_antialiasing)
+        const bool mip_splatting_screen_filter)
     {
         constexpr uint warp_size = 32;
         auto block = cg::this_thread_block();
@@ -62,8 +62,8 @@ namespace faster_gs::rasterization::kernels::forward {
         const float3 mean3d = means[primitive_idx];
 
         // z culling
-        const float4 w2c_r3 = w2c[2];
-        const float depth = w2c_r3.x * mean3d.x + w2c_r3.y * mean3d.y + w2c_r3.z * mean3d.z + w2c_r3.w;
+        const float4 world_to_camera_row_3 = world_to_camera_matrix[2];
+        const float depth = world_to_camera_row_3.x * mean3d.x + world_to_camera_row_3.y * mean3d.y + world_to_camera_row_3.z * mean3d.z + world_to_camera_row_3.w;
         if (depth < near_plane || depth > far_plane) active = false;
 
         // early exit if whole warp is inactive
@@ -96,10 +96,10 @@ namespace faster_gs::rasterization::kernels::forward {
         };
 
         // compute 2d mean in normalized image coordinates
-        const float4 w2c_r1 = w2c[0];
-        const float x = (w2c_r1.x * mean3d.x + w2c_r1.y * mean3d.y + w2c_r1.z * mean3d.z + w2c_r1.w) / depth;
-        const float4 w2c_r2 = w2c[1];
-        const float y = (w2c_r2.x * mean3d.x + w2c_r2.y * mean3d.y + w2c_r2.z * mean3d.z + w2c_r2.w) / depth;
+        const float4 world_to_camera_row_1 = world_to_camera_matrix[0];
+        const float x = (world_to_camera_row_1.x * mean3d.x + world_to_camera_row_1.y * mean3d.y + world_to_camera_row_1.z * mean3d.z + world_to_camera_row_1.w) / depth;
+        const float4 world_to_camera_row_2 = world_to_camera_matrix[1];
+        const float y = (world_to_camera_row_2.x * mean3d.x + world_to_camera_row_2.y * mean3d.y + world_to_camera_row_2.z * mean3d.z + world_to_camera_row_2.w) / depth;
 
         // ewa splatting
         const float clip_left = (-0.15f * width - center_x) / focal_x;
@@ -113,14 +113,14 @@ namespace faster_gs::rasterization::kernels::forward {
         const float j22 = focal_y / depth;
         const float j23 = -j22 * y_clipped;
         const float3 jw_r1 = make_float3(
-            j11 * w2c_r1.x + j13 * w2c_r3.x,
-            j11 * w2c_r1.y + j13 * w2c_r3.y,
-            j11 * w2c_r1.z + j13 * w2c_r3.z
+            j11 * world_to_camera_row_1.x + j13 * world_to_camera_row_3.x,
+            j11 * world_to_camera_row_1.y + j13 * world_to_camera_row_3.y,
+            j11 * world_to_camera_row_1.z + j13 * world_to_camera_row_3.z
         );
         const float3 jw_r2 = make_float3(
-            j22 * w2c_r2.x + j23 * w2c_r3.x,
-            j22 * w2c_r2.y + j23 * w2c_r3.y,
-            j22 * w2c_r2.z + j23 * w2c_r3.z
+            j22 * world_to_camera_row_2.x + j23 * world_to_camera_row_3.x,
+            j22 * world_to_camera_row_2.y + j23 * world_to_camera_row_3.y,
+            j22 * world_to_camera_row_2.z + j23 * world_to_camera_row_3.z
         );
         const float3 jwc_r1 = make_float3(
             jw_r1.x * cov3d.m11 + jw_r1.y * cov3d.m12 + jw_r1.z * cov3d.m13,
@@ -138,7 +138,7 @@ namespace faster_gs::rasterization::kernels::forward {
             dot(jwc_r2, jw_r2)
         );
         const float determinant_raw = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-        const float kernel_size = proper_antialiasing ? config::dilation_proper_antialiasing : config::dilation;
+        const float kernel_size = mip_splatting_screen_filter ? config::dilation_mip_splatting_screen_filter : config::dilation;
         cov2d.x += kernel_size;
         cov2d.z += kernel_size;
         const float determinant = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
@@ -148,7 +148,7 @@ namespace faster_gs::rasterization::kernels::forward {
             -cov2d.y / determinant,
             cov2d.x / determinant
         );
-        if (proper_antialiasing) {
+        if (mip_splatting_screen_filter) {
             opacity *= sqrtf(fmaxf(determinant_raw / determinant, 0.0f));
             if (config::original_opacity_interpretation && opacity < config::min_alpha_threshold) active = false;
         }

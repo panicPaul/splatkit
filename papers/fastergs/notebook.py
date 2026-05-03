@@ -29,6 +29,7 @@ with app.setup:
         Schedule,
     )
     from ember_core.training import (
+        TrainingProfilerConfig,
         TrainingResult,
         TrainState,
     )
@@ -48,7 +49,10 @@ with app.setup:
     DEFAULT_CHECKPOINT_ROOT = REPO_ROOT / "checkpoints" / "papers" / "fastergs"
     FasterGSBackendName = Literal["adapter.fastergs", "faster_gs.core"]
     FasterGSDefaultName = Literal[
-        "garden_baseline", "garden_mcmc", "garden_debug_val"
+        "garden_baseline",
+        "garden_mcmc",
+        "garden_debug_val",
+        "garden_vanilla_gs_ablation",
     ]
     sys.modules.setdefault("papers.fastergs.notebook", sys.modules[__name__])
     ember_fastergs_adapter.register()
@@ -64,8 +68,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(train_button):
-    train_button
+def _(training_controls):
+    training_controls
     return
 
 
@@ -115,11 +119,8 @@ def _(training_result_view):
 
 
 @app.cell(hide_code=True)
-def _():
-    mo.md("""
-    Viewer integration is intentionally left as a placeholder while the viewer
-    refactor is in flight. Training and checkpoint export do not depend on it.
-    """)
+def _(training_viewer):
+    training_viewer
     return
 
 
@@ -135,7 +136,7 @@ def _():
 class FasterGSConfigBase(BaseModel):
     """Strict base model for FasterGS paper configs."""
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "forbid", "populate_by_name": True}
 
 
 @app.class_definition
@@ -234,10 +235,9 @@ class FasterGSTrainingBackendOptionsConfig(FasterGSConfigBase):
 class FasterGSRenderConfig(FasterGSConfigBase):
     """Typed FasterGS render pipeline config."""
 
-    backend: FasterGSBackendName = "adapter.fastergs"
+    backend: FasterGSBackendName = "faster_gs.core"
     near_plane: float = Field(default=0.2, gt=0.0)
     far_plane: float = Field(default=10_000.0, gt=0.0)
-    proper_antialiasing: bool = True
     background_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
     return_alpha: bool = False
     training_backend_options: FasterGSTrainingBackendOptionsConfig = Field(
@@ -245,7 +245,10 @@ class FasterGSRenderConfig(FasterGSConfigBase):
     )
 
     def build(
-        self, context: ember.TrainingRunContext
+        self,
+        context: ember.TrainingRunContext,
+        *,
+        mip_splatting_screen_filter: bool,
     ) -> ember.RenderPipelineSpec:
         """Build the runtime render pipeline spec."""
         del context
@@ -258,7 +261,7 @@ class FasterGSRenderConfig(FasterGSConfigBase):
             backend_options={
                 "near_plane": self.near_plane,
                 "far_plane": self.far_plane,
-                "proper_antialiasing": self.proper_antialiasing,
+                "mip_splatting_screen_filter": mip_splatting_screen_filter,
                 "background_color": list(self.background_color),
             },
         )
@@ -368,8 +371,12 @@ class FasterGSMortonOrderingConfig(FasterGSConfigBase):
 
 
 @app.class_definition
-class FasterGSAntialiasingConfig(FasterGSConfigBase):
-    """Typed FasterGS/Mip-Splatting antialiasing config."""
+class FasterGSMipSplatting3DFilterConfig(FasterGSConfigBase):
+    """Mip-Splatting 3D filter config.
+
+    Computes a per-Gaussian world-space minimum filter radius across training
+    cameras and applies it as a log-scale clamp.
+    """
 
     recompute_schedule: FasterGSScheduleConfig = Field(
         default_factory=lambda: FasterGSScheduleConfig(
@@ -383,10 +390,10 @@ class FasterGSAntialiasingConfig(FasterGSConfigBase):
     clipping_tolerance: float = Field(default=0.15, ge=0.0)
 
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
-        """Build the runtime 3D filter antialiasing spec."""
+        """Build the runtime Mip-Splatting 3D filter spec."""
         del context
         return ember.CallableSpec(
-            target="ember_splatting_training.GaussianMipSplattingAntialiasing",
+            target="ember_splatting_training.GaussianMipSplatting3DFilter",
             kwargs={
                 "recompute_schedule": self.recompute_schedule.model_dump(
                     mode="python"
@@ -396,6 +403,22 @@ class FasterGSAntialiasingConfig(FasterGSConfigBase):
                 "clipping_tolerance": self.clipping_tolerance,
             },
         )
+
+
+@app.class_definition
+class FasterGSMipSplattingConfig(FasterGSConfigBase):
+    """Full Mip-Splatting controls for FasterGS.
+
+    The screen filter enables FasterGS rasterizer covariance/opacity
+    compensation. The three-dimensional filter computes a per-Gaussian
+    world-space radius over training cameras and clamps log-scales.
+    """
+
+    enabled: bool = True
+    screen_filter_enabled: bool = True
+    three_dimensional_filter: FasterGSMipSplatting3DFilterConfig = Field(
+        default_factory=FasterGSMipSplatting3DFilterConfig
+    )
 
 
 @app.class_definition
@@ -427,9 +450,6 @@ class FasterGSDensificationConfig(FasterGSConfigBase):
     morton: FasterGSMortonOrderingConfig = Field(
         default_factory=FasterGSMortonOrderingConfig
     )
-    antialiasing: FasterGSAntialiasingConfig = Field(
-        default_factory=FasterGSAntialiasingConfig
-    )
     final_cleanup: FasterGSFinalCleanupConfig = Field(
         default_factory=FasterGSFinalCleanupConfig
     )
@@ -437,6 +457,8 @@ class FasterGSDensificationConfig(FasterGSConfigBase):
     def build(
         self,
         context: ember.TrainingRunContext,
+        *,
+        mip_splatting: FasterGSMipSplattingConfig,
     ) -> ember.DensificationConfig:
         """Build the runtime FasterGS densification stack."""
         primary = (
@@ -444,13 +466,17 @@ class FasterGSDensificationConfig(FasterGSConfigBase):
             if self.mode == "mcmc"
             else self.vanilla.build(context)
         )
+        builders = [
+            primary,
+            self.morton.build(context),
+        ]
+        if mip_splatting.enabled:
+            builders.append(
+                mip_splatting.three_dimensional_filter.build(context)
+            )
+        builders.append(self.final_cleanup.build(context))
         return ember.DensificationConfig(
-            builders=[
-                primary,
-                self.morton.build(context),
-                self.antialiasing.build(context),
-                self.final_cleanup.build(context),
-            ]
+            builders=builders
         )
 
 
@@ -459,11 +485,17 @@ class FasterGSTrainingConfig(FasterGSConfigBase):
     """Typed user-facing FasterGS training config."""
 
     runtime: ember.RuntimeConfig = Field(default_factory=ember.RuntimeConfig)
+    profiler: TrainingProfilerConfig = Field(
+        default_factory=TrainingProfilerConfig
+    )
     batching: ember.BatchingConfig = Field(default_factory=ember.BatchingConfig)
     initialization: FasterGSInitializationConfig = Field(
         default_factory=FasterGSInitializationConfig
     )
     render: FasterGSRenderConfig = Field(default_factory=FasterGSRenderConfig)
+    mip_splatting: FasterGSMipSplattingConfig = Field(
+        default_factory=FasterGSMipSplattingConfig
+    )
     optimization: FasterGSOptimizationConfig = Field(
         default_factory=FasterGSOptimizationConfig
     )
@@ -473,6 +505,9 @@ class FasterGSTrainingConfig(FasterGSConfigBase):
     )
     checkpoint: ember.CheckpointExportConfig = Field(
         default_factory=ember.CheckpointExportConfig
+    )
+    viewer: ember_splatting.TrainingViewerConfig = Field(
+        default_factory=ember_splatting.TrainingViewerConfig
     )
 
     def to_training_config(
@@ -494,12 +529,22 @@ class FasterGSTrainingConfig(FasterGSConfigBase):
         )
         return ember.TrainingConfig(
             runtime=self.runtime,
+            profiler=self.profiler,
             batching=self.batching,
             initialization=self.initialization.build(context),
-            render=self.render.build(context),
+            render=self.render.build(
+                context,
+                mip_splatting_screen_filter=(
+                    self.mip_splatting.enabled
+                    and self.mip_splatting.screen_filter_enabled
+                ),
+            ),
             optimization=self.optimization.build(context),
             loss=self.loss.build(context),
-            densification=self.densification.build(context),
+            densification=self.densification.build(
+                context,
+                mip_splatting=self.mip_splatting,
+            ),
             checkpoint=self.checkpoint,
         )
 
@@ -553,6 +598,12 @@ def fastergs_preset_catalog() -> ConfigPresetCatalog[FasterGSExperimentConfig]:
                 name="garden_debug_val",
                 path=DEFAULTS_DIR / "garden_debug_val.json",
                 label="Garden debug validation",
+                base_dir=REPO_ROOT,
+            ),
+            "garden_vanilla_gs_ablation": ConfigPreset(
+                name="garden_vanilla_gs_ablation",
+                path=DEFAULTS_DIR / "garden_vanilla_gs_ablation.json",
+                label="Garden vanilla GS ablation",
                 base_dir=REPO_ROOT,
             ),
         },
@@ -719,8 +770,40 @@ def _():
 
 @app.cell
 def _():
-    train_button = mo.ui.run_button(label="Start training")
-    return (train_button,)
+    prepare_button = mo.ui.run_button(
+        label="Prepare training viewer",
+        full_width=True,
+    )
+    train_button = mo.ui.run_button(
+        label="Start training",
+        full_width=True,
+    )
+    stop_button = mo.ui.run_button(
+        label="Stop training",
+        full_width=True,
+    )
+    training_status_refresh = mo.ui.refresh(
+        options=["1s"],
+        default_interval="1s",
+        label="Training status",
+    )
+    training_controls = mo.vstack(
+        [prepare_button, train_button, stop_button, training_status_refresh],
+        gap=0.5,
+    )
+    return (
+        prepare_button,
+        stop_button,
+        train_button,
+        training_controls,
+        training_status_refresh,
+    )
+
+
+@app.cell
+def _():
+    is_script_mode = not mo.running_in_notebook()
+    return (is_script_mode,)
 
 
 @app.function
@@ -783,9 +866,22 @@ def resolve_training_config(
     return training.to_training_config(frame_dataset)
 
 
+@app.function
+def format_duration(seconds: float) -> str:
+    """Format a short ETA duration."""
+    total_seconds = max(0, round(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours:d}h {minutes:02d}m"
+    if minutes > 0:
+        return f"{minutes:d}m {seconds:02d}s"
+    return f"{seconds:d}s"
+
+
 @app.cell
-def _(current_config, train_button):
-    should_prepare = bool(train_button.value)
+def _(current_config, is_script_mode, prepare_button):
+    should_prepare = is_script_mode or bool(prepare_button.value)
     scene_record = (
         ember.load_scene_record(build_scene_load_config(current_config))
         if should_prepare and current_config is not None
@@ -808,28 +904,154 @@ def _(current_config, scene_record):
 
 
 @app.cell
-def _(current_config, frame_dataset, train_button):
+def _(
+    current_config,
+    frame_dataset,
+    is_script_mode,
+    train_button,
+    training_config,
+    training_viewer_handle,
+):
     should_train = bool(train_button.value)
-    training_result = (
-        run_fastergs_training(frame_dataset, current_config)
-        if should_train
+    if (
+        is_script_mode
         and current_config is not None
         and frame_dataset is not None
-        else None
-    )
+        and training_config is not None
+    ):
+        training_result = run_fastergs_training(
+            frame_dataset,
+            current_config,
+            training_config,
+        )
+    else:
+        training_result = None
+        if (
+            should_train
+            and frame_dataset is not None
+            and training_config is not None
+            and training_viewer_handle is not None
+        ):
+            training_viewer_handle.start_training(
+                frame_dataset,
+                training_config,
+            )
     return (training_result,)
 
 
 @app.cell
-def _(training_result):
-    training_result_view = (
-        mo.md("Training has not started.")
-        if training_result is None
-        else mo.md(
+def _(stop_button, training_viewer_handle):
+    should_stop = bool(stop_button.value)
+    if should_stop and training_viewer_handle is not None:
+        training_viewer_handle.request_stop()
+    return
+
+
+@app.cell
+def _(current_config, frame_dataset):
+    training_config = (
+        resolve_training_config(current_config, frame_dataset)
+        if current_config is not None and frame_dataset is not None
+        else None
+    )
+    return (training_config,)
+
+
+@app.cell
+def _(current_config, frame_dataset, is_script_mode, training_config):
+    training_viewer_handle = (
+        ember_splatting.create_training_viewer(
+            frame_dataset,
+            training_config,
+            config=current_config.training.viewer,
+            title="FasterGS training viewer",
+        )
+        if not is_script_mode
+        and current_config is not None
+        and frame_dataset is not None
+        and training_config is not None
+        else None
+    )
+    return (training_viewer_handle,)
+
+
+@app.cell
+def _(training_viewer_handle):
+    training_viewer = (
+        None if training_viewer_handle is None else training_viewer_handle.viewer
+    )
+    return (training_viewer,)
+
+
+@app.cell
+def _(training_result, training_status_refresh, training_viewer_handle):
+    _ = training_status_refresh.value
+    if training_result is not None:
+        training_result_view = mo.md(
             f"Checkpoint: `{training_result.checkpoint_dir}`\n\n"
             f"Steps: `{len(training_result.history)}`"
         )
-    )
+    elif training_viewer_handle is None:
+        training_result_view = mo.md("Prepare the training viewer first.")
+    else:
+        snapshot = training_viewer_handle.snapshot()
+        if snapshot.status == "idle":
+            training_result_view = mo.md("Training has not started.")
+        elif snapshot.status in {"running", "stopping"}:
+            step_text = (
+                f"{snapshot.step} / {snapshot.max_steps}"
+                if snapshot.max_steps is not None
+                else str(snapshot.step)
+            )
+            metric_parts = [
+                f"{name}={value:.6g}"
+                for name, value in sorted(snapshot.latest_metrics.items())
+            ]
+            if snapshot.primitive_count is not None:
+                metric_parts.append(f"primitives={snapshot.primitive_count:,}")
+            if snapshot.iterations_per_second is not None:
+                metric_parts.append(
+                    f"it/s={snapshot.iterations_per_second:.2f}"
+                )
+            metric_text = " | ".join(metric_parts)
+            status_text = (
+                "Stopping" if snapshot.status == "stopping" else "Training"
+            )
+            speed_text = (
+                f"{snapshot.iterations_per_second:.2f} it/s"
+                if snapshot.iterations_per_second is not None
+                else "-- it/s"
+            )
+            elapsed_text = (
+                f"elapsed {format_duration(snapshot.elapsed_seconds)}"
+                if snapshot.elapsed_seconds is not None
+                else "elapsed --"
+            )
+            eta_text = (
+                f"ETA {format_duration(snapshot.eta_seconds)}"
+                if snapshot.eta_seconds is not None
+                else "ETA --"
+            )
+            training_result_view = mo.md(
+                f"{status_text}: `{step_text}` {speed_text} "
+                f"{elapsed_text} {eta_text}"
+                + (f"\n\n{metric_text}" if metric_text else "")
+            )
+        elif snapshot.status == "cancelled":
+            training_result_view = mo.md(
+                f"Training cancelled at step `{snapshot.step}`."
+            )
+        elif snapshot.status == "failed":
+            training_result_view = mo.callout(
+                f"Training failed.\n\n```text\n{snapshot.error_text or ''}\n```",
+                kind="danger",
+            )
+        else:
+            assert snapshot.result is not None
+            training_result_view = mo.md(
+                f"Checkpoint: `{snapshot.result.checkpoint_dir}`\n\n"
+                f"Steps: `{len(snapshot.result.history)}`"
+            )
     return (training_result_view,)
 
 
@@ -983,38 +1205,36 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
         small_mask = scales <= self.dense_fraction * self.camera_extent
         clone_mask = densify_mask & small_mask
         split_mask = densify_mask & ~small_mask
-        n_cloned = int(clone_mask.sum().item())
-        if torch.any(clone_mask):
-            self.family_ops.clone(clone_mask)
-        if torch.any(split_mask):
-            split_mask = torch.cat(
-                [
-                    split_mask,
-                    torch.zeros(
-                        n_cloned,
-                        dtype=torch.bool,
-                        device=split_mask.device,
-                    ),
-                ]
-            )
-            self.family_ops.split(
-                split_mask,
-                num_children=2,
-                scale_shrink=0.625,
-            )
-        scene = self.family_ops.scene
+        self.family_ops.clone_and_split(
+            clone_mask,
+            split_mask,
+            num_children=2,
+            scale_shrink=0.625,
+            prune_fn=lambda grown_scene: self.refinement_keep_mask(
+                grown_scene,
+                step,
+            ),
+            prune_field_names=(
+                "center_position",
+                "logit_opacity",
+                "log_scales",
+                "quaternion_orientation",
+            ),
+        )
+
+    def refinement_keep_mask(
+        self,
+        scene: ember.GaussianScene,
+        step: int,
+    ) -> Tensor:
         keep_mask = torch.sigmoid(scene.logit_opacity) >= (
             self.prune_opacity_threshold
         )
-        if (
-            step > self.opacity_reset_every
-            and scene.center_position.shape[0] > 0
-        ):
+        if step > self.opacity_reset_every and scene.center_position.shape[0] > 0:
             max_scale = torch.exp(scene.log_scales).max(dim=-1).values
             keep_mask &= max_scale <= 0.1 * self.camera_extent
         keep_mask &= scene.quaternion_orientation.square().sum(dim=1) >= 1e-8
-        if torch.any(~keep_mask):
-            self.family_ops.prune(keep_mask)
+        return keep_mask
 
     def should_reset_opacity(self, step: int) -> bool:
         scheduled = (
@@ -1036,11 +1256,22 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
 def run_fastergs_training(
     frame_dataset: ember.PreparedFrameDataset,
     experiment_config: FasterGSExperimentConfig,
+    training_config: ember.TrainingConfig | None = None,
+    training_viewer_handle: ember_splatting.TrainingViewerHandle | None = None,
 ) -> TrainingResult:
     """Run FasterGS training from a native Ember training config."""
+    resolved_training_config = training_config or resolve_training_config(
+        experiment_config,
+        frame_dataset,
+    )
     return ember.run_training(
         frame_dataset,
-        resolve_training_config(experiment_config, frame_dataset),
+        resolved_training_config,
+        runtime_hooks=(
+            ()
+            if training_viewer_handle is None
+            else training_viewer_handle.runtime_hooks()
+        ),
     )
 
 
