@@ -48,6 +48,7 @@ from ember_splatting_training.fastergs import (
     active_sh_bases_for_step,
     fastergs_training_backend_options,
 )
+from ember_splatting_training.losses import rgb_l1_dssim_loss
 from ember_splatting_training.recipes import (
     Gaussian3DGSOptimizationRecipe,
     gaussian_3dgs_optimization_config,
@@ -98,6 +99,62 @@ def test_gaussian_mip_splatting_3d_filter_has_no_render_requirements() -> None:
     requirements = method.get_render_requirements(object())
 
     assert requirements.backend_options == {}
+
+
+def test_rgb_l1_dssim_loss_hides_inactive_regularizer_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ember_splatting_training.losses.dssim_loss",
+        lambda prediction, target, *, backend="cuda": prediction.new_tensor(0.0),
+    )
+    scene = GaussianScene3D(
+        center_position=torch.zeros((1, 3), dtype=torch.float32),
+        log_scales=torch.zeros((1, 3), dtype=torch.float32),
+        quaternion_orientation=torch.tensor(
+            [[1.0, 0.0, 0.0, 0.0]],
+            dtype=torch.float32,
+        ),
+        logit_opacity=torch.zeros((1,), dtype=torch.float32),
+        feature=torch.zeros((1, 1, 3), dtype=torch.float32),
+        sh_degree=0,
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=scene,
+            modules={},
+            parameters={},
+        ),
+        step=0,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    batch = SimpleNamespace(images=torch.zeros((1, 1, 1, 3), dtype=torch.float32))
+    render_output = RenderOutput(
+        render=torch.zeros((1, 1, 1, 3), dtype=torch.float32)
+    )
+
+    inactive = rgb_l1_dssim_loss(
+        state,
+        batch,
+        render_output,
+        weights={},
+        lambda_opacity_regularization=0.0,
+        lambda_scale_regularization=0.0,
+    )
+    active = rgb_l1_dssim_loss(
+        state,
+        batch,
+        render_output,
+        weights={},
+        lambda_opacity_regularization=0.01,
+        lambda_scale_regularization=0.01,
+    )
+
+    assert "opacity_regularization" not in inactive.metrics
+    assert "scale_regularization" not in inactive.metrics
+    assert "opacity_regularization" in active.metrics
+    assert "scale_regularization" in active.metrics
 
 
 class RecordingOptimizer(Optimizer):

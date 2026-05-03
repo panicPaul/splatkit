@@ -42,6 +42,7 @@ from ember_core.training import (
     LoadedCheckpoint,
     LossResult,
     TrainingConfig,
+    TrainingLoggingConfig,
     build_densification_for_context,
     build_inference_pipeline,
     build_loss_fn,
@@ -50,6 +51,7 @@ from ember_core.training import (
     build_render_fn,
     build_training_render_fn,
     build_training_run_context,
+    checkpoint_log_dir,
     compute_frame_camera_extent,
     cycle_dataloader,
     ensure_checkpoint_output_writable,
@@ -522,6 +524,12 @@ def test_run_training_writes_checkpoint_directory(tmp_path: Path) -> None:
     assert (checkpoint_dir / "config.json").exists()
     assert (checkpoint_dir / "metadata.json").exists()
     assert (checkpoint_dir / "model.ckpt").exists()
+    assert checkpoint_log_dir(checkpoint_dir) == checkpoint_dir / "logs"
+    assert list((checkpoint_dir / "logs").glob("events.out.tfevents.*"))
+    assert "iterations_per_second" in result.history[-1]
+    assert result.history[-1]["iterations_per_second"] > 0.0
+    assert result.history[-1]["step_seconds"] > 0.0
+    assert result.history[-1]["elapsed_seconds"] > 0.0
 
 
 class TypedUnitTrainingConfig:
@@ -756,6 +764,19 @@ def test_run_training_profiler_disabled_adds_no_profile_metrics(
         for metrics in result.history
         for name in metrics
     )
+
+
+def test_run_training_logging_can_be_disabled(tmp_path: Path) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run").model_copy(
+        update={"logging": TrainingLoggingConfig(enabled=False)}
+    )
+
+    result = run_training(dataset, config)
+
+    assert "iterations_per_second" in result.history[-1]
+    assert not (Path(result.checkpoint_dir) / "logs").exists()
 
 
 def test_run_training_profiler_records_phase_metrics(

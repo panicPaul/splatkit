@@ -21,6 +21,8 @@ dependencies = [
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
     "matplotlib>=3.11.0rc1",
+    "tensorboard>=2.20.0",
+    "polars>=1.40.1",
 ]
 [project.optional-dependencies]
 adapter-backends = ["ember-adapter-backends"]
@@ -228,6 +230,11 @@ convention = "google"
     "D",          # Notebook functions/cells are display and workflow units, not public API docs
     "F401",       # Unused imports from marimo
     "RUF059",     # Unused unpacked variable
+]
+"packages/ember-splatting-training/src/ember_splatting_training/tensorboard_analysis.py" = [
+    "ANN",        # Marimo cells are reactive workflow units.
+    "B018",       # Bare expressions intentionally render notebook outputs.
+    "D",          # The public helpers are documented inline.
 ]
 "packages/ember-adapter-backends/src/ember_adapter_backends/fastgs/renderer.py" = [
     "D102",       # Trait implementations mirror protocol method names

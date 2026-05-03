@@ -27,6 +27,9 @@ dependencies = [
     "marimo-3dv",
     "ember-native-faster-gs",
     "fused_ssim",
+    "altair>=6.1.0",
+    "polars>=1.40.1",
+    "tensorboard>=2.20.0",
     "torch>=2.11.0",
 ]
 

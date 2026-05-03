@@ -22,60 +22,81 @@ __all__ = [
     "TrainingViewerSnapshot",
     "active_sh_bases_for_step",
     "add_noise",
+    "checkpoint_logs_dir",
     "create_training_viewer",
     "dssim_loss",
     "fastergs_training_backend_options",
+    "filter_scalars",
+    "find_event_files",
     "gaussian_3dgs_optimization_config",
     "gaussian_3dgs_parameter_groups",
     "morton_codes",
     "morton_order",
+    "read_scalar_records",
+    "read_scalars",
     "relocation_adjustment",
     "rgb_l1_dssim_loss",
+    "scalar_line_chart",
+    "scalar_tags",
     "ssim_score",
 ]
 
 
 def __getattr__(name: str) -> object:
     """Load optional FasterGS-backed exports only when requested."""
-    if name == "FusedAdam":
-        from ember_splatting_training.optim import FusedAdam
+    match name:
+        case "FusedAdam":
+            from ember_splatting_training.optim import FusedAdam
 
-        return FusedAdam
-    if name in {"GaussianMCMC", "add_noise", "relocation_adjustment"}:
-        from ember_splatting_training import densification
+            return FusedAdam
+        case "GaussianMCMC" | "add_noise" | "relocation_adjustment":
+            from ember_splatting_training import densification
 
-        return getattr(densification, name)
-    if name in {
-        "GaussianMipSplatting3DFilter",
-        "GaussianMortonOrdering",
-        "active_sh_bases_for_step",
-        "fastergs_training_backend_options",
-        "morton_codes",
-        "morton_order",
-    }:
-        from ember_splatting_training import fastergs
+            return getattr(densification, name)
+        case (
+            "GaussianMipSplatting3DFilter"
+            | "GaussianMortonOrdering"
+            | "active_sh_bases_for_step"
+            | "fastergs_training_backend_options"
+            | "morton_codes"
+            | "morton_order"
+        ):
+            from ember_splatting_training import fastergs
 
-        return getattr(fastergs, name)
-    if name in {"dssim_loss", "rgb_l1_dssim_loss", "ssim_score"}:
-        from ember_splatting_training import losses
+            return getattr(fastergs, name)
+        case "dssim_loss" | "rgb_l1_dssim_loss" | "ssim_score":
+            from ember_splatting_training import losses
 
-        return getattr(losses, name)
-    if name in {
-        "TrainingViewerConfig",
-        "TrainingViewerHandle",
-        "TrainingViewerHook",
-        "TrainingViewerSnapshot",
-        "create_training_viewer",
-    }:
-        from ember_splatting_training import training_viewer
+            return getattr(losses, name)
+        case (
+            "TrainingViewerConfig"
+            | "TrainingViewerHandle"
+            | "TrainingViewerHook"
+            | "TrainingViewerSnapshot"
+            | "create_training_viewer"
+        ):
+            from ember_splatting_training import training_viewer
 
-        return getattr(training_viewer, name)
-    if name in {
-        "Gaussian3DGSOptimizationRecipe",
-        "gaussian_3dgs_optimization_config",
-        "gaussian_3dgs_parameter_groups",
-    }:
-        from ember_splatting_training import recipes
+            return getattr(training_viewer, name)
+        case (
+            "checkpoint_logs_dir"
+            | "filter_scalars"
+            | "find_event_files"
+            | "read_scalar_records"
+            | "read_scalars"
+            | "scalar_line_chart"
+            | "scalar_tags"
+        ):
+            from ember_splatting_training import tensorboard_analysis
 
-        return getattr(recipes, name)
-    raise AttributeError(name)
+            return getattr(tensorboard_analysis, name)
+        case (
+            "Gaussian3DGSOptimizationRecipe"
+            | "gaussian_3dgs_optimization_config"
+            | "gaussian_3dgs_parameter_groups"
+        ):
+            from ember_splatting_training import recipes
+
+            return getattr(recipes, name)
+        case _:
+            raise AttributeError(name)

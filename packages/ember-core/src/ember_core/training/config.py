@@ -53,6 +53,14 @@ class TrainingProfilerConfig(TrainingConfigBase):
     output_path: Path | None = None
 
 
+class TrainingLoggingConfig(TrainingConfigBase):
+    """Checkpoint-local scalar logging settings."""
+
+    enabled: bool = True
+    log_every: int = Field(default=10, ge=1)
+    metric_policy: Literal["active", "all"] = "active"
+
+
 class BatchingConfig(TrainingConfigBase):
     """Dataloader batching settings."""
 
@@ -187,6 +195,7 @@ class TrainingConfig(TrainingConfigBase):
     """Top-level declarative training configuration."""
 
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    logging: TrainingLoggingConfig = Field(default_factory=TrainingLoggingConfig)
     profiler: TrainingProfilerConfig = Field(
         default_factory=TrainingProfilerConfig
     )
@@ -241,5 +250,6 @@ __all__ = [
     "TensorSliceSpec",
     "TensorViewSpec",
     "TrainingConfig",
+    "TrainingLoggingConfig",
     "TrainingProfilerConfig",
 ]

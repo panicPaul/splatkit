@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -48,6 +49,7 @@ from ember_core.training.config import (
     TensorViewSpec,
     TrainingConfig,
 )
+from ember_core.training.logging import build_training_logger
 from ember_core.training.profiling import (
     TrainingStepProfile,
     build_training_profiler,
@@ -1450,8 +1452,14 @@ def run_training(
         )
     history: list[dict[str, float]] = []
     iterator = _cycle(dataloader)
+    logger = build_training_logger(
+        config.logging,
+        checkpoint_dir=config.checkpoint.output_dir,
+    )
     profiler = build_training_profiler(config.profiler)
+    training_started_at = time.perf_counter()
     for _ in range(config.runtime.max_steps):
+        step_started_at = time.perf_counter()
         profile = None if profiler is None else profiler.start_step(state)
         with _profile_phase(profile, "dataloader"):
             batch = next(iterator)
@@ -1467,9 +1475,20 @@ def run_training(
             hooks=hooks,
             profile=profile,
         )
+        step_duration_seconds = max(
+            time.perf_counter() - step_started_at,
+            1e-12,
+        )
+        metrics["step_seconds"] = step_duration_seconds
+        metrics["elapsed_seconds"] = time.perf_counter() - training_started_at
+        metrics["iterations_per_second"] = 1.0 / step_duration_seconds
         if profiler is not None:
             profiler.finish_step(state, metrics, profile)
+        if logger is not None:
+            logger.write_step(state.step, metrics)
         history.append(metrics)
+    if logger is not None:
+        logger.close()
     from ember_core.training.checkpoints import save_checkpoint_dir
 
     if densification is not None:

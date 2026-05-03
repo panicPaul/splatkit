@@ -106,17 +106,19 @@ def rgb_l1_dssim_loss(
         + lambda_opacity_regularization * opacity_regularization
         + lambda_scale_regularization * scale_regularization
     )
-    return LossResult(
-        loss=loss,
-        metrics={
-            "l1": float(l1_loss.detach().item()),
-            "dssim": float(dssim.detach().item()),
-            "opacity_regularization": float(
-                opacity_regularization.detach().item()
-            ),
-            "scale_regularization": float(scale_regularization.detach().item()),
-        },
-    )
+    metrics = {
+        "l1": float(l1_loss.detach().item()),
+        "dssim": float(dssim.detach().item()),
+    }
+    if lambda_opacity_regularization > 0.0:
+        metrics["opacity_regularization"] = float(
+            opacity_regularization.detach().item()
+        )
+    if lambda_scale_regularization > 0.0:
+        metrics["scale_regularization"] = float(
+            scale_regularization.detach().item()
+        )
+    return LossResult(loss=loss, metrics=metrics)
 
 
 __all__ = [
