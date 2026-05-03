@@ -25,6 +25,7 @@ __all__ = [
     "checkpoint_logs_dir",
     "create_training_viewer",
     "dssim_loss",
+    "empty_scalar_frame",
     "fastergs_training_backend_options",
     "filter_scalars",
     "find_event_files",
@@ -80,6 +81,7 @@ def __getattr__(name: str) -> object:
             return getattr(training_viewer, name)
         case (
             "checkpoint_logs_dir"
+            | "empty_scalar_frame"
             | "filter_scalars"
             | "find_event_files"
             | "read_scalar_records"

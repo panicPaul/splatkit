@@ -242,6 +242,27 @@ def ensure_checkpoint_output_writable(
         )
 
 
+def checkpoint_run_dir(
+    output_dir: str | Path,
+    *,
+    overwrite: bool,
+) -> Path:
+    """Resolve an experiment output prefix to a concrete run directory."""
+    output_path = Path(output_dir)
+    if overwrite:
+        return _checkpoint_run_path(output_path, 1)
+    run_index = 1
+    while True:
+        candidate = _checkpoint_run_path(output_path, run_index)
+        if not candidate.exists():
+            return candidate
+        run_index += 1
+
+
+def _checkpoint_run_path(output_dir: Path, run_index: int) -> Path:
+    return output_dir.with_name(f"{output_dir.name}_run_{run_index}")
+
+
 def _scene_record_summary(scene_record: SceneRecord) -> dict[str, Any]:
     return {
         "num_frames": scene_record.num_frames,
@@ -433,6 +454,7 @@ def build_inference_pipeline(path: str | Path) -> LoadedCheckpoint:
 __all__ = [
     "build_checkpoint_metadata",
     "build_inference_pipeline",
+    "checkpoint_run_dir",
     "load_checkpoint_dir",
     "save_checkpoint_dir",
 ]

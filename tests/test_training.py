@@ -52,6 +52,7 @@ from ember_core.training import (
     build_training_render_fn,
     build_training_run_context,
     checkpoint_log_dir,
+    checkpoint_run_dir,
     compute_frame_camera_extent,
     cycle_dataloader,
     ensure_checkpoint_output_writable,
@@ -524,6 +525,7 @@ def test_run_training_writes_checkpoint_directory(tmp_path: Path) -> None:
     assert (checkpoint_dir / "config.json").exists()
     assert (checkpoint_dir / "metadata.json").exists()
     assert (checkpoint_dir / "model.ckpt").exists()
+    assert checkpoint_dir.name == "run_run_1"
     assert checkpoint_log_dir(checkpoint_dir) == checkpoint_dir / "logs"
     assert list((checkpoint_dir / "logs").glob("events.out.tfevents.*"))
     assert "iterations_per_second" in result.history[-1]
@@ -558,7 +560,7 @@ def test_run_training_accepts_typed_training_config_source(
 
     assert isinstance(materialized, TrainingConfig)
     assert typed_config.seen_dataset_length == len(dataset)
-    assert Path(result.checkpoint_dir).name == "typed-run"
+    assert Path(result.checkpoint_dir).name == "typed-run_run_1"
 
 
 def test_training_utilities_cover_common_notebook_loop_needs(
@@ -1218,6 +1220,17 @@ def test_checkpoint_overwrite_guard_rejects_existing_artifacts(
         ensure_checkpoint_output_writable(output_dir, overwrite=False)
 
     ensure_checkpoint_output_writable(output_dir, overwrite=True)
+
+
+def test_checkpoint_run_dir_uses_numbered_run_suffixes(tmp_path: Path) -> None:
+    output_dir = tmp_path / "checkpoint"
+    first_run = tmp_path / "checkpoint_run_1"
+    first_run.mkdir()
+
+    assert checkpoint_run_dir(output_dir, overwrite=False) == (
+        tmp_path / "checkpoint_run_2"
+    )
+    assert checkpoint_run_dir(output_dir, overwrite=True) == first_run
 
 
 def test_checkpoint_metadata_records_reproducibility_fields(

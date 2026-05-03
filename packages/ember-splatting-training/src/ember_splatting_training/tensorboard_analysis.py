@@ -1,4 +1,4 @@
-"""TensorBoard checkpoint analysis helpers and marimo notebook."""
+"""TensorBoard checkpoint analysis helpers."""
 
 from __future__ import annotations
 
@@ -8,11 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import altair as alt
-import marimo
 import polars as pl
-
-__generated_with = "0.23.2"
-app = marimo.App(width="columns")
 
 
 @dataclass(frozen=True)
@@ -64,9 +60,24 @@ def read_scalar_records(path: str | Path) -> list[TensorBoardScalarRecord]:
     return records
 
 
+def empty_scalar_frame() -> pl.DataFrame:
+    """Return an empty scalar dataframe with the canonical schema."""
+    return pl.DataFrame(
+        schema={
+            "run": pl.String,
+            "tag": pl.String,
+            "step": pl.Int64,
+            "wall_time": pl.Float64,
+            "value": pl.Float64,
+        }
+    )
+
+
 def read_scalars(path: str | Path) -> pl.DataFrame:
     """Read TensorBoard scalar events into a Polars dataframe."""
     records = read_scalar_records(path)
+    if len(records) == 0:
+        return empty_scalar_frame()
     return pl.DataFrame(
         [record.__dict__ for record in records],
         schema={
@@ -143,151 +154,15 @@ def _run_name_for_event_file(root: str | Path, event_path: Path) -> str:
     return str(relative_parent)
 
 
-@app.cell(hide_code=True)
-def _():
-    import marimo as mo
-
-    mo.md("# TensorBoard checkpoint analysis")
-    return (mo,)
-
-
-@app.cell
-def _(mo):
-    checkpoint_path = mo.ui.text(
-        value="checkpoints/papers/fastergs/garden_baseline/faster_gs.core",
-        label="Checkpoint directory",
-        full_width=True,
-    )
-    checkpoint_path
-    return (checkpoint_path,)
-
-
-@app.cell
-def _(mo, tags):
-    metric_selector = mo.ui.multiselect(
-        options=list(tags),
-        value=list(tags[: min(4, len(tags))]),
-        label="Metrics",
-        full_width=True,
-    )
-    metric_selector
-    return (metric_selector,)
-
-
-@app.cell(hide_code=True)
-def _(metric_selector, scalar_frame):
-    from ember_splatting_training.tensorboard_analysis import scalar_line_chart
-
-    scalar_line_chart(
-        scalar_frame,
-        tags=metric_selector.value,
-        title="Selected scalar metrics",
-    )
-    return
-
-
-@app.cell(column=1, hide_code=True)
-def _(mo):
-    mo.md("## Scalar Data")
-    return
-
-
-@app.cell(column=1)
-def _(checkpoint_path):
-    from pathlib import Path
-
-    import polars as _pl
-
-    from ember_splatting_training.tensorboard_analysis import (
-        find_event_files,
-        read_scalars,
-    )
-
-    checkpoint_dir = Path(checkpoint_path.value).expanduser()
-    event_files = find_event_files(checkpoint_dir)
-    scalar_frame = read_scalars(checkpoint_dir) if event_files else _pl.DataFrame(
-        schema={
-            "run": _pl.String,
-            "tag": _pl.String,
-            "step": _pl.Int64,
-            "wall_time": _pl.Float64,
-            "value": _pl.Float64,
-        }
-    )
-    return checkpoint_dir, event_files, scalar_frame
-
-
-@app.cell(column=1)
-def _(scalar_frame):
-    from ember_splatting_training.tensorboard_analysis import scalar_tags
-
-    tags = scalar_tags(scalar_frame)
-    return (tags,)
-
-
-@app.cell(column=1)
-def _(checkpoint_dir, event_files, mo, scalar_frame):
-    summary = mo.md(
-        "\n".join(
-            [
-                f"Checkpoint: `{checkpoint_dir}`",
-                f"Event files: `{len(event_files)}`",
-                f"Scalar rows: `{scalar_frame.height}`",
-            ]
-        )
-    )
-    summary
-    return
-
-
-@app.cell(column=2, hide_code=True)
-def _(mo):
-    mo.md("## Checkpoint")
-    return
-
-
-@app.cell(column=2)
-def _(checkpoint_dir):
-    from ember_splatting_training.tensorboard_analysis import load_checkpoint
-
-    checkpoint_files = (
-        checkpoint_dir / "config.json",
-        checkpoint_dir / "metadata.json",
-        checkpoint_dir / "model.ckpt",
-    )
-    checkpoint_error = ""
-    if all(checkpoint_file.exists() for checkpoint_file in checkpoint_files):
-        try:
-            checkpoint = load_checkpoint(checkpoint_dir)
-        except Exception as error:
-            checkpoint = None
-            checkpoint_error = str(error)
-    else:
-        checkpoint = None
-    return checkpoint, checkpoint_error
-
-
-@app.cell(column=2)
-def _(checkpoint, checkpoint_error, mo):
-    if checkpoint is None:
-        checkpoint_view = mo.md(
-            f"Checkpoint not loaded: `{checkpoint_error}`"
-            if checkpoint_error
-            else "No checkpoint loaded."
-        )
-    else:
-        checkpoint_view = mo.md(
-            "\n".join(
-                [
-                    f"Backend: `{checkpoint.config.render.backend}`",
-                    f"Scene: `{type(checkpoint.model.scene).__name__}`",
-                    f"Step: `{checkpoint.model.metadata.get('checkpoint_step', 0)}`",
-                ]
-            )
-        )
-    checkpoint_view
-    return
-
-
-if __name__ == "__main__":
-    app.run()
+__all__ = [
+    "TensorBoardScalarRecord",
+    "checkpoint_logs_dir",
+    "empty_scalar_frame",
+    "filter_scalars",
+    "find_event_files",
+    "load_checkpoint",
+    "read_scalar_records",
+    "read_scalars",
+    "scalar_line_chart",
+    "scalar_tags",
+]

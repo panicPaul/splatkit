@@ -231,11 +231,6 @@ convention = "google"
     "F401",       # Unused imports from marimo
     "RUF059",     # Unused unpacked variable
 ]
-"packages/ember-splatting-training/src/ember_splatting_training/tensorboard_analysis.py" = [
-    "ANN",        # Marimo cells are reactive workflow units.
-    "B018",       # Bare expressions intentionally render notebook outputs.
-    "D",          # The public helpers are documented inline.
-]
 "packages/ember-adapter-backends/src/ember_adapter_backends/fastgs/renderer.py" = [
     "D102",       # Trait implementations mirror protocol method names
 ]

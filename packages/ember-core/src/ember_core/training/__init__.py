@@ -3,6 +3,7 @@
 from ember_core.training.checkpoints import (
     build_checkpoint_metadata,
     build_inference_pipeline,
+    checkpoint_run_dir,
     ensure_checkpoint_output_writable,
     load_checkpoint_dir,
     save_checkpoint_dir,
@@ -129,6 +130,7 @@ __all__ = [
     "build_training_render_fn",
     "build_training_run_context",
     "checkpoint_log_dir",
+    "checkpoint_run_dir",
     "compute_frame_camera_extent",
     "cycle_dataloader",
     "ensure_checkpoint_output_writable",

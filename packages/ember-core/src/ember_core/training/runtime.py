@@ -1388,13 +1388,20 @@ def run_training(
 ) -> TrainingResult:
     """Run the declarative training loop and export a checkpoint directory."""
     from ember_core.training.checkpoints import (
-        ensure_checkpoint_output_writable,
+        checkpoint_run_dir,
     )
 
     config = materialize_training_config(frame_dataset, config)
-    ensure_checkpoint_output_writable(
+    concrete_checkpoint_dir = checkpoint_run_dir(
         config.checkpoint.output_dir,
         overwrite=config.checkpoint.overwrite,
+    )
+    config = config.model_copy(
+        update={
+            "checkpoint": config.checkpoint.model_copy(
+                update={"output_dir": concrete_checkpoint_dir}
+            )
+        }
     )
     _set_seed(config.runtime.seed)
     device = torch.device(config.runtime.device)
