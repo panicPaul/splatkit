@@ -47,6 +47,57 @@ class ComposedDensificationMethod:
         default_factory=DensificationSignals, init=False
     )
 
+    def with_components(
+        self,
+        *,
+        name: str | None = None,
+        collectors: Sequence[Any] = (),
+        passes: Sequence[Any] = (),
+        replace_collectors: bool = False,
+        replace_passes: bool = False,
+    ) -> ComposedDensificationMethod:
+        """Return a copy with added or replaced collectors and passes."""
+        resolved_collectors = (
+            list(collectors)
+            if replace_collectors
+            else [*self.collectors, *collectors]
+        )
+        resolved_passes = (
+            list(passes) if replace_passes else [*self.passes, *passes]
+        )
+        return ComposedDensificationMethod(
+            name=name or self.name,
+            expected_scene_families=self.expected_scene_families,
+            collectors=resolved_collectors,
+            passes=resolved_passes,
+        )
+
+    def with_collectors(
+        self,
+        *collectors: Any,
+        name: str | None = None,
+        replace: bool = False,
+    ) -> ComposedDensificationMethod:
+        """Return a copy with added or replaced signal collectors."""
+        return self.with_components(
+            name=name,
+            collectors=collectors,
+            replace_collectors=replace,
+        )
+
+    def with_passes(
+        self,
+        *passes: Any,
+        name: str | None = None,
+        replace: bool = False,
+    ) -> ComposedDensificationMethod:
+        """Return a copy with added or replaced refinement passes."""
+        return self.with_components(
+            name=name,
+            passes=passes,
+            replace_passes=replace,
+        )
+
     def get_render_requirements(
         self,
         state: object,
@@ -120,17 +171,19 @@ class ComposedDensificationMethod:
 
 def compose_densification(
     *,
-    family: str,
-    collectors: list[Any],
-    passes: list[Any],
+    family: str | None = None,
+    families: Sequence[str] | None = None,
+    collectors: Sequence[Any] = (),
+    passes: Sequence[Any] = (),
     name: str = "ComposedDensification",
 ) -> ComposedDensificationMethod:
     """Compose a custom densification method in scripts/notebooks."""
+    expected_scene_families = tuple(families or ((family,) if family else ()))
     return ComposedDensificationMethod(
         name=name,
-        expected_scene_families=(family,),
-        collectors=collectors,
-        passes=passes,
+        expected_scene_families=expected_scene_families,
+        collectors=list(collectors),
+        passes=list(passes),
     )
 
 

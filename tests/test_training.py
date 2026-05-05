@@ -30,6 +30,10 @@ from ember_core.densification import (
     DensificationContext,
     DensificationLifecycleContext,
     DensificationRenderRequirements,
+    GaussianJitterPass,
+    Schedule,
+    Vanilla3DGS,
+    compose_densification,
 )
 from ember_core.densification.runtime import merge_densification_requirements
 from ember_core.initialization import InitializedModel
@@ -630,6 +634,27 @@ def test_notebook_spec_helpers_accept_local_callables(tmp_path: Path) -> None:
         )
     )
     assert config.optimization.parameter_groups[0].target.scope == "scene"
+
+
+def test_composed_densification_is_easy_to_extend() -> None:
+    jitter = GaussianJitterPass(schedule=Schedule(frequency=10), sigma=0.01)
+
+    vanilla = Vanilla3DGS().with_passes(jitter, name="PaperVariant")
+    assert vanilla.name == "PaperVariant"
+    assert vanilla.expected_scene_families == ("gaussian",)
+    assert vanilla.passes[-1] is jitter
+
+    replacement = Vanilla3DGS().with_passes(jitter, replace=True)
+    assert replacement.passes == [jitter]
+
+    custom = compose_densification(
+        families=("gaussian", "sparse_voxel"),
+        passes=(jitter,),
+        name="NotebookDensification",
+    )
+    assert custom.name == "NotebookDensification"
+    assert custom.expected_scene_families == ("gaussian", "sparse_voxel")
+    assert custom.passes == [jitter]
 
 
 def test_resolve_backend_options_applies_updates(tmp_path: Path) -> None:
