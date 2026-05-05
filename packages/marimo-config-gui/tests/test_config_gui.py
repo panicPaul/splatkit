@@ -156,6 +156,28 @@ class _UnionFieldDefaultRoot(BaseModel):
     item: _UnionA | _UnionB = Field(_UnionA())
 
 
+class ResNet50(BaseModel):
+    model_config = ConfigDict(title="ResNet-50")
+
+    depth: int = 50
+
+
+class ContextNet(BaseModel):
+    model_config = ConfigDict(title="Context Network")
+
+    width: int = 64
+
+
+class CustomNetwork(BaseModel):
+    width: int = 128
+
+
+class _UnionBranchLabelRoot(BaseModel):
+    subconfig: ResNet50 | ContextNet | CustomNetwork = Field(
+        default_factory=ResNet50
+    )
+
+
 class _TitledResNetConfig(BaseModel):
     model_config = ConfigDict(title="Custom ResNet-50")
 
@@ -1398,6 +1420,20 @@ def test_config_gui_builds_model_union_field_default(
     config_gui = create_config_gui(_UnionFieldDefaultRoot, background=None)
 
     assert type(config_gui.gui_panel()).__name__ == "PydanticGui"
+
+
+def test_union_branch_labels_use_model_titles() -> None:
+    generated = PydanticGui(
+        _UnionBranchLabelRoot,
+        include_json_editor=False,
+    )
+    union_gui = generated.elements["subconfig"]
+
+    assert union_gui._branch_labels == [
+        "ResNet-50",
+        "Context Network",
+        "Custom Network",
+    ]
 
 
 def test_json_editor_uses_model_field_order(notebook_runtime: None) -> None:

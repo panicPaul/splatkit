@@ -314,9 +314,15 @@ def _():
         - `Path` file-browser fields
         - nested Pydantic sections
         - generated labels from `Field(title=...)`, model titles, and class names
+        - custom names for union branch tabs
         - optional `None`/configure controls
         - Pydantic validation constraints
         - field-level GUI hints for slider widgets and JSON-rendered fields
+
+        Choose **Custom names and union labels** to see the naming precedence:
+        `Field(title=...)` names the whole field, `ConfigDict(title=...)` names
+        nested model sections and union branches, and class names are sanitized
+        only when no explicit title is set.
         """
     )
     return
@@ -941,6 +947,28 @@ def _():
             "    checkpoint_path: Path | None = Field(",
             "        None,",
             '        description="Leave unset for a fresh run.",',
+            "    )",
+        ),
+        "Custom names and union labels": code_example(
+            "from pydantic import BaseModel, ConfigDict, Field",
+            "",
+            "",
+            "class ResNet50(BaseModel):",
+            '    model_config = ConfigDict(title="ResNet-50")',
+            "",
+            "",
+            "class ContextNet(BaseModel):",
+            '    model_config = ConfigDict(title="Context Network")',
+            "",
+            "",
+            "class CustomNetwork(BaseModel):",
+            "    width: int = 128",
+            "",
+            "",
+            "class Config(BaseModel):",
+            "    subconfig: ResNet50 | ContextNet | CustomNetwork = Field(",
+            "        default_factory=ResNet50,",
+            '        title="Architecture",',
             "    )",
         ),
         "GUI hints and sequence fields": code_example(

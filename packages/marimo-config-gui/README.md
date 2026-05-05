@@ -257,6 +257,35 @@ The displayed section label is `Training Optimizer`. Without the field title it
 would be `Optimizer Settings`; without the model title it would fall back to the
 sanitized class name `Optimizer`.
 
+Union branch names use the same model-title fallback. A field title labels the
+whole union field; branch tabs are named from each branch model:
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ResNet50(BaseModel):
+    model_config = ConfigDict(title="ResNet-50")
+
+
+class ContextNet(BaseModel):
+    model_config = ConfigDict(title="Context Network")
+
+
+class CustomNetwork(BaseModel):
+    pass
+
+
+class Config(BaseModel):
+    subconfig: ResNet50 | ContextNet | CustomNetwork = Field(
+        default_factory=ResNet50,
+        title="Architecture",
+    )
+```
+
+The union field is labeled `Architecture`; its tabs are `ResNet-50`,
+`Context Network`, and `Custom Network`.
+
 Field-level GUI hints can be provided through `json_schema_extra`:
 
 ```python
