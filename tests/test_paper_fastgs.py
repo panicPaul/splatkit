@@ -76,6 +76,29 @@ def test_fastgs_resolved_training_config_defaults_to_native_backend() -> None:
     )
 
 
+def test_fastgs_garden_big_preset_uses_native_upstream_settings() -> None:
+    module = load_fastgs_config_module()
+    experiment_config = load_fastgs_preset(module, "garden_big")
+
+    training_config = module.resolve_training_config(experiment_config)
+
+    assert experiment_config.training.render.backend == "faster_gs.fastgs"
+    assert training_config.render.backend == "faster_gs.fastgs"
+    assert (
+        training_config.checkpoint.output_dir
+        == REPO_ROOT / "checkpoints/papers/fastgs/garden_big/faster_gs.fastgs"
+    )
+    assert experiment_config.training.optimization.highfeature_lr == 0.02
+    assert experiment_config.training.loss.lambda_opacity_regularization == 0.0
+    assert experiment_config.training.loss.lambda_scale_regularization == 0.0
+
+    vanilla = experiment_config.training.densification.vanilla
+    assert vanilla.refine_every == 100
+    assert vanilla.loss_thresh == 0.06
+    assert vanilla.grad_abs_threshold == 0.0003
+    assert vanilla.dense_fraction == 0.001
+
+
 def test_fastgs_script_loader_applies_preset_then_cli_overrides() -> None:
     module = load_fastgs_config_module()
 
@@ -165,3 +188,19 @@ def test_fastgs_densification_accumulators_follow_clone_and_split() -> None:
         densification.max_screen_radii,
         torch.tensor([20.0, 22.0, 23.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     )
+
+
+def test_fastgs_refinement_pruning_pads_scores_after_growth() -> None:
+    module = load_fastgs_config_module()
+    densification = module.FastGSVanillaDensification()
+    prune_mask = torch.ones(6, dtype=torch.bool)
+    pruning_score = torch.tensor([0.1, 0.2, 0.3, 0.4])
+
+    torch.manual_seed(0)
+    sampled_prune_mask = densification._sample_refinement_prune_mask(
+        prune_mask,
+        pruning_score,
+    )
+
+    assert int(sampled_prune_mask.sum().item()) == 3
+    assert not torch.any(sampled_prune_mask[4:])

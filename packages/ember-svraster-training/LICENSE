@@ -1,0 +1,4 @@
+This package follows the upstream SVRaster license surface because it exposes
+training utilities backed by vendored SVRaster kernels.
+
+See ../ember-native-svraster/LICENSE for the full NVIDIA SVRaster license text.

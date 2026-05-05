@@ -1,0 +1,133 @@
+{
+  "preset": "garden_stoch",
+  "scene": {
+    "path": "dataset/mipnerf360/garden",
+    "image_root": null,
+    "undistort_output_dir": null,
+    "align_horizon": true
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 0.25,
+    "cache_resized_images": true,
+    "resized_image_cache_root": null,
+    "max_resized_image_caches": 4,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "none",
+    "materialization_mode": "lazy",
+    "materialization_num_workers": 0,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 0,
+      "max_steps": 30000
+    },
+    "profiler": {
+      "enabled": false,
+      "log_every": 100,
+      "output_path": null
+    },
+    "batching": {
+      "batch_size": 1,
+      "shuffle": true,
+      "num_workers": 4,
+      "persistent_workers": true,
+      "pin_memory": true
+    },
+    "initialization": {
+      "sh_degree": 3,
+      "default_density": 0.1,
+      "default_scale_factor": 1.0,
+      "observation_scale_factor": 0.01,
+      "use_observation_points": true,
+      "default_color": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "render": {
+      "backend": "3dgrt.stoch3dgs",
+      "particle_kernel_degree": 4,
+      "particle_kernel_density_clamping": true,
+      "particle_kernel_min_response": 0.0113,
+      "particle_kernel_min_alpha": 0.00392156862745098,
+      "particle_kernel_max_alpha": 0.99,
+      "primitive_type": "instances",
+      "min_transmittance": 0.001,
+      "enable_normals": false,
+      "enable_hitcounts": true,
+      "max_consecutive_bvh_update": 15,
+      "background_color": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "return_alpha": true,
+      "return_depth": true,
+      "training_backend_options": {
+        "max_sh_degree": 3,
+        "sh_start_step": 1000,
+        "sh_step_interval": 1000
+      }
+    },
+    "optimization": {
+      "center_position_lr_init": 0.00016,
+      "center_position_lr_final": 0.0000016,
+      "center_position_lr_max_steps": 30000,
+      "center_position_lr_step_offset": 1,
+      "features_albedo_lr": 0.0025,
+      "features_specular_lr_divisor": 20.0,
+      "density_lr": 0.04,
+      "rotation_lr": 0.001,
+      "scale_lr": 0.005,
+      "adam_eps": 1e-15
+    },
+    "loss": {
+      "lambda_l1": 0.8,
+      "lambda_ssim": 0.2,
+      "lambda_opacity_regularization": 0.0,
+      "lambda_scale_regularization": 0.0,
+      "ssim_backend": "cuda"
+    },
+    "densification": {
+      "densify_frequency": 400,
+      "densify_start_iteration": 500,
+      "densify_end_iteration": 15000,
+      "clone_grad_threshold": 0.0002,
+      "split_grad_threshold": 0.0002,
+      "relative_size_threshold": 0.01,
+      "split_n_gaussians": 2,
+      "prune_frequency": 100,
+      "prune_start_iteration": 500,
+      "prune_end_iteration": 15000,
+      "prune_density_threshold": 0.005,
+      "reset_density_frequency": 3000,
+      "reset_density_start_iteration": 0,
+      "reset_density_end_iteration": 15000,
+      "reset_density_new_max_density": 0.01,
+      "max_primitives": 3000000,
+      "max_primitives_keep": 2700000,
+      "density_decay_gamma": 0.99,
+      "density_decay_start_iteration": -1,
+      "density_decay_end_iteration": -1,
+      "density_decay_frequency": 50
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/stoch3dgs/garden_stoch/3dgrt.stoch3dgs",
+      "export_ply": true
+    },
+    "viewer": {
+      "enabled": true,
+      "update_every_steps": 500,
+      "min_update_seconds": 2.0,
+      "pause_on_interaction": true,
+      "pause_poll_seconds": 0.05,
+      "max_pause_seconds": null
+    }
+  }
+}

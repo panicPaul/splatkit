@@ -1,11 +1,11 @@
 [project]
-name = "ember-native-svraster"
+name = "ember-svraster-training"
 dynamic = ["version"]
-description = "Official SVRaster-family native backends for Ember."
+description = "Optional SVRaster training utilities for Ember."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "LicenseRef-NVIDIA-SVRaster AND LicenseRef-INRIA-Gaussian-Splatting"
-license-files = ["LICENSE", "LICENSE_inria.md"]
+license = "LicenseRef-NVIDIA-SVRaster"
+license-files = ["LICENSE"]
 authors = [
     { name = "Paul Schlack" },
 ]
@@ -23,6 +23,7 @@ dependencies = [
     "beartype>=0.22.9",
     "jaxtyping>=0.3.9",
     "ember-core",
+    "ember-native-svraster",
     "torch>=2.11.0",
 ]
 
@@ -53,6 +54,7 @@ conflicts = [
 
 [tool.uv.sources]
 ember-core = { path = "../ember-core", editable = true }
+ember-native-svraster = { path = "../ember-native-svraster", editable = true }
 torch = [
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },
@@ -77,22 +79,12 @@ root = "../.."
 version_scheme = "no-guess-dev"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/ember_native_svraster/_version.py"
+version-file = "src/ember_svraster_training/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ember_native_svraster"]
-include = [
-    "src/ember_native_svraster/**/*.cpp",
-    "src/ember_native_svraster/**/*.cu",
-    "src/ember_native_svraster/**/*.cuh",
-    "src/ember_native_svraster/**/*.h",
-]
+packages = ["src/ember_svraster_training"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/ember_native_svraster/**/*.cpp",
-    "src/ember_native_svraster/**/*.cu",
-    "src/ember_native_svraster/**/*.cuh",
-    "src/ember_native_svraster/**/*.h",
-    "src/ember_native_svraster/**/*.py",
+    "src/ember_svraster_training/**/*.py",
 ]

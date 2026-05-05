@@ -52,7 +52,7 @@ with app.setup:
     DEFAULT_CHECKPOINT_ROOT = REPO_ROOT / "checkpoints" / "papers" / "fastgs"
     FastGSBackendName = Literal["adapter.fastgs", "faster_gs.fastgs"]
     FastGSDefaultName = Literal[
-        "garden_base", "garden_base_native", "garden_debug_val"
+        "garden_base", "garden_base_native", "garden_big", "garden_debug_val"
     ]
     sys.modules.setdefault("papers.fastgs.notebook", sys.modules[__name__])
     ember_fastgs_adapter.register()
@@ -655,6 +655,12 @@ def fastgs_preset_catalog() -> ConfigPresetCatalog[FastGSExperimentConfig]:
                 name="garden_base_native",
                 path=DEFAULTS_DIR / "garden_base_native.json",
                 label="Garden base native",
+                base_dir=REPO_ROOT,
+            ),
+            "garden_big": ConfigPreset(
+                name="garden_big",
+                path=DEFAULTS_DIR / "garden_big.json",
+                label="Garden big",
                 base_dir=REPO_ROOT,
             ),
             "garden_debug_val": ConfigPreset(
@@ -1541,24 +1547,43 @@ class FastGSVanillaDensification(BaseDensificationMethod):
             max_scale = torch.exp(scene.log_scales).max(dim=-1).values
             keep_mask &= max_scale <= 0.1 * self.camera_extent
             keep_mask &= self.max_screen_radii <= 20.0
-        if pruning_score.numel() == keep_mask.numel():
-            prune_mask = ~keep_mask
-            remove_budget = int(0.5 * int(prune_mask.sum().item()))
-            if remove_budget > 0:
-                scores = 1.0 - pruning_score
-                padded_importance = 1.0 / (1e-6 + scores.clamp_min(0.0))
-                sampled_indices = torch.multinomial(
-                    padded_importance,
-                    remove_budget,
-                    replacement=False,
-                )
-                sampled_mask = torch.zeros_like(keep_mask)
-                sampled_mask[sampled_indices] = True
-                keep_mask |= prune_mask & ~sampled_mask
+        sampled_prune_mask = self._sample_refinement_prune_mask(
+            ~keep_mask,
+            pruning_score,
+        )
+        keep_mask = ~sampled_prune_mask
         keep_mask &= scene.quaternion_orientation.square().sum(dim=1) >= 1e-8
         if torch.any(~keep_mask):
             self.family_ops.prune(keep_mask)
         self.family_ops.reset_opacity(self.max_reset_opacity)
+
+    def _sample_refinement_prune_mask(
+        self,
+        prune_mask: Tensor,
+        pruning_score: Tensor,
+    ) -> Tensor:
+        """Apply upstream FastGS' budgeted refinement prune sampling."""
+        remove_budget = int(0.5 * int(prune_mask.sum().item()))
+        if remove_budget <= 0 or pruning_score.numel() == 0:
+            return torch.zeros_like(prune_mask)
+        scores = 1.0 - pruning_score.reshape(-1)
+        weighted_count = min(int(scores.numel()), int(prune_mask.numel()))
+        padded_importance = torch.zeros(
+            (int(prune_mask.numel()),),
+            dtype=torch.float32,
+            device=prune_mask.device,
+        )
+        padded_importance[:weighted_count] = 1.0 / (
+            1e-6 + scores[:weighted_count].clamp_min(0.0)
+        ).to(device=prune_mask.device, dtype=torch.float32)
+        sampled_indices = torch.multinomial(
+            padded_importance,
+            remove_budget,
+            replacement=False,
+        )
+        sampled_mask = torch.zeros_like(prune_mask)
+        sampled_mask[sampled_indices] = True
+        return prune_mask & sampled_mask
 
     def should_reset_opacity(self, step: int) -> bool:
         scheduled = (

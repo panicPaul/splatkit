@@ -31,10 +31,12 @@ native-faster-gs-mojo = ["ember-native-faster-gs-mojo"]
 native-3dgrt = ["ember-native-3dgrt"]
 native-svraster = ["ember-native-svraster"]
 svraster-adapter = ["new-svraster-cuda"]
+svraster-training = ["ember-svraster-training"]
 splatting-training = ["ember-splatting-training"]
 all-backends = ["ember-adapter-backends[all]"]
 all-native = [
     "ember-splatting-training",
+    "ember-svraster-training",
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
@@ -50,6 +52,7 @@ all-unrestricted = [
 all = [
     "ember-adapter-backends[all]",
     "ember-splatting-training",
+    "ember-svraster-training",
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
@@ -60,6 +63,7 @@ cu130 = ["torch>=2.11.0"]
 cu128-dev = [
     "ember-adapter-backends[all]",
     "ember-splatting-training",
+    "ember-svraster-training",
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
@@ -69,6 +73,7 @@ cu128-dev = [
 cu130-dev = [
     "ember-adapter-backends[all]",
     "ember-splatting-training",
+    "ember-svraster-training",
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
@@ -113,6 +118,7 @@ marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
 marimo-3dv = { path = "packages/marimo-3dv", editable = true }
 ember-core = { path = "packages/ember-core", editable = true }
 ember-splatting-training = { path = "packages/ember-splatting-training", editable = true }
+ember-svraster-training = { path = "packages/ember-svraster-training", editable = true }
 ember-adapter-backends = { path = "packages/ember-adapter-backends", editable = true }
 ember-native-faster-gs = { path = "packages/ember-native-faster-gs", editable = true }
 ember-native-faster-gs-mojo = { path = "packages/ember-native-faster-gs-mojo", editable = true }
@@ -317,6 +323,7 @@ cu130 = ["cu130"]
 marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
 ember-core = { path = "packages/ember-core", editable = true }
 ember-splatting-training = { path = "packages/ember-splatting-training", editable = true }
+ember-svraster-training = { path = "packages/ember-svraster-training", editable = true }
 marimo-3dv = { path = "packages/marimo-3dv", editable = true }
 diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
 "diff-gaussian-rasterization-fastgs" = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }

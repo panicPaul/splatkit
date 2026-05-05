@@ -662,6 +662,7 @@ all = [
     { name = "ember-native-faster-gs-mojo" },
     { name = "ember-native-svraster" },
     { name = "ember-splatting-training" },
+    { name = "ember-svraster-training" },
 ]
 all-backends = [
     { name = "ember-adapter-backends", extra = ["all"] },
@@ -672,6 +673,7 @@ all-native = [
     { name = "ember-native-faster-gs-mojo" },
     { name = "ember-native-svraster" },
     { name = "ember-splatting-training" },
+    { name = "ember-svraster-training" },
 ]
 all-unrestricted = [
     { name = "ember-adapter-backends", extra = ["all"] },
@@ -690,6 +692,7 @@ cu128-dev = [
     { name = "ember-native-faster-gs-mojo" },
     { name = "ember-native-svraster" },
     { name = "ember-splatting-training" },
+    { name = "ember-svraster-training" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
 ]
 cu130 = [
@@ -702,6 +705,7 @@ cu130-dev = [
     { name = "ember-native-faster-gs-mojo" },
     { name = "ember-native-svraster" },
     { name = "ember-splatting-training" },
+    { name = "ember-svraster-training" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
 ]
 native-3dgrt = [
@@ -721,6 +725,9 @@ splatting-training = [
 ]
 svraster-adapter = [
     { name = "new-svraster-cuda" },
+]
+svraster-training = [
+    { name = "ember-svraster-training" },
 ]
 
 [package.metadata]
@@ -762,6 +769,11 @@ requires-dist = [
     { name = "ember-splatting-training", marker = "extra == 'cu128-dev'", editable = "packages/ember-splatting-training" },
     { name = "ember-splatting-training", marker = "extra == 'cu130-dev'", editable = "packages/ember-splatting-training" },
     { name = "ember-splatting-training", marker = "extra == 'splatting-training'", editable = "packages/ember-splatting-training" },
+    { name = "ember-svraster-training", marker = "extra == 'all'", editable = "packages/ember-svraster-training" },
+    { name = "ember-svraster-training", marker = "extra == 'all-native'", editable = "packages/ember-svraster-training" },
+    { name = "ember-svraster-training", marker = "extra == 'cu128-dev'", editable = "packages/ember-svraster-training" },
+    { name = "ember-svraster-training", marker = "extra == 'cu130-dev'", editable = "packages/ember-svraster-training" },
+    { name = "ember-svraster-training", marker = "extra == 'svraster-training'", editable = "packages/ember-svraster-training" },
     { name = "marimo", specifier = ">=0.23.2" },
     { name = "marimo-3dv", extras = ["desktop"], editable = "packages/marimo-3dv" },
     { name = "marimo-config-gui", editable = "packages/marimo-config-gui" },
@@ -779,7 +791,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'cu130-dev'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "ember-dev-environment", extra = "cu130-dev" } },
     { name = "ty", specifier = ">=0.0.29" },
 ]
-provides-extras = ["adapter-backends", "native-faster-gs", "native-faster-gs-mojo", "native-3dgrt", "native-svraster", "svraster-adapter", "splatting-training", "all-backends", "all-native", "all-unrestricted", "all", "cu128", "cu130", "cu128-dev", "cu130-dev"]
+provides-extras = ["adapter-backends", "native-faster-gs", "native-faster-gs-mojo", "native-3dgrt", "native-svraster", "svraster-adapter", "svraster-training", "splatting-training", "all-backends", "all-native", "all-unrestricted", "all", "cu128", "cu130", "cu128-dev", "cu130-dev"]
 
 [[package]]
 name = "ember-native-3dgrt"
@@ -915,6 +927,31 @@ requires-dist = [
     { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "ember-splatting-training", extra = "cu130" } },
 ]
 provides-extras = ["all", "cu128", "cu130", "mojo"]
+
+[[package]]
+name = "ember-svraster-training"
+source = { editable = "packages/ember-svraster-training" }
+dependencies = [
+    { name = "beartype" },
+    { name = "ember-core" },
+    { name = "ember-native-svraster" },
+    { name = "jaxtyping" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-21-ember-dev-environment-cu128' and extra == 'extra-21-ember-dev-environment-cu130') or (extra == 'extra-21-ember-dev-environment-cu128' and extra == 'extra-21-ember-dev-environment-cu130-dev') or (extra == 'extra-21-ember-dev-environment-cu128-dev' and extra == 'extra-21-ember-dev-environment-cu130') or (extra == 'extra-21-ember-dev-environment-cu128-dev' and extra == 'extra-21-ember-dev-environment-cu130-dev') or (extra != 'extra-21-ember-dev-environment-cu128' and extra != 'extra-21-ember-dev-environment-cu128-dev' and extra != 'extra-21-ember-dev-environment-cu130' and extra != 'extra-21-ember-dev-environment-cu130-dev')" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-21-ember-dev-environment-cu128' or extra == 'extra-21-ember-dev-environment-cu128-dev'" },
+    { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-21-ember-dev-environment-cu130' or extra == 'extra-21-ember-dev-environment-cu130-dev'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beartype", specifier = ">=0.22.9" },
+    { name = "ember-core", editable = "packages/ember-core" },
+    { name = "ember-native-svraster", editable = "packages/ember-native-svraster" },
+    { name = "jaxtyping", specifier = ">=0.3.9" },
+    { name = "torch", specifier = ">=2.11.0" },
+    { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "ember-svraster-training", extra = "cu128" } },
+    { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "ember-svraster-training", extra = "cu130" } },
+]
+provides-extras = ["all", "cu128", "cu130"]
 
 [[package]]
 name = "executing"

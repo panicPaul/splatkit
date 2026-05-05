@@ -1,0 +1,84 @@
+{
+  "preset": "garden_debug_val",
+  "scene": {
+    "path": "dataset/mipnerf360/garden",
+    "align_horizon": true
+  },
+  "data": {
+    "image_scale_factor": 0.25,
+    "split_target": "val",
+    "split_every_n": 8
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 3721,
+      "max_steps": 2
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/svraster/garden_debug_val/svraster.core",
+      "export_ply": false,
+      "overwrite": true
+    },
+    "model": {
+      "backend_name": "new_cuda",
+      "max_num_levels": 8,
+      "sh_degree": 1,
+      "initial_sh_degree": 1,
+      "samples_per_voxel": 1,
+      "supersampling": 1.0,
+      "white_background": false,
+      "black_background": false
+    },
+    "initialization": {
+      "initial_inside_level": 3,
+      "outside_level": 2,
+      "initial_outside_ratio": 1.5,
+      "geometry_initial_value": -10.0,
+      "sh0_initial_rgb": 0.5,
+      "shs_initial_value": 0.0,
+      "bound_scale": 1.0
+    },
+    "optimization": {
+      "geo_lr": 0.025,
+      "sh0_lr": 0.01,
+      "shs_lr": 0.00025,
+      "beta1": 0.1,
+      "beta2": 0.99,
+      "epsilon": 1e-15,
+      "lr_decay_checkpoints": [],
+      "lr_decay_multiplier": 0.1
+    },
+    "loss": {
+      "lambda_photo": 1.0,
+      "lambda_ssim": 0.0,
+      "use_l1": true,
+      "use_huber": false,
+      "huber_threshold": 0.03,
+      "lambda_t_inside": 0.0,
+      "lambda_r_concentration": 0.0,
+      "lambda_distortion": 0.0,
+      "distortion_start_step": 0
+    },
+    "regularization": {
+      "tv_density_weight": 0.0,
+      "tv_start_step": 0,
+      "tv_end_step": 0,
+      "no_tv_s": true,
+      "tv_sparse": false
+    },
+    "adaptive": {
+      "prune_from": 0,
+      "prune_until": 0,
+      "prune_every": 100,
+      "prune_threshold_start": 0.0001,
+      "prune_threshold_end": 0.01,
+      "subdivide_from": 0,
+      "subdivide_until": 0,
+      "subdivide_all_until": 0,
+      "subdivide_sample_threshold": 1.0,
+      "subdivide_proportion": 0.05,
+      "subdivide_max_voxels": 100000
+    }
+  }
+}
