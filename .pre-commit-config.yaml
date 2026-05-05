@@ -22,6 +22,35 @@ repos:
         entry: uv run marimo check --strict --ignore-scripts
         language: system
         files: ^(notebooks/.*\.py|papers/.*/notebook\.py|sandboxed_notebooks/.*\.py|packages/marimo-3dv/notebooks/.*\.py)$
+      - id: ember-core-ty-check
+        name: ember core ty check
+        entry: >-
+          uv run --extra cu130 ty check
+          --extra-search-path packages/ember-core/src
+          packages/ember-core/src/ember_core/core/registry.py
+          packages/ember-core/src/ember_core/data/adapters.py
+          packages/ember-core/src/ember_core/densification/methods.py
+          packages/ember-core/src/ember_core/densification/passes.py
+          packages/ember-core/src/ember_core/densification/runtime.py
+          packages/ember-core/src/ember_core/training/config.py
+          packages/ember-core/src/ember_core/training/resolution.py
+          packages/ember-core/src/ember_core/training/runtime.py
+          packages/ember-core/src/ember_core/training/specs.py
+          packages/ember-core/src/ember_core/initialization/initialize.py
+        language: system
+        pass_filenames: false
+        stages: [manual]
+      - id: paper-notebooks-marimo-check
+        name: paper notebooks marimo check
+        entry: >-
+          uv run --extra cu130 marimo check --strict --ignore-scripts
+          papers/fastgs/notebook.py
+          papers/fastergs/notebook.py
+          papers/stoch3dgs/notebook.py
+          papers/svraster/notebook.py
+        language: system
+        pass_filenames: false
+        stages: [manual]
       - id: check-submodule-checkouts
         name: check submodule checkouts
         entry: uv run python scripts/check_submodule_checkouts.py
