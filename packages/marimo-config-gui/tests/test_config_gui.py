@@ -160,6 +160,28 @@ class _TitledResNetConfig(BaseModel):
     model_config = ConfigDict(title="Custom ResNet-50")
 
 
+class _TitledRuntimeConfig(BaseModel):
+    model_config = ConfigDict(title="Runtime Settings")
+
+    seed: int = 0
+
+
+class PlainRuntimeConfig(BaseModel):
+    seed: int = 0
+
+
+class _LabelPrecedenceRoot(BaseModel):
+    titled_field: _TitledRuntimeConfig = Field(
+        default_factory=_TitledRuntimeConfig,
+        title="Field Runtime",
+    )
+    titled_model: _TitledRuntimeConfig = Field(
+        default_factory=_TitledRuntimeConfig
+    )
+    plain_model: PlainRuntimeConfig = Field(default_factory=PlainRuntimeConfig)
+    plain_value: int = 0
+
+
 @pytest.fixture
 def notebook_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: True)
@@ -1350,6 +1372,24 @@ def test_model_name_humanization_is_alphanumeric_aware(
 
 def test_model_name_humanization_uses_pydantic_title() -> None:
     assert labels.humanize_model_name(_TitledResNetConfig) == "Custom ResNet-50"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "expected"),
+    [
+        ("titled_field", "Field Runtime"),
+        ("titled_model", "Runtime Settings"),
+        ("plain_model", "Plain Runtime"),
+        ("plain_value", "Plain value"),
+    ],
+)
+def test_field_label_precedence(
+    field_name: str,
+    expected: str,
+) -> None:
+    info = _LabelPrecedenceRoot.model_fields[field_name]
+
+    assert labels.field_label(field_name, info, info.annotation) == expected
 
 
 def test_config_gui_builds_model_union_field_default(

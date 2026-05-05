@@ -50,6 +50,7 @@ from marimo_config_gui.elements import (
 )
 from marimo_config_gui.labels import (
     _disambiguate_labels,
+    field_label,
 )
 from marimo_config_gui.state import (
     ModelT,
@@ -93,7 +94,7 @@ class _FieldSpec:
     widget_mode: WidgetMode
 
     def label(self) -> str:
-        return self.info.title or self.name.replace("_", " ").capitalize()
+        return field_label(self.name, self.info, self.effective_annotation)
 
     def help_text(self) -> str | None:
         if self.info.description:

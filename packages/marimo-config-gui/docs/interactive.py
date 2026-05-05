@@ -23,7 +23,7 @@ with app.setup:
         create_config_gui,
     )
     from marimo_config_gui.api import load_script_config
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, ConfigDict, Field
 
     def docs_md(source: str) -> object:
         """Render markdown after removing Python source indentation."""
@@ -39,6 +39,7 @@ with app.setup:
         """Build a Pydantic Config model from a notebook code editor."""
         model_namespace = {
             "BaseModel": BaseModel,
+            "ConfigDict": ConfigDict,
             "Enum": Enum,
             "Field": Field,
             "Flag": Flag,
@@ -312,6 +313,7 @@ def _():
         - `Literal[...]`, `Enum`, and `Flag` selectors
         - `Path` file-browser fields
         - nested Pydantic sections
+        - generated labels from `Field(title=...)`, model titles, and class names
         - optional `None`/configure controls
         - Pydantic validation constraints
         - field-level GUI hints for slider widgets and JSON-rendered fields
@@ -917,10 +919,12 @@ def _():
         "Nested sections and optional field": code_example(
             "from pathlib import Path",
             "",
-            "from pydantic import BaseModel, Field",
+            "from pydantic import BaseModel, ConfigDict, Field",
             "",
             "",
             "class OptimizerConfig(BaseModel):",
+            '    model_config = ConfigDict(title="Optimizer Settings")',
+            "",
             "    position_lr: float = Field(1.6e-4, gt=0.0)",
             "",
             "",
@@ -929,7 +933,10 @@ def _():
             "",
             "",
             "class Config(BaseModel):",
-            "    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)",
+            "    optimizer: OptimizerConfig = Field(",
+            "        default_factory=OptimizerConfig,",
+            '        title="Training Optimizer",',
+            "    )",
             "    render: RenderConfig = Field(default_factory=RenderConfig)",
             "    checkpoint_path: Path | None = Field(",
             "        None,",
@@ -986,6 +993,7 @@ def _(model_source_editor):
         "Literal": Literal,
         "Path": Path,
         "auto": auto,
+        "ConfigDict": ConfigDict,
     }
     scratch_model_error = None
     try:

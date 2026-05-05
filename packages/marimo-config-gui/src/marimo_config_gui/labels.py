@@ -5,6 +5,20 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel
+from pydantic.fields import FieldInfo
+
+
+def field_label(
+    name: str,
+    info: FieldInfo,
+    annotation: Any,
+) -> str:
+    """Return a display label for a Pydantic model field."""
+    if info.title:
+        return info.title
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return humanize_model_name(annotation)
+    return humanize_field_name(name)
 
 
 def humanize_model_name(model_cls: type[BaseModel]) -> str:
@@ -36,6 +50,11 @@ def humanize_identifier(name: str) -> str:
             start = index
     parts.append(name[start:])
     return " ".join(part for part in parts if part).strip()
+
+
+def humanize_field_name(name: str) -> str:
+    """Return a display label for a snake_case Pydantic field name."""
+    return name.replace("_", " ").capitalize()
 
 
 def _strip_model_suffix(name: str) -> str:

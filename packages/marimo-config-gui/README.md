@@ -223,6 +223,8 @@ Use `config_gui.validated_config()` directly for cheap dependent controls. Use
 ## Model Authoring Notes
 
 - `Field(description=...)` becomes help text in the generated UI.
+- Nested model labels use `Field(title=...)` first, then the nested model's
+  `ConfigDict(title=...)`, then a sanitized class name.
 - `Literal[...]` and `Enum` fields render as dropdowns.
 - `Path` fields render with a file browser.
 - Nested Pydantic models render as nested sections.
@@ -230,6 +232,30 @@ Use `config_gui.validated_config()` directly for cheap dependent controls. Use
 - 1D and 2D NumPy or Torch arrays render as matrix widgets.
 - Validation constraints from Pydantic are enforced before
   `config_gui.validated_config()` returns a model.
+
+For nested model sections, prefer explicit titles when the field name and model
+name should communicate different things:
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class OptimizerConfig(BaseModel):
+    model_config = ConfigDict(title="Optimizer Settings")
+
+    lr: float = Field(0.01, gt=0.0)
+
+
+class Config(BaseModel):
+    optimizer: OptimizerConfig = Field(
+        default_factory=OptimizerConfig,
+        title="Training Optimizer",
+    )
+```
+
+The displayed section label is `Training Optimizer`. Without the field title it
+would be `Optimizer Settings`; without the model title it would fall back to the
+sanitized class name `Optimizer`.
 
 Field-level GUI hints can be provided through `json_schema_extra`:
 
