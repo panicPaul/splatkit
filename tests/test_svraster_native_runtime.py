@@ -39,7 +39,7 @@ def test_render_matches_explicit_stage_composition(
     width, height, focal_x, focal_y, center_x, center_y = (
         _extract_camera_params(cuda_camera)
     )
-    cam_to_world = cuda_camera.cam_to_world[0]
+    camera_to_world = cuda_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
     tanfovy = (height * 0.5) / focal_y
     preprocess_result = runtime.preprocess(
@@ -49,45 +49,45 @@ def test_render_matches_explicit_stage_composition(
         tanfovy=tanfovy,
         cx=center_x,
         cy=center_y,
-        w2c_matrix=torch.linalg.inv(cam_to_world),
-        c2w_matrix=cam_to_world,
+        world_to_camera=torch.linalg.inv(camera_to_world),
+        camera_to_world=camera_to_world,
         near=0.02,
         octree_paths=cuda_sparse_voxel_scene.octpath.reshape(-1),
-        vox_centers=cuda_sparse_voxel_scene.vox_center,
-        vox_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),
+        voxel_centers=cuda_sparse_voxel_scene.vox_center,
+        voxel_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),
     )
-    rgbs = runtime.sh_eval(
+    voxel_colors = runtime.sh_eval(
         active_sh_degree=cuda_sparse_voxel_scene.active_sh_degree,
-        vox_centers=cuda_sparse_voxel_scene.vox_center,
-        cam_pos=cam_to_world[:3, 3],
+        voxel_centers=cuda_sparse_voxel_scene.vox_center,
+        camera_position=camera_to_world[:3, 3],
         sh0=cuda_sparse_voxel_scene.sh0,
         shs=cuda_sparse_voxel_scene.shs,
     )
     explicit = runtime.rasterize(
-        n_samp_per_vox=1,
+        samples_per_voxel=1,
         image_width=width,
         image_height=height,
         tanfovx=tanfovx,
         tanfovy=tanfovy,
         cx=center_x,
         cy=center_y,
-        w2c_matrix=torch.linalg.inv(cam_to_world),
-        c2w_matrix=cam_to_world,
-        bg_color=0.0,
-        need_depth=True,
-        need_normal=False,
-        track_max_w=False,
+        world_to_camera=torch.linalg.inv(camera_to_world),
+        camera_to_world=camera_to_world,
+        background_color=0.0,
+        return_depth=True,
+        return_normal=False,
+        track_max_weight=False,
         octree_paths=cuda_sparse_voxel_scene.octpath.reshape(-1),
-        vox_centers=cuda_sparse_voxel_scene.vox_center,
-        vox_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),
-        geos=cuda_sparse_voxel_scene.voxel_geometries,
-        rgbs=rgbs,
+        voxel_centers=cuda_sparse_voxel_scene.vox_center,
+        voxel_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),
+        voxel_geometries=cuda_sparse_voxel_scene.voxel_geometries,
+        voxel_colors=voxel_colors,
         subdivision_priority=torch.ones(
             (cuda_sparse_voxel_scene.num_voxels, 1),
-            device=rgbs.device,
-            dtype=rgbs.dtype,
+            device=voxel_colors.device,
+            dtype=voxel_colors.dtype,
         ),
-        geom_buffer=preprocess_result.geom_buffer,
+        geometry_buffer=preprocess_result.geom_buffer,
     )
     combined = runtime.render(
         active_sh_degree=cuda_sparse_voxel_scene.active_sh_degree,
@@ -97,17 +97,17 @@ def test_render_matches_explicit_stage_composition(
         tanfovy=tanfovy,
         cx=center_x,
         cy=center_y,
-        w2c_matrix=torch.linalg.inv(cam_to_world),
-        c2w_matrix=cam_to_world,
+        world_to_camera=torch.linalg.inv(camera_to_world),
+        camera_to_world=camera_to_world,
         near=0.02,
-        bg_color=0.0,
+        background_color=0.0,
         octree_paths=cuda_sparse_voxel_scene.octpath.reshape(-1),
-        vox_centers=cuda_sparse_voxel_scene.vox_center,
-        vox_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),
-        geos=cuda_sparse_voxel_scene.voxel_geometries,
+        voxel_centers=cuda_sparse_voxel_scene.vox_center,
+        voxel_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),
+        voxel_geometries=cuda_sparse_voxel_scene.voxel_geometries,
         sh0=cuda_sparse_voxel_scene.sh0,
         shs=cuda_sparse_voxel_scene.shs,
-        need_depth=True,
+        return_depth=True,
     )
 
     torch.testing.assert_close(combined.color, explicit.color)
@@ -126,7 +126,7 @@ def test_render_backward_produces_finite_gradients(
     width, height, focal_x, focal_y, center_x, center_y = (
         _extract_camera_params(cuda_camera)
     )
-    cam_to_world = cuda_camera.cam_to_world[0]
+    camera_to_world = cuda_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
     tanfovy = (height * 0.5) / focal_y
     scene = replace(
@@ -146,17 +146,17 @@ def test_render_backward_produces_finite_gradients(
         tanfovy=tanfovy,
         cx=center_x,
         cy=center_y,
-        w2c_matrix=torch.linalg.inv(cam_to_world),
-        c2w_matrix=cam_to_world,
+        world_to_camera=torch.linalg.inv(camera_to_world),
+        camera_to_world=camera_to_world,
         near=0.02,
-        bg_color=0.0,
+        background_color=0.0,
         octree_paths=scene.octpath.reshape(-1),
-        vox_centers=scene.vox_center,
-        vox_lengths=scene.vox_size.reshape(-1),
-        geos=scene.voxel_geometries,
+        voxel_centers=scene.vox_center,
+        voxel_lengths=scene.vox_size.reshape(-1),
+        voxel_geometries=scene.voxel_geometries,
         sh0=scene.sh0,
         shs=scene.shs,
-        need_depth=True,
+        return_depth=True,
     )
     (result.color.sum() + result.depth.sum()).backward()
 
@@ -203,21 +203,23 @@ def test_raw_ops_support_fake_tensor_mode(
     width, height, focal_x, focal_y, center_x, center_y = (
         _extract_camera_params(cpu_camera)
     )
-    cam_to_world = cpu_camera.cam_to_world[0]
+    camera_to_world = cpu_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
     tanfovy = (height * 0.5) / focal_y
 
     with FakeTensorMode(allow_non_fake_inputs=True) as mode:
         octpath = mode.from_tensor(cpu_sparse_voxel_scene.octpath.reshape(-1))
-        vox_centers = mode.from_tensor(cpu_sparse_voxel_scene.vox_center)
-        vox_lengths = mode.from_tensor(
+        voxel_centers = mode.from_tensor(cpu_sparse_voxel_scene.vox_center)
+        voxel_lengths = mode.from_tensor(
             cpu_sparse_voxel_scene.vox_size.reshape(-1)
         )
-        geos = mode.from_tensor(torch.empty((2, 8), dtype=torch.float32))
+        voxel_geometries = mode.from_tensor(
+            torch.empty((2, 8), dtype=torch.float32)
+        )
         sh0 = mode.from_tensor(cpu_sparse_voxel_scene.sh0)
         shs = mode.from_tensor(cpu_sparse_voxel_scene.shs)
-        w2c_matrix = mode.from_tensor(torch.linalg.inv(cam_to_world))
-        c2w_matrix = mode.from_tensor(cam_to_world)
+        world_to_camera = mode.from_tensor(torch.linalg.inv(camera_to_world))
+        camera_to_world_tensor = mode.from_tensor(camera_to_world)
         preprocess_result = preprocess_op(
             width,
             height,
@@ -225,18 +227,18 @@ def test_raw_ops_support_fake_tensor_mode(
             tanfovy,
             center_x,
             center_y,
-            w2c_matrix,
-            c2w_matrix,
+            world_to_camera,
+            camera_to_world_tensor,
             0.02,
             octpath,
-            vox_centers,
-            vox_lengths,
+            voxel_centers,
+            voxel_lengths,
         )
-        rgbs = sh_eval_op(
+        voxel_colors = sh_eval_op(
             cpu_sparse_voxel_scene.active_sh_degree,
             mode.from_tensor(torch.empty((0,), dtype=torch.int64)),
-            vox_centers,
-            mode.from_tensor(cam_to_world[:3, 3]),
+            voxel_centers,
+            mode.from_tensor(camera_to_world[:3, 3]),
             sh0,
             shs,
         )
@@ -248,17 +250,22 @@ def test_raw_ops_support_fake_tensor_mode(
             tanfovy,
             center_x,
             center_y,
-            w2c_matrix,
-            c2w_matrix,
+            world_to_camera,
+            camera_to_world_tensor,
             0.0,
             True,
             False,
             False,
+            0.0,
+            0.0,
+            0.0,
+            mode.from_tensor(torch.empty((0,), dtype=torch.float32)),
+            False,
             octpath,
-            vox_centers,
-            vox_lengths,
-            geos,
-            rgbs,
+            voxel_centers,
+            voxel_lengths,
+            voxel_geometries,
+            voxel_colors,
             mode.from_tensor(
                 torch.ones((int(octpath.shape[0]), 1), dtype=torch.float32)
             ),
@@ -266,6 +273,6 @@ def test_raw_ops_support_fake_tensor_mode(
         )
 
     assert preprocess_result[0].shape == (2,)
-    assert rgbs.shape == (2, 3)
+    assert voxel_colors.shape == (2, 3)
     assert rasterize_result[3].shape == (3, 32, 32)
     assert rasterize_result[4].shape == (3, 32, 32)

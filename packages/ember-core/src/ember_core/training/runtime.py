@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import nullcontext
@@ -632,9 +633,37 @@ def build_render_fn(config: TrainingConfig) -> RenderFn:
 
 
 RenderFnWithRequirements = Callable[
-    [InitializedModel, CameraState, DensificationRenderRequirements],
+    [InitializedModel, CameraState, DensificationRenderRequirements, Any | None],
     Any,
 ]
+
+
+def _training_backend_option_updates(
+    training_options_fn: Callable[..., Any] | None,
+    state: TrainState | None,
+    batch: Any | None,
+) -> dict[str, Any]:
+    """Resolve per-step backend option updates."""
+    if training_options_fn is None:
+        return {}
+    signature = inspect.signature(training_options_fn)
+    parameters = signature.parameters
+    accepts_keywords = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if accepts_keywords:
+        updates = training_options_fn(state=state, batch=batch)
+    elif "state" in parameters or "batch" in parameters:
+        keyword_arguments: dict[str, Any] = {}
+        if "state" in parameters:
+            keyword_arguments["state"] = state
+        if "batch" in parameters:
+            keyword_arguments["batch"] = batch
+        updates = training_options_fn(**keyword_arguments)
+    else:
+        updates = training_options_fn(state)
+    return dict(updates)
 
 
 def build_render_fn_with_requirements(
@@ -657,6 +686,7 @@ def build_render_fn_with_requirements(
         model: InitializedModel,
         camera: CameraState,
         requirements: DensificationRenderRequirements,
+        batch: Any | None = None,
     ) -> Any:
         _validate_requested_outputs(config, requirements)
         resolved_camera = camera
@@ -667,10 +697,10 @@ def build_render_fn_with_requirements(
             if feature_fn is None
             else feature_fn(model, resolved_camera)
         )
-        training_updates = (
-            {}
-            if training_options_fn is None
-            else dict(training_options_fn(state))
+        training_updates = _training_backend_option_updates(
+            training_options_fn,
+            state,
+            batch,
         )
         backend_updates = _merge_backend_option_updates(
             training_updates,
@@ -733,6 +763,7 @@ def build_training_render_fn(
             model,
             camera,
             DensificationRenderRequirements(),
+            None,
         )
 
     return render_fn
@@ -1216,15 +1247,19 @@ def train_step(
         for optimizer_binding in optimizers:
             optimizer_binding.zero_grad()
     with _profile_phase(profile, "render"):
-        render_output = (
-            render_fn(state.model, resolved_batch.camera)
-            if densification is None or render_fn_with_requirements is None
-            else render_fn_with_requirements(
+        if render_fn_with_requirements is None:
+            render_output = render_fn(state.model, resolved_batch.camera)
+        else:
+            render_output = render_fn_with_requirements(
                 state.model,
                 resolved_batch.camera,
-                densification.get_render_requirements(state),
+                (
+                    DensificationRenderRequirements()
+                    if densification is None
+                    else densification.get_render_requirements(state)
+                ),
+                resolved_batch,
             )
-        )
     with _profile_phase(profile, "loss"):
         loss_result = loss_fn(state, resolved_batch, render_output)
     densification_context = None

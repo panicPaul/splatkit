@@ -26,7 +26,7 @@
       "sh_degree": 1,
       "initial_sh_degree": 1,
       "samples_per_voxel": 1,
-      "supersampling": 1.0,
+      "ss_aug_max": 1.0,
       "white_background": false,
       "black_background": false
     },
@@ -37,7 +37,10 @@
       "geometry_initial_value": -10.0,
       "sh0_initial_rgb": 0.5,
       "shs_initial_value": 0.0,
-      "bound_scale": 1.0
+      "bound_mode": "default",
+      "bound_scale": 1.0,
+      "forward_distance_scale": 1.0,
+      "filter_zero_visibility": true
     },
     "optimization": {
       "geo_lr": 0.025,
@@ -55,25 +58,26 @@
       "use_l1": true,
       "use_huber": false,
       "huber_threshold": 0.03,
+      "lambda_t_concentration": 0.0,
       "lambda_t_inside": 0.0,
       "lambda_r_concentration": 0.0,
+      "lambda_ascending": 0.0,
+      "ascending_start_step": 0,
       "lambda_distortion": 0.0,
-      "distortion_start_step": 0
+      "distortion_start_step": 0,
+      "ssim_backend": "cuda"
     },
     "regularization": {
       "tv_density_weight": 0.0,
       "tv_start_step": 0,
-      "tv_end_step": 0,
-      "no_tv_s": true,
-      "tv_sparse": false
+      "tv_end_step": 0
     },
     "adaptive": {
-      "prune_from": 0,
+      "adapt_from": 0,
+      "adapt_every": 100,
       "prune_until": 0,
-      "prune_every": 100,
-      "prune_threshold_start": 0.0001,
-      "prune_threshold_end": 0.01,
-      "subdivide_from": 0,
+      "prune_threshold_initial": 0.0001,
+      "prune_threshold_final": 0.01,
       "subdivide_until": 0,
       "subdivide_all_until": 0,
       "subdivide_sample_threshold": 1.0,

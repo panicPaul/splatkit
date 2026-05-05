@@ -41,11 +41,7 @@ def _get_backend_utils(
     try:
         from ember_native_svraster.core.runtime import utils as native_utils
     except ImportError:
-        try:
-            import new_svraster_cuda
-        except ImportError:
-            return None
-        return new_svraster_cuda.utils
+        return None
     return native_utils
 
 
@@ -59,11 +55,7 @@ def _get_backend_max_num_levels(
     try:
         from ember_native_svraster.core.runtime import utils as native_utils
     except ImportError:
-        try:
-            import new_svraster_cuda
-        except ImportError:
-            return fallback_max_num_levels
-        return int(new_svraster_cuda.meta.MAX_NUM_LEVELS)
+        return fallback_max_num_levels
     return native_utils.max_num_levels()
 
 

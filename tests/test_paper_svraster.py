@@ -96,11 +96,27 @@ def test_svraster_resolved_training_config_uses_native_training_package() -> (
     assert training_config.render.backend == "svraster.core"
     assert training_config.render.backend_options == {
         "near_plane": 0.02,
-        "background_color": [0.0, 0.0, 0.0],
+        "black_background": False,
+        "return_transmittance": False,
+        "samples_per_voxel": 1,
+        "supersampling": 1.0,
+        "track_max_weight": True,
+        "white_background": False,
     }
-    assert training_config.initialization.initializer.target == (
-        "papers.svraster.notebook.initialize_svraster_model_from_scene_record"
+    assert training_config.render.training_backend_options_builder is not None
+    assert training_config.render.training_backend_options_builder.target == (
+        "ember_svraster_training.svraster_paper_training_backend_options"
     )
+    assert training_config.render.training_backend_options_builder.kwargs[
+        "ss_aug_max"
+    ] == 1.5
+    assert training_config.initialization.initializer.target == (
+        "ember_svraster_training.initialize_svraster_paper_scene"
+    )
+    assert training_config.initialization.initializer.context_kwargs == {
+        "device": "device",
+        "frame_dataset": "frame_dataset",
+    }
     assert training_config.optimization.builder is not None
     assert (
         training_config.optimization.builder.target
@@ -111,11 +127,16 @@ def test_svraster_resolved_training_config_uses_native_training_package() -> (
     assert recipe["betas"] == (0.1, 0.99)
     assert (
         training_config.loss.target.target
-        == "papers.svraster.notebook.svraster_rgb_loss"
+        == "ember_svraster_training.svraster_paper_rgb_loss"
     )
+    assert training_config.loss.target.kwargs["lambda_t_inside"] == 0.0
     assert (
         training_config.hooks.builders[0].target
         == "ember_svraster_training.SVRasterTVDensityHook"
+    )
+    assert training_config.densification is not None
+    assert training_config.densification.builders[0].target == (
+        "ember_svraster_training.SVRasterAdaptivePruneSubdivide"
     )
     assert (
         training_config.checkpoint.output_dir
@@ -203,3 +224,33 @@ def test_svraster_adaptive_schedules_match_upstream_shapes() -> None:
         == 0.01
     )
     assert module.svraster_max_subdivide_count(100, 170) == 10
+
+
+def test_svraster_paper_training_options_are_batch_aware() -> None:
+    import torch
+    from ember_core.training import TrainState
+    from ember_svraster_training import svraster_paper_training_backend_options
+
+    state = TrainState(
+        model=None,  # type: ignore[arg-type]
+        step=1001,
+        seed=3721,
+        device=torch.device("cpu"),
+    )
+    batch = type(
+        "Batch",
+        (),
+        {"images": torch.zeros((1, 4, 4, 3), dtype=torch.float32)},
+    )()
+
+    options = svraster_paper_training_backend_options(
+        state=state,
+        batch=batch,
+        distortion_start_step=1000,
+        color_concentration_weight=0.01,
+    )
+
+    assert options["distortion_weight"] == 0.1
+    assert options["color_concentration_weight"] == 0.01
+    assert options["ground_truth_color"] is batch.images
+    assert 1.0 <= options["supersampling"] <= 1.5

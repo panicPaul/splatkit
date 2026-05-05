@@ -5,6 +5,7 @@ from ember_native_svraster.core.renderer import (
     SVRasterCoreDepthRenderOutput,
     SVRasterCoreRenderOptions,
     SVRasterCoreRenderOutput,
+    SVRasterCoreTrainingRenderOutput,
     render_svraster_core,
 )
 
@@ -12,6 +13,7 @@ __all__ = [
     "SVRasterCoreDepthRenderOutput",
     "SVRasterCoreRenderOptions",
     "SVRasterCoreRenderOutput",
+    "SVRasterCoreTrainingRenderOutput",
     "render_svraster_core",
     "runtime",
 ]

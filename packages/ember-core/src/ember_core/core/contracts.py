@@ -212,6 +212,7 @@ class SparseVoxelScene(Scene):
     geo_grid_pts: Float[Tensor, "num_grid_points 1"]
     sh0: Float[Tensor, "num_voxels 3"]
     shs: Float[Tensor, "num_voxels sh_coeffs 3"]
+    subdivision_priority: Float[Tensor, "num_voxels 1"] | None = None
 
     @property
     def scene_family(self) -> SceneFamily:
@@ -231,6 +232,15 @@ class SparseVoxelScene(Scene):
             raise ValueError(
                 "SparseVoxelScene shs size must match voxel count."
             )
+        if (
+            self.subdivision_priority is not None
+            and self.subdivision_priority.shape != self.octpath.shape
+        ):
+            raise ValueError(
+                "SparseVoxelScene subdivision_priority must have shape "
+                f"{tuple(self.octpath.shape)}, got "
+                f"{tuple(self.subdivision_priority.shape)}."
+            )
         if self.active_sh_degree < 0:
             raise ValueError(
                 "SparseVoxelScene.active_sh_degree must be non-negative."
@@ -248,6 +258,11 @@ class SparseVoxelScene(Scene):
             geo_grid_pts=self.geo_grid_pts.to(device),
             sh0=self.sh0.to(device),
             shs=self.shs.to(device),
+            subdivision_priority=(
+                self.subdivision_priority.to(device)
+                if self.subdivision_priority is not None
+                else None
+            ),
         )
 
     @property
@@ -312,6 +327,17 @@ class SparseVoxelScene(Scene):
     def voxel_geometries(self) -> Float[Tensor, "num_voxels 8"]:
         """Return per-voxel trilinear density corner values."""
         return self.geo_grid_pts[self.vox_key].squeeze(-1)
+
+    @property
+    def resolved_subdivision_priority(self) -> Float[Tensor, "num_voxels 1"]:
+        """Return persistent or default per-voxel subdivision priority."""
+        if self.subdivision_priority is not None:
+            return self.subdivision_priority
+        return torch.ones(
+            (self.num_voxels, 1),
+            dtype=self.geo_grid_pts.dtype,
+            device=self.geo_grid_pts.device,
+        )
 
 
 @beartype

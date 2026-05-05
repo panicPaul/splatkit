@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -36,13 +37,21 @@ def test_svraster_checkpoint_roundtrip(
     cpu_sparse_voxel_scene: SparseVoxelScene,
 ) -> None:
     run_dir = tmp_path / "scene"
-    save_svraster_checkpoint(cpu_sparse_voxel_scene, run_dir, iteration=7)
+    scene = replace(
+        cpu_sparse_voxel_scene,
+        subdivision_priority=torch.ones_like(cpu_sparse_voxel_scene.octpath).to(
+            torch.float32
+        ),
+    )
+    save_svraster_checkpoint(scene, run_dir, iteration=7)
     loaded = load_svraster_checkpoint(run_dir, iteration=7)
-    assert torch.equal(loaded.octpath, cpu_sparse_voxel_scene.octpath)
-    assert torch.equal(loaded.octlevel, cpu_sparse_voxel_scene.octlevel)
-    assert torch.equal(loaded.geo_grid_pts, cpu_sparse_voxel_scene.geo_grid_pts)
-    assert torch.equal(loaded.sh0, cpu_sparse_voxel_scene.sh0)
-    assert torch.equal(loaded.shs, cpu_sparse_voxel_scene.shs)
+    assert torch.equal(loaded.octpath, scene.octpath)
+    assert torch.equal(loaded.octlevel, scene.octlevel)
+    assert torch.equal(loaded.geo_grid_pts, scene.geo_grid_pts)
+    assert torch.equal(loaded.sh0, scene.sh0)
+    assert torch.equal(loaded.shs, scene.shs)
+    assert loaded.subdivision_priority is not None
+    assert torch.equal(loaded.subdivision_priority, scene.subdivision_priority)
 
 
 def test_generic_scene_load_and_save(

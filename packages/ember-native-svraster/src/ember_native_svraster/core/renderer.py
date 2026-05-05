@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import torch
+import torch.nn.functional as torch_functional
 from beartype import beartype
 from ember_core.core.capabilities import HasDepth
 from ember_core.core.contracts import (
@@ -33,38 +34,65 @@ class SVRasterCoreDepthRenderOutput(SVRasterCoreRenderOutput, HasDepth):
 
 
 @dataclass(frozen=True)
+class SVRasterCoreTrainingRenderOutput(SVRasterCoreDepthRenderOutput):
+    """SVRaster render output with native training statistics."""
+
+    normal: Tensor | None = None
+    transmittance: Tensor | None = None
+    raw_transmittance: Tensor | None = None
+    max_weight: Tensor | None = None
+
+
+@dataclass(frozen=True)
 class SVRasterCoreRenderOptions(RenderOptions):
     """SVRaster-specific render configuration."""
 
     near_plane: float = 0.02
-    color_mode: Literal["sh"] = "sh"
+    color_mode: Literal["sh", "dontcare"] = "sh"
+    samples_per_voxel: int = 1
+    supersampling: float = 1.0
+    return_transmittance: bool = False
+    track_max_weight: bool = False
+    random_background: bool = False
+    white_background: bool = False
+    black_background: bool = False
+    color_concentration_weight: float = 0.0
+    ascending_weight: float = 0.0
+    distortion_weight: float = 0.0
+    ground_truth_color: Tensor | None = None
+    debug: bool = False
 
 
 def _background_scalar(options: SVRasterCoreRenderOptions) -> float:
-    return float(options.background_color.mean().item())
+    if options.white_background:
+        return 1.0
+    return 0.0
 
 
 def _build_raster_settings(
     camera: CameraState,
     camera_index: int,
+    supersampling: float,
 ) -> dict[str, float | Tensor | int]:
     intrinsics = camera.get_intrinsics()[camera_index]
-    width = int(camera.width[camera_index].item())
-    height = int(camera.height[camera_index].item())
+    base_width = float(camera.width[camera_index].item())
+    base_height = float(camera.height[camera_index].item())
+    width = round(base_width * supersampling)
+    height = round(base_height * supersampling)
     fx = float(intrinsics[0, 0].item())
     fy = float(intrinsics[1, 1].item())
-    cam_to_world = camera.cam_to_world[camera_index].to(
+    camera_to_world = camera.cam_to_world[camera_index].to(
         dtype=torch.float32,
     )
     return {
         "image_width": width,
         "image_height": height,
-        "tanfovx": (width * 0.5) / fx,
-        "tanfovy": (height * 0.5) / fy,
-        "cx": float(intrinsics[0, 2].item()),
-        "cy": float(intrinsics[1, 2].item()),
-        "w2c_matrix": torch.linalg.inv(cam_to_world),
-        "c2w_matrix": cam_to_world,
+        "tanfovx": (base_width * 0.5) / fx,
+        "tanfovy": (base_height * 0.5) / fy,
+        "cx": float(intrinsics[0, 2].item()) * supersampling,
+        "cy": float(intrinsics[1, 2].item()) * supersampling,
+        "world_to_camera": torch.linalg.inv(camera_to_world),
+        "camera_to_world": camera_to_world,
     }
 
 
@@ -92,12 +120,38 @@ def _render_single_camera(
     options: SVRasterCoreRenderOptions,
     *,
     return_depth: bool,
-) -> tuple[Tensor, Tensor]:
-    geos = scene.voxel_geometries
+    return_normal: bool,
+) -> tuple[
+    Tensor,
+    Tensor,
+    Tensor | None,
+    Tensor | None,
+    Tensor | None,
+    Tensor | None,
+]:
+    voxel_geometries = scene.voxel_geometries
     raster_settings = _build_raster_settings(
         camera,
         camera_index,
+        options.supersampling,
     )
+    ground_truth_color = options.ground_truth_color
+    if ground_truth_color is not None and ground_truth_color.numel() > 0:
+        if ground_truth_color.ndim == 4:
+            ground_truth_color = ground_truth_color[camera_index]
+        if ground_truth_color.shape[-1] == 3:
+            ground_truth_color = ground_truth_color.permute(2, 0, 1).contiguous()
+        if options.supersampling != 1.0:
+            target_size = (
+                int(raster_settings["image_height"]),
+                int(raster_settings["image_width"]),
+            )
+            ground_truth_color = torch_functional.interpolate(
+                ground_truth_color.unsqueeze(0),
+                size=target_size,
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
     render_result = render_runtime(
         active_sh_degree=scene.active_sh_degree,
         image_width=int(raster_settings["image_width"]),
@@ -106,27 +160,93 @@ def _render_single_camera(
         tanfovy=float(raster_settings["tanfovy"]),
         cx=float(raster_settings["cx"]),
         cy=float(raster_settings["cy"]),
-        w2c_matrix=raster_settings["w2c_matrix"].to(
+        world_to_camera=raster_settings["world_to_camera"].to(
             device=scene.octpath.device
         ),
-        c2w_matrix=raster_settings["c2w_matrix"].to(
+        camera_to_world=raster_settings["camera_to_world"].to(
             device=scene.octpath.device
         ),
         near=options.near_plane,
-        bg_color=_background_scalar(options),
+        background_color=_background_scalar(options),
         octree_paths=scene.octpath.reshape(-1),
-        vox_centers=scene.vox_center,
-        vox_lengths=scene.vox_size.reshape(-1),
-        geos=geos,
+        voxel_centers=scene.vox_center,
+        voxel_lengths=scene.vox_size.reshape(-1),
+        voxel_geometries=voxel_geometries,
         sh0=scene.sh0,
         shs=scene.shs,
-        need_depth=return_depth,
+        return_depth=return_depth or options.distortion_weight > 0.0,
+        return_normal=return_normal,
+        track_max_weight=options.track_max_weight,
+        samples_per_voxel=options.samples_per_voxel,
+        subdivision_priority=scene.resolved_subdivision_priority,
+        color_concentration_weight=options.color_concentration_weight,
+        ascending_weight=options.ascending_weight,
+        distortion_weight=options.distortion_weight,
+        ground_truth_color=ground_truth_color,
+        debug=options.debug,
+        color_mode=options.color_mode,
     )
-    rgb = render_result.color.permute(1, 2, 0).contiguous().clamp(0.0, 1.0)
-    depth = render_result.depth
+    color = render_result.color
+    transmittance = render_result.transmittance
+    raw_transmittance = transmittance
+    if options.random_background:
+        background = torch.rand(
+            (3, 1, 1),
+            dtype=color.dtype,
+            device=color.device,
+        )
+        color = color + transmittance * background
+    elif not options.white_background and not options.black_background:
+        background = color.mean(dim=(1, 2), keepdim=True)
+        color = color + transmittance * background
+    if options.supersampling != 1.0:
+        target_size = (
+            int(camera.height[camera_index].item()),
+            int(camera.width[camera_index].item()),
+        )
+        color = torch_functional.interpolate(
+            color.unsqueeze(0),
+            size=target_size,
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(0)
+        if render_result.depth.numel() > 0:
+            depth = torch_functional.interpolate(
+                render_result.depth.unsqueeze(0),
+                size=target_size,
+                mode="nearest",
+            ).squeeze(0)
+        else:
+            depth = render_result.depth
+        if render_result.normal.numel() > 0:
+            normal = torch_functional.interpolate(
+                render_result.normal.unsqueeze(0),
+                size=target_size,
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+        else:
+            normal = None
+        transmittance = torch_functional.interpolate(
+            transmittance.unsqueeze(0),
+            size=target_size,
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(0)
+    else:
+        depth = render_result.depth
+        normal = render_result.normal if render_result.normal.numel() > 0 else None
+    rgb = color.permute(1, 2, 0).contiguous().clamp(0.0, 1.0)
     if depth.ndim == 3 and depth.shape[0] == 1:
-        return rgb, depth.squeeze(0)
-    return rgb, depth
+        depth = depth.squeeze(0)
+    return (
+        rgb,
+        depth,
+        normal.permute(1, 2, 0).contiguous() if normal is not None else None,
+        transmittance.squeeze(0),
+        raw_transmittance.squeeze(0),
+        render_result.max_weight if render_result.max_weight.numel() > 0 else None,
+    )
 
 
 @beartype
@@ -149,8 +269,6 @@ def render_svraster_core(
         raise ValueError(
             "svraster.core does not expose Gaussian impact scores."
         )
-    if return_normals:
-        raise ValueError("svraster.core does not expose normals.")
     if return_2d_projections:
         raise ValueError("svraster.core does not expose 2D projections.")
     if return_projective_intersection_transforms:
@@ -162,21 +280,56 @@ def render_svraster_core(
     resolved_options = options or SVRasterCoreRenderOptions()
     renders: list[Tensor] = []
     depths: list[Tensor] = []
+    normals: list[Tensor] = []
+    transmittances: list[Tensor] = []
+    raw_transmittances: list[Tensor] = []
+    max_weights: list[Tensor] = []
     for camera_index in range(camera.cam_to_world.shape[0]):
-        render, depth = _render_single_camera(
-            scene,
-            camera,
-            camera_index,
-            resolved_options,
-            return_depth=return_depth,
+        render, depth, normal, transmittance, raw_transmittance, max_weight = (
+            _render_single_camera(
+                scene,
+                camera,
+                camera_index,
+                resolved_options,
+                return_depth=return_depth,
+                return_normal=return_normals,
+            )
         )
         renders.append(render)
         depths.append(depth)
+        if normal is not None:
+            normals.append(normal)
+        if resolved_options.return_transmittance:
+            transmittances.append(transmittance)
+            raw_transmittances.append(raw_transmittance)
+        if max_weight is not None:
+            max_weights.append(max_weight)
 
     stacked_render = torch.stack(renders, dim=0)
-    if not return_depth:
+    needs_training_output = (
+        return_normals
+        or resolved_options.return_transmittance
+        or resolved_options.track_max_weight
+    )
+    if not return_depth and not needs_training_output:
         return SVRasterCoreRenderOutput(render=stacked_render)
-    return SVRasterCoreDepthRenderOutput(
+    stacked_depth = torch.stack(depths, dim=0)
+    if not needs_training_output:
+        return SVRasterCoreDepthRenderOutput(
+            render=stacked_render,
+            depth=stacked_depth,
+        )
+    return SVRasterCoreTrainingRenderOutput(
         render=stacked_render,
-        depth=torch.stack(depths, dim=0),
+        depth=stacked_depth,
+        normal=torch.stack(normals, dim=0) if normals else None,
+        transmittance=(
+            torch.stack(transmittances, dim=0) if transmittances else None
+        ),
+        raw_transmittance=(
+            torch.stack(raw_transmittances, dim=0)
+            if raw_transmittances
+            else None
+        ),
+        max_weight=torch.stack(max_weights, dim=0) if max_weights else None,
     )

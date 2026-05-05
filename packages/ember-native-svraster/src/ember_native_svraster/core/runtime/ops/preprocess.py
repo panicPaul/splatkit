@@ -16,12 +16,12 @@ def preprocess_op(
     tanfovy: float,
     cx: float,
     cy: float,
-    w2c_matrix: Tensor,
-    c2w_matrix: Tensor,
+    world_to_camera: Tensor,
+    camera_to_world: Tensor,
     near: float,
     octree_paths: Tensor,
-    vox_centers: Tensor,
-    vox_lengths: Tensor,
+    voxel_centers: Tensor,
+    voxel_lengths: Tensor,
 ) -> tuple[Tensor, Tensor]:
     """Run the native preprocess stage."""
     return backend().rasterize_preprocess(
@@ -31,12 +31,12 @@ def preprocess_op(
         tanfovy,
         cx,
         cy,
-        w2c_matrix,
-        c2w_matrix,
+        world_to_camera,
+        camera_to_world,
         near,
         octree_paths,
-        vox_centers,
-        vox_lengths,
+        voxel_centers,
+        voxel_lengths,
         False,
     )
 
@@ -49,12 +49,12 @@ def _preprocess_fake(
     tanfovy: float,
     cx: float,
     cy: float,
-    w2c_matrix: Tensor,
-    c2w_matrix: Tensor,
+    world_to_camera: Tensor,
+    camera_to_world: Tensor,
     near: float,
     octree_paths: Tensor,
-    vox_centers: Tensor,
-    vox_lengths: Tensor,
+    voxel_centers: Tensor,
+    voxel_lengths: Tensor,
 ) -> tuple[Tensor, Tensor]:
     del (
         image_width,
@@ -63,11 +63,11 @@ def _preprocess_fake(
         tanfovy,
         cx,
         cy,
-        w2c_matrix,
-        c2w_matrix,
+        world_to_camera,
+        camera_to_world,
         near,
-        vox_centers,
-        vox_lengths,
+        voxel_centers,
+        voxel_lengths,
     )
     device = octree_paths.device
     num_voxels = int(octree_paths.numel())

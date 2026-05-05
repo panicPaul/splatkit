@@ -9,13 +9,15 @@ from ember_native_svraster.core import (
     SVRasterCoreDepthRenderOutput,
     SVRasterCoreRenderOptions,
     SVRasterCoreRenderOutput,
+    SVRasterCoreTrainingRenderOutput,
     render_svraster_core,
 )
 
-_SUPPORTED_OUTPUTS = frozenset({"depth"})
+_SUPPORTED_OUTPUTS = frozenset({"depth", "normals"})
 
 SVRasterRenderOutput = SVRasterCoreRenderOutput
 SVRasterDepthRenderOutput = SVRasterCoreDepthRenderOutput
+SVRasterTrainingRenderOutput = SVRasterCoreTrainingRenderOutput
 SVRasterRenderOptions = SVRasterCoreRenderOptions
 render_svraster = render_svraster_core
 

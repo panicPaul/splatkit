@@ -131,6 +131,11 @@ def load_svraster_checkpoint(
         .to(torch.float32),
         sh0=state_dict["_sh0"].to(torch.float32),
         shs=state_dict["_shs"].to(torch.float32),
+        subdivision_priority=(
+            state_dict["_subdiv_p"].reshape(-1, 1).to(torch.float32)
+            if "_subdiv_p" in state_dict
+            else None
+        ),
     )
 
 
@@ -162,4 +167,8 @@ def save_svraster_checkpoint(
         "_shs": scene.shs.detach().cpu().contiguous(),
         "quantized": False,
     }
+    if scene.subdivision_priority is not None:
+        state_dict["_subdiv_p"] = (
+            scene.subdivision_priority.detach().cpu().contiguous()
+        )
     torch.save(state_dict, output_path)

@@ -1003,6 +1003,12 @@ class SparseVoxelFamilyOps:
             .detach()
             .requires_grad_(scene.shs.requires_grad),
         }
+        if scene.subdivision_priority is not None:
+            updates["subdivision_priority"] = (
+                scene.subdivision_priority[keep_mask]
+                .detach()
+                .requires_grad_(scene.subdivision_priority.requires_grad)
+            )
         self._state.model = replace(
             self._state.model,
             scene=self._optimizer_adapter.replace_scene_fields(
@@ -1013,6 +1019,9 @@ class SparseVoxelFamilyOps:
                     "shs": lambda _key, old_value: old_value[keep_mask],
                     "geo_grid_pts": lambda _key, old_value: torch.zeros_like(
                         geo_grid_pts
+                    ),
+                    "subdivision_priority": lambda _key, old_value: (
+                        old_value[keep_mask]
                     ),
                 },
             ),
@@ -1040,6 +1049,19 @@ class SparseVoxelFamilyOps:
         octlevel = torch.cat([scene.octlevel[keep_mask], child_octlevel], dim=0)
         sh0 = torch.cat([scene.sh0[keep_mask], child_sh0], dim=0)
         shs = torch.cat([scene.shs[keep_mask], child_shs], dim=0)
+        if scene.subdivision_priority is not None:
+            child_subdivision_priority = torch.ones(
+                (int(child_octpath.shape[0]), 1),
+                dtype=scene.subdivision_priority.dtype,
+                device=scene.subdivision_priority.device,
+            )
+            subdivision_priority = torch.cat(
+                [
+                    scene.subdivision_priority[keep_mask],
+                    child_subdivision_priority,
+                ],
+                dim=0,
+            )
         voxel_geometries = torch.cat(
             [scene.voxel_geometries[keep_mask], child_geometries],
             dim=0,
@@ -1059,6 +1081,12 @@ class SparseVoxelFamilyOps:
             "sh0": sh0.detach().requires_grad_(scene.sh0.requires_grad),
             "shs": shs.detach().requires_grad_(scene.shs.requires_grad),
         }
+        if scene.subdivision_priority is not None:
+            updates["subdivision_priority"] = (
+                subdivision_priority.detach().requires_grad_(
+                    scene.subdivision_priority.requires_grad
+                )
+            )
         self._state.model = replace(
             self._state.model,
             scene=self._optimizer_adapter.replace_scene_fields(
@@ -1076,12 +1104,40 @@ class SparseVoxelFamilyOps:
                     "geo_grid_pts": lambda _key, old_value: torch.zeros_like(
                         geo_grid_pts
                     ),
+                    "subdivision_priority": lambda _key, old_value: torch.cat(
+                        [
+                            old_value[keep_mask],
+                            torch.zeros_like(child_subdivision_priority),
+                        ],
+                        dim=0,
+                    ),
                 },
             ),
         )
 
     def reset_subdivision_priority(self) -> None:
-        """No-op placeholder for sparse-voxel priority resets."""
+        """Reset persistent sparse-voxel subdivision priority to one."""
+        scene = self.scene
+        if scene.subdivision_priority is None:
+            return
+        subdivision_priority = torch.ones_like(scene.subdivision_priority)
+        updates = {
+            "subdivision_priority": subdivision_priority.detach().requires_grad_(
+                scene.subdivision_priority.requires_grad
+            )
+        }
+        self._state.model = replace(
+            self._state.model,
+            scene=self._optimizer_adapter.replace_scene_fields(
+                scene,
+                updates,
+                {
+                    "subdivision_priority": lambda _key, old_value: (
+                        torch.zeros_like(old_value)
+                    )
+                },
+            ),
+        )
 
 
 def build_family_ops(state: Any, optimizers: list[Any]) -> Any:

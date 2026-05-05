@@ -120,7 +120,7 @@ class SVRasterModelConfig(SVRasterConfigBase):
     sh_degree: int = Field(default=3, ge=0)
     initial_sh_degree: int = Field(default=3, ge=0)
     samples_per_voxel: int = Field(default=1, ge=1)
-    supersampling: float = Field(default=1.5, gt=0.0)
+    ss_aug_max: float = Field(default=1.5, ge=1.0)
     white_background: bool = False
     black_background: bool = False
 
@@ -135,21 +135,35 @@ class SVRasterInitializationConfig(SVRasterConfigBase):
     geometry_initial_value: float = -10.0
     sh0_initial_rgb: float = Field(default=0.5, ge=0.0, le=1.0)
     shs_initial_value: float = 0.0
+    bound_mode: Literal["default", "forward", "camera_median", "camera_max"] = (
+        "default"
+    )
     bound_scale: float = Field(default=1.0, gt=0.0)
+    forward_distance_scale: float = Field(default=1.0, gt=0.0)
+    filter_zero_visibility: bool = True
 
     def build(
-        self, context: ember.TrainingRunContext
+        self,
+        context: ember.TrainingRunContext,
+        *,
+        model: SVRasterModelConfig,
     ) -> ember.InitializationSpec:
         """Build the runtime sparse-voxel initializer spec."""
         del context
         return ember.InitializationSpec(
             initializer=ember.CallableSpec(
-                target=(
-                    "papers.svraster.notebook."
-                    "initialize_svraster_model_from_scene_record"
-                ),
-                kwargs=self.model_dump(mode="python"),
-                context_kwargs={"device": "device"},
+                target="ember_svraster_training.initialize_svraster_paper_scene",
+                kwargs={
+                    **self.model_dump(mode="python"),
+                    "backend_name": model.backend_name,
+                    "max_num_levels": model.max_num_levels,
+                    "sh_degree": model.sh_degree,
+                    "initial_sh_degree": model.initial_sh_degree,
+                },
+                context_kwargs={
+                    "device": "device",
+                    "frame_dataset": "frame_dataset",
+                },
             )
         )
 
@@ -196,17 +210,30 @@ class SVRasterLossConfig(SVRasterConfigBase):
     use_l1: bool = False
     use_huber: bool = False
     huber_threshold: float = Field(default=0.03, gt=0.0)
-    lambda_t_inside: float = Field(default=0.01, ge=0.0)
+    lambda_t_concentration: float = Field(default=0.0, ge=0.0)
+    lambda_t_inside: float = Field(default=0.0, ge=0.0)
     lambda_r_concentration: float = Field(default=0.01, ge=0.0)
+    lambda_ascending: float = Field(default=0.0, ge=0.0)
+    ascending_start_step: int = Field(default=0, ge=0)
     lambda_distortion: float = Field(default=0.1, ge=0.0)
     distortion_start_step: int = Field(default=10000, ge=0)
+    ssim_backend: str = "cuda"
 
     def build(self) -> ember.LossConfig:
         """Build the runtime SVRaster loss spec."""
         return ember.LossConfig(
             target=ember.CallableSpec(
-                target="papers.svraster.notebook.svraster_rgb_loss",
-                kwargs=self.model_dump(mode="python"),
+                target="ember_svraster_training.svraster_paper_rgb_loss",
+                kwargs={
+                    "lambda_photo": self.lambda_photo,
+                    "lambda_ssim": self.lambda_ssim,
+                    "use_l1": self.use_l1,
+                    "use_huber": self.use_huber,
+                    "huber_threshold": self.huber_threshold,
+                    "lambda_t_concentration": self.lambda_t_concentration,
+                    "lambda_t_inside": self.lambda_t_inside,
+                    "ssim_backend": self.ssim_backend,
+                },
             )
         )
 
@@ -249,6 +276,20 @@ class SVRasterAdaptiveConfig(SVRasterConfigBase):
     subdivide_sample_threshold: float = Field(default=1.0, ge=0.0)
     subdivide_proportion: float = Field(default=0.05, ge=0.0, le=1.0)
     subdivide_max_voxels: int = Field(default=10_000_000, ge=1)
+
+    def build(self) -> ember.DensificationConfig:
+        """Build the SVRaster adaptive pruning/subdivision config."""
+        return ember.DensificationConfig(
+            builders=[
+                ember.CallableSpec(
+                    target=(
+                        "ember_svraster_training."
+                        "SVRasterAdaptivePruneSubdivide"
+                    ),
+                    kwargs=self.model_dump(mode="python"),
+                )
+            ]
+        )
 
 
 @app.class_definition
@@ -313,18 +354,58 @@ class SVRasterExperimentConfig(SVRasterConfigBase):
         return ember.TrainingConfig(
             runtime=self.training.runtime,
             batching=self.training.batching,
-            initialization=self.training.initialization.build(None),
+            initialization=self.training.initialization.build(
+                None,
+                model=self.training.model,
+            ),
             render=ember.RenderPipelineSpec(
                 backend="svraster.core",
                 return_alpha=False,
-                return_depth=False,
+                return_depth=(
+                    self.training.loss.lambda_distortion > 0.0
+                    and self.training.loss.distortion_start_step == 0
+                ),
                 backend_options={
                     "near_plane": 0.02,
-                    "background_color": [0.0, 0.0, 0.0],
+                    "samples_per_voxel": (
+                        self.training.model.samples_per_voxel
+                    ),
+                    "supersampling": 1.0,
+                    "white_background": self.training.model.white_background,
+                    "black_background": self.training.model.black_background,
+                    "return_transmittance": (
+                        self.training.loss.lambda_t_concentration > 0.0
+                        or
+                        self.training.loss.lambda_t_inside > 0.0
+                    ),
+                    "track_max_weight": True,
                 },
+                training_backend_options_builder=ember.CallableSpec(
+                    target=(
+                        "ember_svraster_training."
+                        "svraster_paper_training_backend_options"
+                    ),
+                    kwargs={
+                        "distortion_weight": (
+                            self.training.loss.lambda_distortion
+                        ),
+                        "distortion_start_step": (
+                            self.training.loss.distortion_start_step
+                        ),
+                        "ascending_weight": self.training.loss.lambda_ascending,
+                        "ascending_start_step": (
+                            self.training.loss.ascending_start_step
+                        ),
+                        "color_concentration_weight": (
+                            self.training.loss.lambda_r_concentration
+                        ),
+                        "ss_aug_max": self.training.model.ss_aug_max,
+                    },
+                ),
             ),
             optimization=self.training.optimization.build(),
             loss=self.training.loss.build(),
+            densification=self.training.adaptive.build(),
             hooks=ember.HookConfig(builders=hooks),
             checkpoint=self.training.checkpoint,
         )
@@ -548,6 +629,11 @@ def initialize_svraster_model_from_scene_record(
             dtype=torch.float32,
             device=target_device,
         ).requires_grad_(True),
+        subdivision_priority=torch.ones(
+            (num_voxels, 1),
+            dtype=torch.float32,
+            device=target_device,
+        ).requires_grad_(True),
     )
     return ember.InitializedModel(
         scene=scene,
@@ -573,14 +659,15 @@ def svraster_rgb_loss(
     lambda_r_concentration: float = 0.01,
     lambda_distortion: float = 0.1,
     distortion_start_step: int = 10000,
+    weights: dict[str, float] | None = None,
 ) -> ember.LossResult:
     """Compute the SVRaster RGB loss terms available through current APIs."""
     del (
         lambda_ssim,
-        lambda_t_inside,
         lambda_r_concentration,
         lambda_distortion,
         distortion_start_step,
+        weights,
     )
     prediction = render_output.render
     target = batch.images
@@ -595,10 +682,33 @@ def svraster_rgb_loss(
     else:
         photo_loss = torch.nn.functional.mse_loss(prediction, target)
     loss = lambda_photo * photo_loss
+    metrics = {"photo_loss": float(photo_loss.detach().item())}
+    transmittance = getattr(render_output, "transmittance", None)
+    if lambda_t_inside > 0.0 and transmittance is not None:
+        transmittance_loss = transmittance.mean()
+        loss = loss + lambda_t_inside * transmittance_loss
+        metrics["transmittance_loss"] = float(
+            transmittance_loss.detach().item()
+        )
     return ember.LossResult(
         loss=loss,
-        metrics={"photo_loss": float(photo_loss.detach().item())},
+        metrics=metrics,
     )
+
+
+@app.function
+def svraster_training_backend_options(
+    state: ember.TrainState,
+    *,
+    distortion_weight: float = 0.1,
+    distortion_start_step: int = 10000,
+) -> dict[str, float]:
+    """Return per-step SVRaster native renderer regularizer weights."""
+    return {
+        "distortion_weight": (
+            distortion_weight if state.step >= distortion_start_step else 0.0
+        )
+    }
 
 
 @app.function
