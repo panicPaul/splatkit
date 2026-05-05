@@ -199,7 +199,7 @@ class FasterGSInitializationConfig(FasterGSConfigBase):
         """Build the runtime initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.CallableSpec(
+            initializer=ember.callable_spec(
                 target=(
                     "papers.fastergs.notebook."
                     "initialize_fastergs_model_from_scene_record"
@@ -225,7 +225,7 @@ class FasterGSTrainingBackendOptionsConfig(FasterGSConfigBase):
 
     def build(self) -> ember.CallableSpec:
         """Build the runtime training backend options builder."""
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="ember_splatting_training.fastergs_training_backend_options",
             kwargs=self.model_dump(mode="python"),
         )
@@ -298,11 +298,9 @@ class FasterGSLossConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.LossConfig:
         """Build the runtime loss config."""
         del context
-        return ember.LossConfig(
-            target=ember.CallableSpec(
-                target="ember_splatting_training.losses.rgb_l1_dssim_loss",
-                kwargs=self.model_dump(mode="python"),
-            )
+        return ember.loss_config(
+            "ember_splatting_training.losses.rgb_l1_dssim_loss",
+            kwargs=self.model_dump(mode="python"),
         )
 
 
@@ -324,7 +322,7 @@ class FasterGSVanillaDensificationConfig(FasterGSConfigBase):
         """Build the runtime vanilla FasterGS densification spec."""
         kwargs = self.model_dump(mode="python")
         kwargs["camera_extent"] = context.camera_extent
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.fastergs.notebook.FasterGSVanillaDensification",
             kwargs=kwargs,
         )
@@ -344,7 +342,7 @@ class FasterGSMCMCDensificationConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime MCMC densification spec."""
         del context
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.fastergs.notebook.build_fastergs_mcmc_densification",
             kwargs=self.model_dump(mode="python"),
         )
@@ -364,7 +362,7 @@ class FasterGSMortonOrderingConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime Morton ordering spec."""
         del context
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="ember_splatting_training.GaussianMortonOrdering",
             kwargs={"schedule": self.schedule.model_dump(mode="python")},
         )
@@ -392,7 +390,7 @@ class FasterGSMipSplatting3DFilterConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime Mip-Splatting 3D filter spec."""
         del context
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="ember_splatting_training.GaussianMipSplatting3DFilter",
             kwargs={
                 "recompute_schedule": self.recompute_schedule.model_dump(
@@ -430,7 +428,7 @@ class FasterGSFinalCleanupConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime final cleanup spec."""
         del context
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.fastergs.notebook.FasterGSFinalCleanup",
             kwargs=self.model_dump(mode="python"),
         )
@@ -475,9 +473,7 @@ class FasterGSDensificationConfig(FasterGSConfigBase):
                 mip_splatting.three_dimensional_filter.build(context)
             )
         builders.append(self.final_cleanup.build(context))
-        return ember.DensificationConfig(
-            builders=builders
-        )
+        return ember.densification_config(*builders)
 
 
 @app.class_definition
@@ -978,7 +974,9 @@ def _(current_config, frame_dataset, is_script_mode, training_config):
 @app.cell
 def _(training_viewer_handle):
     training_viewer = (
-        None if training_viewer_handle is None else training_viewer_handle.viewer
+        None
+        if training_viewer_handle is None
+        else training_viewer_handle.viewer
     )
     return (training_viewer,)
 
@@ -1230,7 +1228,10 @@ class FasterGSVanillaDensification(BaseDensificationMethod):
         keep_mask = torch.sigmoid(scene.logit_opacity) >= (
             self.prune_opacity_threshold
         )
-        if step > self.opacity_reset_every and scene.center_position.shape[0] > 0:
+        if (
+            step > self.opacity_reset_every
+            and scene.center_position.shape[0] > 0
+        ):
             max_scale = torch.exp(scene.log_scales).max(dim=-1).values
             keep_mask &= max_scale <= 0.1 * self.camera_extent
         keep_mask &= scene.quaternion_orientation.square().sum(dim=1) >= 1e-8
@@ -1328,7 +1329,10 @@ def _():
 @app.function
 def fastergs_resized_cache_enabled(config: FasterGSExperimentConfig) -> bool:
     """Return whether FasterGS should use a derived resized image cache."""
-    return config.data.cache_resized_images and config.data.image_scale_factor != 1.0
+    return (
+        config.data.cache_resized_images
+        and config.data.image_scale_factor != 1.0
+    )
 
 
 @app.function

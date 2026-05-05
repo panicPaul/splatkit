@@ -151,7 +151,7 @@ class SVRasterInitializationConfig(SVRasterConfigBase):
         """Build the runtime sparse-voxel initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.CallableSpec(
+            initializer=ember.callable_spec(
                 target="ember_svraster_training.initialize_svraster_paper_scene",
                 kwargs={
                     **self.model_dump(mode="python"),
@@ -184,7 +184,7 @@ class SVRasterOptimizationRecipeConfig(SVRasterConfigBase):
     def build(self) -> ember.OptimizationConfig:
         """Build SVRaster optimizer groups through the training package."""
         return ember.OptimizationConfig(
-            builder=ember.CallableSpec(
+            builder=ember.callable_spec(
                 target="ember_svraster_training.svraster_optimization_config",
                 kwargs={
                     "recipe": {
@@ -221,20 +221,18 @@ class SVRasterLossConfig(SVRasterConfigBase):
 
     def build(self) -> ember.LossConfig:
         """Build the runtime SVRaster loss spec."""
-        return ember.LossConfig(
-            target=ember.CallableSpec(
-                target="ember_svraster_training.svraster_paper_rgb_loss",
-                kwargs={
-                    "lambda_photo": self.lambda_photo,
-                    "lambda_ssim": self.lambda_ssim,
-                    "use_l1": self.use_l1,
-                    "use_huber": self.use_huber,
-                    "huber_threshold": self.huber_threshold,
-                    "lambda_t_concentration": self.lambda_t_concentration,
-                    "lambda_t_inside": self.lambda_t_inside,
-                    "ssim_backend": self.ssim_backend,
-                },
-            )
+        return ember.loss_config(
+            "ember_svraster_training.svraster_paper_rgb_loss",
+            kwargs={
+                "lambda_photo": self.lambda_photo,
+                "lambda_ssim": self.lambda_ssim,
+                "use_l1": self.use_l1,
+                "use_huber": self.use_huber,
+                "huber_threshold": self.huber_threshold,
+                "lambda_t_concentration": self.lambda_t_concentration,
+                "lambda_t_inside": self.lambda_t_inside,
+                "ssim_backend": self.ssim_backend,
+            },
         )
 
 
@@ -251,7 +249,7 @@ class SVRasterRegularizationConfig(SVRasterConfigBase):
         if self.tv_density_weight == 0.0:
             return []
         return [
-            ember.CallableSpec(
+            ember.callable_spec(
                 target="ember_svraster_training.SVRasterTVDensityHook",
                 kwargs={
                     "weight": self.tv_density_weight,
@@ -279,16 +277,13 @@ class SVRasterAdaptiveConfig(SVRasterConfigBase):
 
     def build(self) -> ember.DensificationConfig:
         """Build the SVRaster adaptive pruning/subdivision config."""
-        return ember.DensificationConfig(
-            builders=[
-                ember.CallableSpec(
-                    target=(
-                        "ember_svraster_training."
-                        "SVRasterAdaptivePruneSubdivide"
-                    ),
-                    kwargs=self.model_dump(mode="python"),
-                )
-            ]
+        return ember.densification_config(
+            ember.callable_spec(
+                target=(
+                    "ember_svraster_training.SVRasterAdaptivePruneSubdivide"
+                ),
+                kwargs=self.model_dump(mode="python"),
+            )
         )
 
 
@@ -375,12 +370,11 @@ class SVRasterExperimentConfig(SVRasterConfigBase):
                     "black_background": self.training.model.black_background,
                     "return_transmittance": (
                         self.training.loss.lambda_t_concentration > 0.0
-                        or
-                        self.training.loss.lambda_t_inside > 0.0
+                        or self.training.loss.lambda_t_inside > 0.0
                     ),
                     "track_max_weight": True,
                 },
-                training_backend_options_builder=ember.CallableSpec(
+                training_backend_options_builder=ember.callable_spec(
                     target=(
                         "ember_svraster_training."
                         "svraster_paper_training_backend_options"

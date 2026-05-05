@@ -195,7 +195,7 @@ class Stoch3DGSInitializationConfig(Stoch3DGSConfigBase):
         """Build the runtime initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.CallableSpec(
+            initializer=ember.callable_spec(
                 target=(
                     "papers.stoch3dgs.notebook."
                     "initialize_stoch3dgs_model_from_scene_record"
@@ -216,7 +216,7 @@ class Stoch3DGSTrainingBackendOptionsConfig(Stoch3DGSConfigBase):
 
     def build_feature_fn(self) -> ember.CallableSpec:
         """Build the active-SH feature function spec."""
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.stoch3dgs.notebook.stoch3dgs_active_sh_scene",
         )
 
@@ -304,7 +304,7 @@ class Stoch3DGSOptimizationConfig(Stoch3DGSConfigBase):
                     optimizer="adam",
                     lr=self.center_position_lr_init * context.camera_extent,
                     optimizer_kwargs={"eps": self.adam_eps},
-                    scheduler=ember.CallableSpec(
+                    scheduler=ember.callable_spec(
                         target="ember_core.training.exponential_decay_to",
                         kwargs={
                             "final_lr": (
@@ -391,11 +391,9 @@ class Stoch3DGSLossConfig(Stoch3DGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.LossConfig:
         """Build the runtime loss config."""
         del context
-        return ember.LossConfig(
-            target=ember.CallableSpec(
-                target="papers.stoch3dgs.notebook.stoch3dgs_rgb_l1_ssim_loss",
-                kwargs=self.model_dump(mode="python"),
-            )
+        return ember.loss_config(
+            "papers.stoch3dgs.notebook.stoch3dgs_rgb_l1_ssim_loss",
+            kwargs=self.model_dump(mode="python"),
         )
 
 
@@ -430,16 +428,14 @@ class Stoch3DGSDensificationConfig(Stoch3DGSConfigBase):
     ) -> ember.DensificationConfig:
         """Build the runtime Stoch3DGS densification stack."""
         del context
-        return ember.DensificationConfig(
-            builders=[
-                ember.CallableSpec(
-                    target="papers.stoch3dgs.notebook.Stoch3DGSDensification",
-                    kwargs=self.model_dump(mode="python"),
-                ),
-                ember.CallableSpec(
-                    target="papers.stoch3dgs.notebook.Stoch3DGSFinalCleanup",
-                ),
-            ]
+        return ember.densification_config(
+            ember.callable_spec(
+                target="papers.stoch3dgs.notebook.Stoch3DGSDensification",
+                kwargs=self.model_dump(mode="python"),
+            ),
+            ember.callable_spec(
+                target="papers.stoch3dgs.notebook.Stoch3DGSFinalCleanup",
+            ),
         )
 
 
@@ -498,7 +494,7 @@ class Stoch3DGSTrainingConfig(Stoch3DGSConfigBase):
             densification=self.densification.build(context),
             hooks=ember.HookConfig(
                 builders=[
-                    ember.CallableSpec(
+                    ember.callable_spec(
                         target=(
                             "papers.stoch3dgs.notebook.Stoch3DGSActiveSHHook"
                         ),

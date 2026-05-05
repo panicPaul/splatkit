@@ -211,7 +211,7 @@ class FastGSInitializationConfig(FastGSConfigBase):
         """Build the runtime initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.CallableSpec(
+            initializer=ember.callable_spec(
                 target=(
                     "papers.fastgs.notebook."
                     "initialize_fastgs_model_from_scene_record"
@@ -237,7 +237,7 @@ class FastGSTrainingBackendOptionsConfig(FastGSConfigBase):
 
     def build(self) -> ember.CallableSpec:
         """Build the runtime training backend options builder."""
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.fastgs.notebook.fastgs_training_backend_options",
             kwargs=self.model_dump(mode="python"),
         )
@@ -322,7 +322,7 @@ class FastGSOptimizationConfig(FastGSConfigBase):
                     optimizer=optimizer,
                     lr=self.center_position_lr_init * context.camera_extent,
                     optimizer_kwargs=optimizer_kwargs,
-                    scheduler=ember.CallableSpec(
+                    scheduler=ember.callable_spec(
                         target="ember_core.training.exponential_decay_to",
                         kwargs={
                             "final_lr": (
@@ -407,11 +407,9 @@ class FastGSLossConfig(FastGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.LossConfig:
         """Build the runtime loss config."""
         del context
-        return ember.LossConfig(
-            target=ember.CallableSpec(
-                target="papers.fastgs.notebook.rgb_l1_ssim_loss",
-                kwargs=self.model_dump(mode="python"),
-            )
+        return ember.loss_config(
+            "papers.fastgs.notebook.rgb_l1_ssim_loss",
+            kwargs=self.model_dump(mode="python"),
         )
 
 
@@ -447,7 +445,7 @@ class FastGSVanillaDensificationConfig(FastGSConfigBase):
         kwargs = self.model_dump(mode="python")
         kwargs["camera_extent"] = context.camera_extent
         kwargs["backend"] = context.backend
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.fastgs.notebook.FastGSVanillaDensification",
             kwargs=kwargs,
         )
@@ -467,7 +465,7 @@ class FastGSMCMCDensificationConfig(FastGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime MCMC densification spec."""
         del context
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.fastgs.notebook.build_fastgs_mcmc_densification",
             kwargs=self.model_dump(mode="python"),
         )
@@ -487,7 +485,7 @@ class FastGSMortonOrderingConfig(FastGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime Morton ordering spec."""
         del context
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="ember_splatting_training.GaussianMortonOrdering",
             kwargs={"schedule": self.schedule.model_dump(mode="python")},
         )
@@ -502,7 +500,7 @@ class FastGSFinalCleanupConfig(FastGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime final cleanup spec."""
         del context
-        return ember.CallableSpec(
+        return ember.callable_spec(
             target="papers.fastgs.notebook.FastGSFinalCleanup",
             kwargs=self.model_dump(mode="python"),
         )
@@ -536,12 +534,10 @@ class FastGSDensificationConfig(FastGSConfigBase):
             if self.mode == "mcmc"
             else self.vanilla.build(context)
         )
-        return ember.DensificationConfig(
-            builders=[
-                primary,
-                self.morton.build(context),
-                self.final_cleanup.build(context),
-            ]
+        return ember.densification_config(
+            primary,
+            self.morton.build(context),
+            self.final_cleanup.build(context),
         )
 
 
@@ -600,7 +596,7 @@ class FastGSTrainingConfig(FastGSConfigBase):
             densification=self.densification.build(context),
             hooks=ember.HookConfig(
                 builders=[
-                    ember.CallableSpec(
+                    ember.callable_spec(
                         target="papers.fastgs.notebook.FastGSSHTrainingHook",
                         kwargs=self.render.training_backend_options.model_dump(
                             mode="python"
