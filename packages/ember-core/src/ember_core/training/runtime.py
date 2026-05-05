@@ -350,6 +350,18 @@ def callable_kwargs(
     return kwargs
 
 
+def resolve_callable_target(spec: CallableSpec) -> Callable[..., Any]:
+    """Resolve a callable spec to its underlying callable."""
+    value = (
+        spec.object_ref
+        if spec.object_ref is not None
+        else resolve_target(spec.target)
+    )
+    if not callable(value):
+        raise TypeError(f"Resolved target {spec.target!r} is not callable.")
+    return value
+
+
 def resolve_callable(
     spec: CallableSpec | None,
     *,
@@ -358,9 +370,7 @@ def resolve_callable(
     """Resolve a callable spec and bind its kwargs."""
     if spec is None:
         return None
-    value = resolve_target(spec.target)
-    if not callable(value):
-        raise TypeError(f"Resolved target {spec.target!r} is not callable.")
+    value = resolve_callable_target(spec)
     return partial(value, **callable_kwargs(spec, context))
 
 
@@ -370,9 +380,7 @@ def instantiate_callable(
     context: TrainingRunContext | None = None,
 ) -> Any:
     """Instantiate a class or builder function from a callable spec."""
-    value = resolve_target(spec.target)
-    if not callable(value):
-        raise TypeError(f"Resolved target {spec.target!r} is not callable.")
+    value = resolve_callable_target(spec)
     return value(**callable_kwargs(spec, context))
 
 
@@ -897,16 +905,13 @@ def build_densification_for_context(
     context: TrainingRunContext,
 ) -> DensificationMethod | None:
     """Instantiate densification with runtime-bound kwargs resolved."""
-    if config.densification is None or not config.densification.builders:
+    if config.densification is None or (
+        not config.densification.builders and not config.densification.methods
+    ):
         return None
-    methods: list[DensificationMethod] = []
+    methods: list[DensificationMethod] = list(config.densification.methods)
     for builder_spec in config.densification.builders:
-        builder = resolve_target(builder_spec.target)
-        if not callable(builder):
-            raise TypeError(
-                f"Densification builder {builder_spec.target!r} is not "
-                "callable."
-            )
+        builder = resolve_callable_target(builder_spec)
         method = builder(**callable_kwargs(builder_spec, context))
         if not hasattr(method, "get_render_requirements"):
             raise TypeError(

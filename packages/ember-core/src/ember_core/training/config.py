@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,6 +13,7 @@ class TrainingConfigBase(BaseModel):
     """Base config with strict validation."""
 
     model_config = {
+        "arbitrary_types_allowed": True,
         "extra": "forbid",
     }
 
@@ -20,6 +22,11 @@ class CallableSpec(TrainingConfigBase):
     """Low-level importable callable target plus runtime-bound kwargs."""
 
     target: str
+    object_ref: Callable[..., Any] | None = Field(
+        default=None,
+        exclude=True,
+        repr=False,
+    )
     kwargs: dict[str, Any] = Field(default_factory=dict)
     context_kwargs: dict[str, str] = Field(default_factory=dict)
 
@@ -180,6 +187,7 @@ class HookConfig(TrainingConfigBase):
 class DensificationConfig(TrainingConfigBase):
     """Declarative densification builder configuration."""
 
+    methods: list[Any] = Field(default_factory=list, exclude=True, repr=False)
     builders: list[CallableSpec] = Field(default_factory=list)
 
 
@@ -195,7 +203,9 @@ class TrainingConfig(TrainingConfigBase):
     """Top-level declarative training configuration."""
 
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
-    logging: TrainingLoggingConfig = Field(default_factory=TrainingLoggingConfig)
+    logging: TrainingLoggingConfig = Field(
+        default_factory=TrainingLoggingConfig
+    )
     profiler: TrainingProfilerConfig = Field(
         default_factory=TrainingProfilerConfig
     )

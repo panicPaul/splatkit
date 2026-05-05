@@ -51,19 +51,26 @@ from ember_core.training import (
     build_render_fn,
     build_training_render_fn,
     build_training_run_context,
+    callable_spec,
     checkpoint_log_dir,
     checkpoint_run_dir,
     compute_frame_camera_extent,
     cycle_dataloader,
+    densification_config,
     ensure_checkpoint_output_writable,
     initialize_model,
     load_checkpoint_dir,
+    loss_config,
     materialize_optimization_config,
     materialize_training_config,
+    optimization_config,
     resolve_backend_options,
     run_training,
     save_checkpoint_dir,
+    scene_parameter,
     set_torch_seed,
+    tensor_slice,
+    tensor_view,
     train_step,
 )
 from ember_core.training.checkpoints import build_checkpoint_metadata
@@ -583,6 +590,46 @@ def test_training_utilities_cover_common_notebook_loop_needs(
     set_torch_seed(123)
     sample_b = torch.rand(1)
     torch.testing.assert_close(sample_a, sample_b)
+
+
+def test_notebook_spec_helpers_accept_local_callables(tmp_path: Path) -> None:
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    method = CloneFirstSplatDensification()
+    config.densification = densification_config(method)
+
+    densification = build_densification_for_context(
+        config,
+        context=build_training_run_context(dataset, config),
+    )
+
+    assert densification is method
+    assert config.densification.model_dump(mode="json") == {"builders": []}
+
+    config.densification = densification_config(
+        callable_spec(
+            ContextCameraExtentDensification,
+            context_kwargs={"camera_extent": "camera_extent"},
+        )
+    )
+    densification = build_densification_for_context(
+        config,
+        context=build_training_run_context(dataset, config),
+    )
+    assert isinstance(densification, ContextCameraExtentDensification)
+    assert densification.camera_extent == 0.0
+
+    config.loss = loss_config(rgb_l2_loss)
+    assert build_loss_fn(config) is not None
+
+    config.optimization = optimization_config(
+        scene_parameter(
+            "center_position",
+            lr=0.1,
+            view=tensor_view(tensor_slice(1, start=0, stop=2)),
+        )
+    )
+    assert config.optimization.parameter_groups[0].target.scope == "scene"
 
 
 def test_resolve_backend_options_applies_updates(tmp_path: Path) -> None:

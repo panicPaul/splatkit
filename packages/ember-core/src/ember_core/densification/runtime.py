@@ -91,11 +91,15 @@ def build_densification(
     config: Any | None,
 ) -> DensificationMethod | None:
     """Instantiate an unbound densification method."""
-    if config is None or not config.builders:
+    if config is None:
         return None
-    methods: list[DensificationMethod] = []
+    methods: list[DensificationMethod] = list(getattr(config, "methods", ()))
+    if not methods and not config.builders:
+        return None
     for builder_spec in config.builders:
-        builder = _resolve_target(builder_spec.target)
+        builder = getattr(builder_spec, "object_ref", None)
+        if builder is None:
+            builder = _resolve_target(builder_spec.target)
         if not callable(builder):
             raise TypeError(
                 f"Densification builder {builder_spec.target!r} is not "
