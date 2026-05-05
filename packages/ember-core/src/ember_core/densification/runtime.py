@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from importlib import import_module
 from typing import Any
 
 from ember_core.densification.contracts import (
+    BaseDensificationMethod,
     DensificationContext,
     DensificationLifecycleContext,
     DensificationMethod,
@@ -15,7 +17,7 @@ from ember_core.densification.contracts import (
 from ember_core.densification.families import build_family_ops
 
 
-class DensificationMethodSequence:
+class DensificationMethodSequence(BaseDensificationMethod):
     """Run multiple densification methods as one method."""
 
     def __init__(self, methods: list[DensificationMethod]) -> None:
@@ -37,7 +39,9 @@ class DensificationMethodSequence:
             )
         return requirements
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         for method in self.methods:
             method.bind(state, optimizers, family_ops)
 

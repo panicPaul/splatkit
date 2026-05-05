@@ -9,7 +9,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, fields, is_dataclass, replace
 from functools import partial
 from importlib import import_module
-from typing import Any
+from typing import Any, cast
 
 import torch
 from torch import nn
@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from ember_core.core.contracts import CameraState
 from ember_core.core.registry import (
     BACKEND_REGISTRY,
-    render,
+    render_dynamic,
     resolve_backend_trait,
 )
 from ember_core.data.adapters import PreparedFrameDataset, collate_frame_samples
@@ -449,16 +449,19 @@ def _build_dataloader_from_frame_dataset(
     config: TrainingConfig,
 ) -> DataLoader[PreparedFrameBatch]:
     num_workers = config.batching.num_workers
-    return DataLoader(
-        frame_dataset,
-        batch_size=config.batching.batch_size,
-        shuffle=config.batching.shuffle,
-        num_workers=num_workers,
-        persistent_workers=(
-            config.batching.persistent_workers and num_workers > 0
+    return cast(
+        "DataLoader[PreparedFrameBatch]",
+        DataLoader(
+            frame_dataset,
+            batch_size=config.batching.batch_size,
+            shuffle=config.batching.shuffle,
+            num_workers=num_workers,
+            persistent_workers=(
+                config.batching.persistent_workers and num_workers > 0
+            ),
+            pin_memory=config.batching.pin_memory,
+            collate_fn=collate_frame_samples,
         ),
-        pin_memory=config.batching.pin_memory,
-        collate_fn=collate_frame_samples,
     )
 
 
@@ -597,7 +600,7 @@ def build_raw_render_fn(config: TrainingConfig) -> RenderFn:
             if feature_fn is None
             else feature_fn(model, resolved_camera)
         )
-        render_output = render(
+        render_output = render_dynamic(
             scene,
             resolved_camera,
             backend=config.render.backend,
@@ -633,7 +636,12 @@ def build_render_fn(config: TrainingConfig) -> RenderFn:
 
 
 RenderFnWithRequirements = Callable[
-    [InitializedModel, CameraState, DensificationRenderRequirements, Any | None],
+    [
+        InitializedModel,
+        CameraState,
+        DensificationRenderRequirements,
+        Any | None,
+    ],
     Any,
 ]
 
@@ -714,7 +722,7 @@ def build_render_fn_with_requirements(
                 updates=backend_updates,
             )
         )
-        render_output = render(
+        render_output = render_dynamic(
             scene,
             resolved_camera,
             backend=config.render.backend,
@@ -955,26 +963,20 @@ def _build_optimizer(
     parameters: Sequence[torch.Tensor],
 ) -> torch.optim.Optimizer:
     if config.optimizer == "adam":
-        adam_kwargs = {
-            "lr": config.lr,
-            "betas": config.betas,
-            "weight_decay": config.weight_decay,
-            **config.optimizer_kwargs,
-        }
         return torch.optim.Adam(
             list(parameters),
-            **adam_kwargs,
+            lr=config.lr,
+            betas=config.betas,
+            weight_decay=config.weight_decay,
+            **config.optimizer_kwargs,
         )
     if config.optimizer == "sgd":
-        sgd_kwargs = {
-            "lr": config.lr,
-            "momentum": config.momentum,
-            "weight_decay": config.weight_decay,
-            **config.optimizer_kwargs,
-        }
         return torch.optim.SGD(
             list(parameters),
-            **sgd_kwargs,
+            lr=config.lr,
+            momentum=config.momentum,
+            weight_decay=config.weight_decay,
+            **config.optimizer_kwargs,
         )
     optimizer_factory = resolve_target(config.optimizer)
     if not callable(optimizer_factory):
@@ -1284,7 +1286,7 @@ def train_step(
         )
     with _profile_phase(profile, "backward"):
         loss_result.loss.backward()
-    if densification_context is not None:
+    if densification is not None and densification_context is not None:
         with _profile_phase(profile, "densification_post_backward"):
             densification.post_backward(densification_context)
     with _profile_phase(profile, "post_backward_hooks"):
@@ -1298,7 +1300,7 @@ def train_step(
     with _profile_phase(profile, "optimizer"):
         for optimizer_binding in optimizers:
             optimizer_binding.step()
-    if densification_context is not None:
+    if densification is not None and densification_context is not None:
         with _profile_phase(profile, "densification_post_optimizer"):
             densification.post_optimizer_step(densification_context)
     with _profile_phase(profile, "post_optimizer_hooks"):
@@ -1315,7 +1317,7 @@ def train_step(
         **loss_result.metrics,
         **_consume_step_diagnostics(state),
     }
-    if densification_context is not None:
+    if densification is not None and densification_context is not None:
         with _profile_phase(profile, "densification_after_step"):
             densification.after_step(
                 make_context(

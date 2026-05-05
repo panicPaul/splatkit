@@ -37,6 +37,12 @@ from ember_core.core.contracts import (
 )
 
 T = TypeVar("T")
+OutputSet = frozenset[OutputName]
+
+
+def output_set(*outputs: OutputName) -> OutputSet:
+    """Build a typed set of optional render outputs."""
+    return frozenset(outputs)
 
 
 @dataclass(frozen=True)
@@ -47,7 +53,7 @@ class RegisteredBackend:
     render_fn: Callable[..., RenderOutput]
     default_options: RenderOptions
     accepted_scene_types: tuple[type[Scene], ...]
-    supported_outputs: frozenset[OutputName] = frozenset()
+    supported_outputs: OutputSet = frozenset()
     trait_providers: tuple[object, ...] = ()
 
 
@@ -59,7 +65,7 @@ def register_backend(
     name: BackendName,
     default_options: RenderOptions,
     accepted_scene_types: tuple[type[Scene], ...],
-    supported_outputs: frozenset[OutputName] = frozenset(),
+    supported_outputs: OutputSet = frozenset(),
     trait_providers: tuple[object, ...] = (),
 ) -> Callable[[Callable[..., RenderOutput]], Callable[..., RenderOutput]]:
     """Register a backend render function as a decorator."""
@@ -376,7 +382,7 @@ def render(
 
 
 @beartype
-def render(
+def render_dynamic(
     scene: Scene,
     camera: CameraState,
     *,
@@ -389,7 +395,7 @@ def render(
     return_projective_intersection_transforms: bool = False,
     options: RenderOptions | None = None,
 ) -> RenderOutput:
-    """Render through a named backend."""
+    """Render through a named backend with runtime-selected outputs."""
     registered_backend = BACKEND_REGISTRY.get(backend)
     if registered_backend is None:
         available = ", ".join(sorted(BACKEND_REGISTRY)) or "<none>"
@@ -447,4 +453,35 @@ def render(
             return_projective_intersection_transforms
         ),
         options=resolved_options,
+    )
+
+
+@beartype
+def render(
+    scene: Scene,
+    camera: CameraState,
+    *,
+    backend: BackendName,
+    return_alpha: bool = False,
+    return_depth: bool = False,
+    return_gaussian_impact_score: bool = False,
+    return_normals: bool = False,
+    return_2d_projections: bool = False,
+    return_projective_intersection_transforms: bool = False,
+    options: RenderOptions | None = None,
+) -> RenderOutput:
+    """Render through a named backend."""
+    return render_dynamic(
+        scene,
+        camera,
+        backend=backend,
+        return_alpha=return_alpha,
+        return_depth=return_depth,
+        return_gaussian_impact_score=return_gaussian_impact_score,
+        return_normals=return_normals,
+        return_2d_projections=return_2d_projections,
+        return_projective_intersection_transforms=(
+            return_projective_intersection_transforms
+        ),
+        options=options,
     )

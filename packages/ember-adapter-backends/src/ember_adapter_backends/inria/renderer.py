@@ -17,10 +17,10 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 from torch import Tensor
 
-_SUPPORTED_OUTPUTS = frozenset({"depth"})
+_SUPPORTED_OUTPUTS = output_set("depth")
 
 
 @dataclass(frozen=True)

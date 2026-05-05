@@ -12,7 +12,7 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 from ember_native_faster_gs.faster_gs.renderer import (
     _split_sh_coefficients,
     _validate_inputs,
@@ -32,7 +32,7 @@ from ember_native_faster_gs_mojo.core.runtime.ops.render import (
 )
 from ember_native_faster_gs_mojo.core.runtime.ops.sort import sort_fwd_op
 
-_SUPPORTED_OUTPUTS = frozenset()
+_SUPPORTED_OUTPUTS = output_set()
 
 
 def _scene_needs_grad(scene: GaussianScene3D) -> bool:

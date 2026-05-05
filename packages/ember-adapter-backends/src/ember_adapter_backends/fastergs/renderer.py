@@ -10,12 +10,12 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 from FasterGSCudaBackend import RasterizerSettings, diff_rasterize
 from jaxtyping import Float
 from torch import Tensor
 
-_SUPPORTED_OUTPUTS = frozenset()
+_SUPPORTED_OUTPUTS = output_set()
 
 
 @beartype

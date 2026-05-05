@@ -17,12 +17,13 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
+from ember_core.core.registry import output_set
 from jaxtyping import Float
 from torch import Tensor
 
-SUPPORTED_OUTPUTS_3D = frozenset({"alpha", "depth", "2d_projections"})
-SUPPORTED_OUTPUTS_2D = frozenset(
-    {"alpha", "depth", "projective_intersection_transforms"}
+SUPPORTED_OUTPUTS_3D = output_set("alpha", "depth", "2d_projections")
+SUPPORTED_OUTPUTS_2D = output_set(
+    "alpha", "depth", "projective_intersection_transforms"
 )
 
 

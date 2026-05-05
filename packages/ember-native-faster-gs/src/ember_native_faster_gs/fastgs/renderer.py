@@ -11,7 +11,7 @@ from ember_core.core.contracts import (
     GaussianScene3D,
     RenderOutput,
 )
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 from ember_core.densification.contracts import GaussianMetricAttribution
 from jaxtyping import Float, Int
 from torch import Tensor
@@ -30,7 +30,7 @@ from ember_native_faster_gs.fastgs.runtime import (
     render as render_runtime,
 )
 
-_SUPPORTED_OUTPUTS = frozenset()
+_SUPPORTED_OUTPUTS = output_set()
 
 
 @beartype

@@ -49,9 +49,12 @@ from ember_core.core.contracts import (
 )
 from ember_core.core.registry import (
     BACKEND_REGISTRY,
+    OutputSet,
     RegisteredBackend,
+    output_set,
     register_backend,
     render,
+    render_dynamic,
     resolve_backend_trait,
 )
 
@@ -76,6 +79,7 @@ __all__ = [
     "HasViewspacePoints",
     "HasVisibilityFilter",
     "OutputName",
+    "OutputSet",
     "RegisteredBackend",
     "RenderOptions",
     "RenderOutput",
@@ -101,7 +105,9 @@ __all__ = [
     "SparseVoxelScene",
     "camera_params_to_intrinsics",
     "intrinsics_to_camera_params",
+    "output_set",
     "register_backend",
     "render",
+    "render_dynamic",
     "resolve_backend_trait",
 ]

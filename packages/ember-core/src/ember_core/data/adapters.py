@@ -71,13 +71,17 @@ def _resolve_split_indices(
     if split is None or split.target == "all" or split.mode == "none":
         return tuple(range(num_frames))
     if split.mode == "every_n":
+        if split.every_n is None:
+            raise ValueError("every_n split mode requires split.every_n.")
+        every_n = split.every_n
         return tuple(
             index
             for index in range(num_frames)
-            if (index % split.every_n == 0) == (split.target == "val")
+            if (index % every_n == 0) == (split.target == "val")
         )
-    split_denominator = split.train_ratio + split.val_ratio
-    split_index = round(num_frames * split.train_ratio / split_denominator)
+    if split.train_ratio is None:
+        raise ValueError("ratio split mode requires split.train_ratio.")
+    split_index = round(num_frames * split.train_ratio)
     if split.target == "train":
         return tuple(range(split_index))
     return tuple(range(split_index, num_frames))

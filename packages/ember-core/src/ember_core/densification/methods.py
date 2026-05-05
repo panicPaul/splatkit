@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -60,7 +61,7 @@ class ComposedDensificationMethod:
     def bind(
         self,
         state: Any,
-        optimizers: list[Any],
+        optimizers: Sequence[Any],
         family_ops: Any,
     ) -> None:
         family = state.model.scene.scene_family
@@ -275,7 +276,7 @@ class FastGS(BaseDensificationMethod):
     def bind(
         self,
         state: Any,
-        optimizers: list[Any],
+        optimizers: Sequence[Any],
         family_ops: Any,
     ) -> None:
         del optimizers

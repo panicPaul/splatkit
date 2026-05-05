@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,7 +44,9 @@ class GaussianClonePass(BaseDensificationComponent):
     signal_count_key: str = "image_plane_visible_count"
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 
@@ -88,7 +91,9 @@ class GaussianSplitPass(BaseDensificationComponent):
     signal_count_key: str = "image_plane_visible_count"
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 
@@ -132,7 +137,9 @@ class GaussianPruneOpacityPass(BaseDensificationComponent):
     opacity_threshold: float
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 
@@ -160,7 +167,9 @@ class GaussianResetOpacityPass(BaseDensificationComponent):
     max_post_sigmoid_opacity: float
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 
@@ -182,7 +191,9 @@ class GaussianOpacityDecayPass(BaseDensificationComponent):
     gamma: float
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 
@@ -204,7 +215,9 @@ class GaussianJitterPass(BaseDensificationComponent):
     sigma: float
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 
@@ -226,7 +239,9 @@ class SparseVoxelSubdividePass(BaseDensificationComponent):
     priority_threshold: float
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 
@@ -263,7 +278,9 @@ class SparseVoxelPrunePass(BaseDensificationComponent):
     density_threshold: float
     family_ops: Any | None = field(default=None, init=False, repr=False)
 
-    def bind(self, state: Any, optimizers: list[Any], family_ops: Any) -> None:
+    def bind(
+        self, state: Any, optimizers: Sequence[Any], family_ops: Any
+    ) -> None:
         del state, optimizers
         self.family_ops = family_ops
 

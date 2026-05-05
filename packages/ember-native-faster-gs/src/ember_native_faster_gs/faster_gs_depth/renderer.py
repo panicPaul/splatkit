@@ -14,7 +14,7 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 from jaxtyping import Float
 from torch import Tensor
 
@@ -28,7 +28,7 @@ from ember_native_faster_gs.faster_gs_depth.runtime import (
     render as render_runtime,
 )
 
-_SUPPORTED_OUTPUTS = frozenset({"depth"})
+_SUPPORTED_OUTPUTS = output_set("depth")
 DepthTensor = Float[Tensor, " num_cams height width"]
 
 

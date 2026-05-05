@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ember_core.core.contracts import SparseVoxelScene
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 
 from ember_native_svraster.core import (
     SVRasterCoreDepthRenderOutput,
@@ -13,7 +13,7 @@ from ember_native_svraster.core import (
     render_svraster_core,
 )
 
-_SUPPORTED_OUTPUTS = frozenset({"depth", "normals"})
+_SUPPORTED_OUTPUTS = output_set("depth", "normals")
 
 SVRasterRenderOutput = SVRasterCoreRenderOutput
 SVRasterDepthRenderOutput = SVRasterCoreDepthRenderOutput

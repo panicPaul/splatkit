@@ -13,12 +13,12 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 from ember_core.densification.contracts import GaussianMetricAttribution
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
-_SUPPORTED_OUTPUTS = frozenset()
+_SUPPORTED_OUTPUTS = output_set()
 
 
 @beartype

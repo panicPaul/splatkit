@@ -14,7 +14,7 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
-from ember_core.core.registry import register_backend
+from ember_core.core.registry import output_set, register_backend
 from jaxtyping import Float
 from torch import Tensor
 
@@ -29,7 +29,7 @@ from ember_native_3dgrt.core.runtime import (
     render as render_runtime,
 )
 
-_SUPPORTED_OUTPUTS = frozenset({"alpha", "depth", "normals"})
+_SUPPORTED_OUTPUTS = output_set("alpha", "depth", "normals")
 _STATE_TOKEN_CACHE: dict[tuple[object, ...], Tensor] = {}
 
 
