@@ -52,6 +52,11 @@ from ember_core.training.protocols import (
     TrainingRunContext,
     TrainState,
 )
+from ember_core.training.resolution import (
+    instantiate_callable,
+    resolve_callable,
+    resolve_target,
+)
 from ember_core.training.runtime import (
     build_dataloader,
     build_densification_for_context,
@@ -68,12 +73,9 @@ from ember_core.training.runtime import (
     compute_frame_camera_extent,
     cycle_dataloader,
     initialize_model,
-    instantiate_callable,
     materialize_optimization_config,
     materialize_training_config,
     resolve_backend_options,
-    resolve_callable,
-    resolve_target,
     run_training,
     set_torch_seed,
     train_step,
