@@ -6,7 +6,9 @@ __generated_with = "0.23.3"
 app = marimo.App(width="columns")
 
 with app.setup:
+    import json
     import math
+    import shutil
     import sys
     from collections.abc import Sequence
     from dataclasses import replace
@@ -16,6 +18,7 @@ with app.setup:
     import ember_adapter_backends.fastgs as ember_fastgs_adapter
     import ember_core as ember
     import ember_native_faster_gs.fastgs as ember_fastgs_native
+    import ember_splatting_training as ember_splatting
     import marimo as mo
     import torch
     from ember_core.densification import (
@@ -29,6 +32,7 @@ with app.setup:
     )
     from ember_core.training import (
         LossResult,
+        TrainingProfilerConfig,
         TrainingResult,
         TrainState,
     )
@@ -64,8 +68,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(train_button):
-    train_button
+def _(training_controls):
+    training_controls
     return
 
 
@@ -127,11 +131,8 @@ def _(training_result_view):
 
 
 @app.cell(hide_code=True)
-def _():
-    mo.md("""
-    Viewer integration is intentionally left as a placeholder while the viewer
-    refactor is in flight. Training and checkpoint export do not depend on it.
-    """)
+def _(training_viewer):
+    training_viewer
     return
 
 
@@ -166,6 +167,9 @@ class FastGSDataConfig(FastGSConfigBase):
 
     camera_sensor_id: str | None = None
     image_scale_factor: float = Field(default=0.25, gt=0.0)
+    cache_resized_images: bool = True
+    resized_image_cache_root: Path | None = None
+    max_resized_image_caches: int = Field(default=4, ge=1)
     split_target: Literal["train", "val", "all"] = "train"
     split_every_n: int | None = Field(default=8, ge=1)
     materialization_stage: Literal["none", "decoded", "prepared"] = "none"
@@ -243,10 +247,10 @@ class FastGSTrainingBackendOptionsConfig(FastGSConfigBase):
 class FastGSRenderConfig(FastGSConfigBase):
     """Typed FastGS render pipeline config."""
 
-    backend: FastGSBackendName = "adapter.fastgs"
+    backend: FastGSBackendName = "faster_gs.fastgs"
     near_plane: float = Field(default=0.2, gt=0.0)
     far_plane: float = Field(default=10_000.0, gt=0.0)
-    proper_antialiasing: bool = True
+    mip_splatting_screen_filter: bool = False
     compact_box_scale: float = Field(default=0.5, gt=0.0)
     background_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
     return_alpha: bool = False
@@ -269,7 +273,9 @@ class FastGSRenderConfig(FastGSConfigBase):
             backend_options = {
                 "near_plane": self.near_plane,
                 "far_plane": self.far_plane,
-                "proper_antialiasing": self.proper_antialiasing,
+                "mip_splatting_screen_filter": (
+                    self.mip_splatting_screen_filter
+                ),
                 "compact_box_scale": self.compact_box_scale,
                 "background_color": list(self.background_color),
             }
@@ -351,9 +357,7 @@ class FastGSOptimizationConfig(FastGSConfigBase):
                         scope="scene",
                         name="feature",
                         view=ember.TensorViewSpec(
-                            slices=(
-                                ember.TensorSliceSpec(axis=1, start=1),
-                            )
+                            slices=(ember.TensorSliceSpec(axis=1, start=1),)
                         ),
                     ),
                     optimizer=optimizer,
@@ -490,37 +494,6 @@ class FastGSMortonOrderingConfig(FastGSConfigBase):
 
 
 @app.class_definition
-class FastGSAntialiasingConfig(FastGSConfigBase):
-    """Typed FastGS/Mip-Splatting antialiasing config."""
-
-    recompute_schedule: FastGSScheduleConfig = Field(
-        default_factory=lambda: FastGSScheduleConfig(
-            start_iteration=15_000,
-            end_iteration=29_899,
-            frequency=100,
-        )
-    )
-    near_plane: float | None = Field(default=0.2, gt=0.0)
-    filter_variance: float = Field(default=0.2, gt=0.0)
-    clipping_tolerance: float = Field(default=0.15, ge=0.0)
-
-    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
-        """Build the runtime 3D filter antialiasing spec."""
-        del context
-        return ember.CallableSpec(
-            target="ember_splatting_training.GaussianMipSplattingAntialiasing",
-            kwargs={
-                "recompute_schedule": self.recompute_schedule.model_dump(
-                    mode="python"
-                ),
-                "near_plane": self.near_plane,
-                "filter_variance": self.filter_variance,
-                "clipping_tolerance": self.clipping_tolerance,
-            },
-        )
-
-
-@app.class_definition
 class FastGSFinalCleanupConfig(FastGSConfigBase):
     """Typed FastGS checkpoint cleanup config."""
 
@@ -549,9 +522,6 @@ class FastGSDensificationConfig(FastGSConfigBase):
     morton: FastGSMortonOrderingConfig = Field(
         default_factory=FastGSMortonOrderingConfig
     )
-    antialiasing: FastGSAntialiasingConfig = Field(
-        default_factory=FastGSAntialiasingConfig
-    )
     final_cleanup: FastGSFinalCleanupConfig = Field(
         default_factory=FastGSFinalCleanupConfig
     )
@@ -569,6 +539,8 @@ class FastGSDensificationConfig(FastGSConfigBase):
         return ember.DensificationConfig(
             builders=[
                 primary,
+                self.morton.build(context),
+                self.final_cleanup.build(context),
             ]
         )
 
@@ -578,6 +550,9 @@ class FastGSTrainingConfig(FastGSConfigBase):
     """Typed user-facing FastGS training config."""
 
     runtime: ember.RuntimeConfig = Field(default_factory=ember.RuntimeConfig)
+    profiler: TrainingProfilerConfig = Field(
+        default_factory=TrainingProfilerConfig
+    )
     batching: ember.BatchingConfig = Field(default_factory=ember.BatchingConfig)
     initialization: FastGSInitializationConfig = Field(
         default_factory=FastGSInitializationConfig
@@ -592,6 +567,9 @@ class FastGSTrainingConfig(FastGSConfigBase):
     )
     checkpoint: ember.CheckpointExportConfig = Field(
         default_factory=ember.CheckpointExportConfig
+    )
+    viewer: ember_splatting.TrainingViewerConfig = Field(
+        default_factory=ember_splatting.TrainingViewerConfig
     )
 
     def to_training_config(
@@ -613,6 +591,7 @@ class FastGSTrainingConfig(FastGSConfigBase):
         )
         return ember.TrainingConfig(
             runtime=self.runtime,
+            profiler=self.profiler,
             batching=self.batching,
             initialization=self.initialization.build(context),
             render=self.render.build(context),
@@ -999,15 +978,45 @@ def _():
 
 @app.cell
 def _():
-    train_button = mo.ui.run_button(label="Start training")
-    return (train_button,)
+    prepare_button = mo.ui.run_button(
+        label="Prepare training viewer",
+        full_width=True,
+    )
+    train_button = mo.ui.run_button(
+        label="Start training",
+        full_width=True,
+    )
+    stop_button = mo.ui.run_button(
+        label="Stop training",
+        full_width=True,
+    )
+    training_status_refresh = mo.ui.refresh(
+        options=["1s"],
+        default_interval="1s",
+        label="Training status",
+    )
+    training_controls = mo.vstack(
+        [prepare_button, train_button, stop_button, training_status_refresh],
+        gap=0.5,
+    )
+    return (
+        prepare_button,
+        stop_button,
+        train_button,
+        training_controls,
+        training_status_refresh,
+    )
 
 
 @app.cell
 def _():
-    dataloader_benchmark_button = mo.ui.run_button(
-        label="Benchmark dataloader"
-    )
+    is_script_mode = not mo.running_in_notebook()
+    return (is_script_mode,)
+
+
+@app.cell
+def _():
+    dataloader_benchmark_button = mo.ui.run_button(label="Benchmark dataloader")
     return (dataloader_benchmark_button,)
 
 
@@ -1082,6 +1091,23 @@ def _(dataloader_benchmark_result):
     return (dataloader_benchmark_view,)
 
 
+@app.function
+def fastgs_prebuilt_scaled_image_root(
+    config: FastGSExperimentConfig,
+) -> Path | None:
+    """Return an existing FastGS-style scaled image root, if available."""
+    if config.scene.image_root is not None:
+        return None
+    if config.data.image_scale_factor == 1.0:
+        return None
+    inverse_scale = 1.0 / config.data.image_scale_factor
+    rounded_scale = round(inverse_scale)
+    if not math.isclose(inverse_scale, rounded_scale):
+        return None
+    candidate = config.scene.path.expanduser() / f"images_{rounded_scale}"
+    return candidate if candidate.exists() else None
+
+
 @app.cell(column=1, hide_code=True)
 def _():
     mo.md("""
@@ -1108,9 +1134,24 @@ def resolve_training_config(
     return training.to_training_config(frame_dataset)
 
 
+@app.function
+def format_duration(seconds: float) -> str:
+    """Format a short ETA duration."""
+    total_seconds = max(0, round(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours:d}h {minutes:02d}m"
+    if minutes > 0:
+        return f"{minutes:d}m {seconds:02d}s"
+    return f"{seconds:d}s"
+
+
 @app.cell
-def _(current_config, train_button):
-    should_prepare = bool(train_button.value)
+def _(current_config, is_script_mode, prepare_button, train_button):
+    should_prepare = (
+        is_script_mode or bool(prepare_button.value) or bool(train_button.value)
+    )
     scene_record = (
         ember.load_scene_record(build_scene_load_config(current_config))
         if should_prepare and current_config is not None
@@ -1133,28 +1174,156 @@ def _(current_config, scene_record):
 
 
 @app.cell
-def _(current_config, frame_dataset, train_button):
-    should_train = bool(train_button.value)
-    training_result = (
-        run_fastgs_training(frame_dataset, current_config)
-        if should_train
-        and current_config is not None
-        and frame_dataset is not None
+def _(current_config, frame_dataset):
+    training_config = (
+        resolve_training_config(current_config, frame_dataset)
+        if current_config is not None and frame_dataset is not None
         else None
     )
+    return (training_config,)
+
+
+@app.cell
+def _(current_config, frame_dataset, is_script_mode, training_config):
+    training_viewer_handle = (
+        ember_splatting.create_training_viewer(
+            frame_dataset,
+            training_config,
+            config=current_config.training.viewer,
+            title="FastGS training viewer",
+        )
+        if not is_script_mode
+        and current_config is not None
+        and frame_dataset is not None
+        and training_config is not None
+        else None
+    )
+    return (training_viewer_handle,)
+
+
+@app.cell
+def _(training_viewer_handle):
+    training_viewer = (
+        None
+        if training_viewer_handle is None
+        else training_viewer_handle.viewer
+    )
+    return (training_viewer,)
+
+
+@app.cell
+def _(
+    current_config,
+    frame_dataset,
+    is_script_mode,
+    train_button,
+    training_config,
+    training_viewer_handle,
+):
+    should_train = bool(train_button.value)
+    if (
+        is_script_mode
+        and current_config is not None
+        and frame_dataset is not None
+        and training_config is not None
+    ):
+        training_result = run_fastgs_training(
+            frame_dataset,
+            current_config,
+            training_config,
+        )
+    else:
+        training_result = None
+        if (
+            should_train
+            and frame_dataset is not None
+            and training_config is not None
+            and training_viewer_handle is not None
+        ):
+            training_viewer_handle.start_training(
+                frame_dataset,
+                training_config,
+            )
     return (training_result,)
 
 
 @app.cell
-def _(training_result):
-    training_result_view = (
-        mo.md("Training has not started.")
-        if training_result is None
-        else mo.md(
+def _(stop_button, training_viewer_handle):
+    should_stop = bool(stop_button.value)
+    if should_stop and training_viewer_handle is not None:
+        training_viewer_handle.request_stop()
+    return
+
+
+@app.cell
+def _(training_result, training_status_refresh, training_viewer_handle):
+    _ = training_status_refresh.value
+    if training_result is not None:
+        training_result_view = mo.md(
             f"Checkpoint: `{training_result.checkpoint_dir}`\n\n"
             f"Steps: `{len(training_result.history)}`"
         )
-    )
+    elif training_viewer_handle is None:
+        training_result_view = mo.md("Prepare the training viewer first.")
+    else:
+        snapshot = training_viewer_handle.snapshot()
+        if snapshot.status == "idle":
+            training_result_view = mo.md("Training has not started.")
+        elif snapshot.status in {"running", "stopping"}:
+            step_text = (
+                f"{snapshot.step} / {snapshot.max_steps}"
+                if snapshot.max_steps is not None
+                else str(snapshot.step)
+            )
+            metric_parts = [
+                f"{name}={value:.6g}"
+                for name, value in sorted(snapshot.latest_metrics.items())
+            ]
+            if snapshot.primitive_count is not None:
+                metric_parts.append(f"primitives={snapshot.primitive_count:,}")
+            if snapshot.iterations_per_second is not None:
+                metric_parts.append(
+                    f"it/s={snapshot.iterations_per_second:.2f}"
+                )
+            metric_text = " | ".join(metric_parts)
+            status_text = (
+                "Stopping" if snapshot.status == "stopping" else "Training"
+            )
+            speed_text = (
+                f"{snapshot.iterations_per_second:.2f} it/s"
+                if snapshot.iterations_per_second is not None
+                else "-- it/s"
+            )
+            elapsed_text = (
+                f"elapsed {format_duration(snapshot.elapsed_seconds)}"
+                if snapshot.elapsed_seconds is not None
+                else "elapsed --"
+            )
+            eta_text = (
+                f"ETA {format_duration(snapshot.eta_seconds)}"
+                if snapshot.eta_seconds is not None
+                else "ETA --"
+            )
+            training_result_view = mo.md(
+                f"{status_text}: `{step_text}` {speed_text} "
+                f"{elapsed_text} {eta_text}"
+                + (f"\n\n{metric_text}" if metric_text else "")
+            )
+        elif snapshot.status == "cancelled":
+            training_result_view = mo.md(
+                f"Training cancelled at step `{snapshot.step}`."
+            )
+        elif snapshot.status == "failed":
+            training_result_view = mo.callout(
+                f"Training failed.\n\n```text\n{snapshot.error_text or ''}\n```",
+                kind="danger",
+            )
+        else:
+            assert snapshot.result is not None
+            training_result_view = mo.md(
+                f"Checkpoint: `{snapshot.result.checkpoint_dir}`\n\n"
+                f"Steps: `{len(snapshot.result.history)}`"
+            )
     return (training_result_view,)
 
 
@@ -1196,7 +1365,7 @@ def build_fastgs_mcmc_densification(
 class HasFastGSDensificationInfo(Protocol):
     """Render-output trait for FastGS densification accumulators."""
 
-    densification_info: Float[Tensor, " 2 num_splats"]
+    densification_info: Float[Tensor, " 4 num_splats"]
 
 
 @app.class_definition
@@ -1343,6 +1512,7 @@ class FastGSVanillaDensification(BaseDensificationMethod):
         n_cloned = int(clone_mask.sum().item())
         if torch.any(clone_mask):
             self.family_ops.clone(clone_mask)
+            self._append_zero_accumulator_values(n_cloned)
         if torch.any(split_mask):
             split_mask = torch.cat(
                 [
@@ -1359,6 +1529,7 @@ class FastGSVanillaDensification(BaseDensificationMethod):
                 num_children=2,
                 scale_shrink=0.625,
             )
+            self._split_accumulator_values(split_mask, num_children=2)
         scene = self.family_ops.scene
         keep_mask = torch.sigmoid(scene.logit_opacity) >= (
             self.prune_opacity_threshold
@@ -1413,6 +1584,64 @@ class FastGSVanillaDensification(BaseDensificationMethod):
         self.visible_count = None
         self.max_screen_radii = None
 
+    def _append_zero_accumulator_values(self, count: int) -> None:
+        if count <= 0:
+            return
+        for name in (
+            "clone_grad_sum",
+            "split_grad_sum",
+            "visible_count",
+            "max_screen_radii",
+        ):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            setattr(
+                self,
+                name,
+                torch.cat(
+                    [
+                        value,
+                        torch.zeros(
+                            (count,),
+                            dtype=value.dtype,
+                            device=value.device,
+                        ),
+                    ]
+                ),
+            )
+
+    def _split_accumulator_values(
+        self,
+        split_mask: torch.Tensor,
+        *,
+        num_children: int,
+    ) -> None:
+        for name in (
+            "clone_grad_sum",
+            "split_grad_sum",
+            "visible_count",
+            "max_screen_radii",
+        ):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            child_count = int(split_mask.sum().item()) * num_children
+            setattr(
+                self,
+                name,
+                torch.cat(
+                    [
+                        value[~split_mask],
+                        torch.zeros(
+                            (child_count,),
+                            dtype=value.dtype,
+                            device=value.device,
+                        ),
+                    ]
+                ),
+            )
+
     def _ensure_buffers(
         self,
         *,
@@ -1442,10 +1671,10 @@ class FastGSVanillaDensification(BaseDensificationMethod):
             )
         scene = context.state.model.scene
         densification_info = context.render_output.densification_info.detach()
-        if densification_info.ndim != 2 or densification_info.shape[0] != 2:
+        if densification_info.ndim != 2 or densification_info.shape[0] != 4:
             raise ValueError(
                 "FastGS densification_info must have shape "
-                f"(2, num_splats), got {tuple(densification_info.shape)}."
+                f"(4, num_splats), got {tuple(densification_info.shape)}."
             )
         self._ensure_buffers(
             num_splats=int(scene.center_position.shape[0]),
@@ -1455,9 +1684,14 @@ class FastGSVanillaDensification(BaseDensificationMethod):
         assert self.clone_grad_sum is not None
         assert self.split_grad_sum is not None
         assert self.visible_count is not None
+        assert self.max_screen_radii is not None
         self.visible_count += densification_info[0]
         self.clone_grad_sum += densification_info[1]
-        self.split_grad_sum += densification_info[1]
+        self.split_grad_sum += densification_info[2]
+        self.max_screen_radii = torch.maximum(
+            self.max_screen_radii,
+            densification_info[3].to(dtype=self.max_screen_radii.dtype),
+        )
 
     def _accumulate_adapter_gradients(
         self,
@@ -1586,29 +1820,23 @@ class FastGSVanillaDensification(BaseDensificationMethod):
 def run_fastgs_training(
     frame_dataset: ember.PreparedFrameDataset,
     experiment_config: FastGSExperimentConfig,
+    training_config: ember.TrainingConfig | None = None,
+    training_viewer_handle: ember_splatting.TrainingViewerHandle | None = None,
 ) -> TrainingResult:
     """Run FastGS training from a native Ember training config."""
-    validate_fastgs_paper_compatibility(experiment_config)
+    resolved_training_config = training_config or resolve_training_config(
+        experiment_config,
+        frame_dataset,
+    )
     return ember.run_training(
         frame_dataset,
-        resolve_training_config(experiment_config, frame_dataset),
+        resolved_training_config,
+        runtime_hooks=(
+            ()
+            if training_viewer_handle is None
+            else training_viewer_handle.runtime_hooks()
+        ),
     )
-
-
-@app.function
-def validate_fastgs_paper_compatibility(
-    experiment_config: FastGSExperimentConfig,
-) -> None:
-    """Stop before running when a paper feature is not notebook-implementable."""
-    if experiment_config.training.render.backend == "faster_gs.fastgs":
-        raise NotImplementedError(
-            "The native `faster_gs.fastgs` backend exposes FastGS Compact Box "
-            "SNUGBOX, but it does not yet expose the separate AbsGS-style "
-            "absolute split-gradient statistics used by official FastGS "
-            "densification. Per the paper-fidelity rule, native FastGS "
-            "training is stopped here until that statistic is implemented. "
-            "`adapter.fastgs` remains the paper-faithful training path."
-        )
 
 
 @app.class_definition
@@ -1662,6 +1890,163 @@ def _():
 
 
 @app.function
+def fastgs_resized_cache_enabled(config: FastGSExperimentConfig) -> bool:
+    """Return whether FastGS should use a derived resized image cache."""
+    return (
+        config.data.cache_resized_images
+        and config.data.image_scale_factor != 1.0
+    )
+
+
+@app.function
+def fastgs_resized_cache_parent(config: FastGSExperimentConfig) -> Path:
+    """Return the reusable derived image cache parent for the scene."""
+    if config.data.resized_image_cache_root is not None:
+        return config.data.resized_image_cache_root.expanduser()
+    return config.scene.path.expanduser() / "ember_cache" / "resized_images"
+
+
+@app.function
+def fastgs_source_image_root(config: FastGSExperimentConfig) -> Path:
+    """Return the full-resolution source image root."""
+    if config.scene.image_root is not None:
+        return config.scene.image_root.expanduser()
+    return config.scene.path.expanduser() / "images"
+
+
+@app.function
+def fastgs_resized_cache_root(config: FastGSExperimentConfig) -> Path:
+    """Return the derived resized image cache root for this config."""
+    scale_name = f"{config.data.image_scale_factor:.6f}".rstrip("0").rstrip(".")
+    scale_name = scale_name.replace(".", "p")
+    return fastgs_resized_cache_parent(config) / (
+        f"scale_{scale_name}_{config.data.interpolation}"
+    )
+
+
+@app.function
+def fastgs_pillow_resampling(interpolation: str) -> Any:
+    """Translate notebook interpolation names to Pillow resampling filters."""
+    from PIL import Image
+
+    if interpolation == "nearest":
+        return Image.Resampling.NEAREST
+    if interpolation == "bilinear":
+        return Image.Resampling.BILINEAR
+    if interpolation == "bicubic":
+        return Image.Resampling.BICUBIC
+    raise ValueError(f"Unsupported interpolation mode {interpolation!r}.")
+
+
+@app.function
+def enforce_fastgs_resized_cache_limit(
+    *,
+    cache_root: Path,
+    max_caches: int,
+) -> None:
+    """Keep only a bounded number of reusable resized image caches."""
+    parent = cache_root.parent
+    if not parent.exists():
+        return
+    cache_dirs = [
+        path
+        for path in parent.iterdir()
+        if path.is_dir() and path.name.startswith("scale_")
+    ]
+    overflow = len(cache_dirs) - max_caches
+    if overflow <= 0:
+        return
+    evictable = sorted(
+        (path for path in cache_dirs if path != cache_root),
+        key=lambda path: path.stat().st_mtime,
+    )
+    for stale_cache in evictable[:overflow]:
+        shutil.rmtree(stale_cache)
+
+
+@app.function
+def materialize_fastgs_resized_image_cache(
+    *,
+    source_root: Path,
+    cache_root: Path,
+    scale: float,
+    interpolation: str,
+    max_caches: int,
+) -> Path:
+    """Create/update a derived resized image cache from full-res images."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from PIL import Image
+    from tqdm.auto import tqdm
+
+    image_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    source_paths = sorted(
+        path
+        for path in source_root.rglob("*")
+        if path.is_file() and path.suffix.lower() in image_suffixes
+    )
+    if not source_paths:
+        raise ValueError(f"No source images found under {source_root}.")
+    resampling = fastgs_pillow_resampling(interpolation)
+    enforce_fastgs_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    def resize_one(source_path: Path) -> None:
+        relative_path = source_path.relative_to(source_root)
+        target_path = cache_root / relative_path
+        if (
+            target_path.exists()
+            and target_path.stat().st_mtime >= source_path.stat().st_mtime
+        ):
+            return
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(source_path) as image:
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            resized_size = (
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
+            )
+            resized = rgb.resize(resized_size, resampling)
+            save_kwargs = (
+                {"quality": 95}
+                if target_path.suffix.lower() in {".jpg", ".jpeg"}
+                else {}
+            )
+            resized.save(target_path, **save_kwargs)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(resize_one, path) for path in source_paths]
+        for future in tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Preparing resized image cache",
+        ):
+            future.result()
+    (cache_root / "cache_metadata.json").write_text(
+        json.dumps(
+            {
+                "source_root": str(source_root),
+                "scale": scale,
+                "interpolation": interpolation,
+                "num_images": len(source_paths),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    cache_root.touch()
+    enforce_fastgs_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    return cache_root
+
+
+@app.function
 def build_scene_load_config(
     config: FastGSExperimentConfig,
 ) -> ember.ColmapSceneConfig:
@@ -1669,13 +2054,27 @@ def build_scene_load_config(
     source_pipes = (
         (ember.HorizonAlignPipeConfig(),) if config.scene.align_horizon else ()
     )
-    return ember.ColmapSceneConfig(
-        path=config.scene.path.expanduser(),
-        image_root=(
+    prebuilt_scaled_image_root = fastgs_prebuilt_scaled_image_root(config)
+    image_root = (
+        prebuilt_scaled_image_root
+        if prebuilt_scaled_image_root is not None
+        else materialize_fastgs_resized_image_cache(
+            source_root=fastgs_source_image_root(config),
+            cache_root=fastgs_resized_cache_root(config),
+            scale=config.data.image_scale_factor,
+            interpolation=config.data.interpolation,
+            max_caches=config.data.max_resized_image_caches,
+        )
+        if fastgs_resized_cache_enabled(config)
+        else (
             config.scene.image_root.expanduser()
             if config.scene.image_root is not None
             else None
-        ),
+        )
+    )
+    return ember.ColmapSceneConfig(
+        path=config.scene.path.expanduser(),
+        image_root=image_root,
         undistort_output_dir=(
             config.scene.undistort_output_dir.expanduser()
             if config.scene.undistort_output_dir is not None
@@ -1709,7 +2108,11 @@ def build_prepared_frame_dataset_config(
         ),
         image_preparation=ember.ImagePreparationConfig(
             normalize=config.data.normalize_images,
-            resize_width_scale=config.data.image_scale_factor,
+            resize_width_scale=(
+                None
+                if fastgs_resized_cache_enabled(config)
+                else config.data.image_scale_factor
+            ),
             resize_width_target=None,
             interpolation=config.data.interpolation,
         ),

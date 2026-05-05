@@ -70,7 +70,7 @@ preprocess_fwd_wrapper(
     float focal_y,
     float center_x,
     float center_y,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int active_sh_bases,
     float compact_box_scale) {
     check_cuda_float_tensor(means, "means");
@@ -156,7 +156,7 @@ preprocess_fwd_wrapper(
             center_y,
             near_plane,
             far_plane,
-            proper_antialiasing,
+            mip_splatting_screen_filter,
             compact_box_scale
         );
     CHECK_CUDA(config::debug, "fastgs_preprocess_fwd")

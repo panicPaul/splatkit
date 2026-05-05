@@ -6,7 +6,6 @@ import html
 import json
 import math
 import operator
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, Flag
@@ -48,6 +47,9 @@ from marimo_config_gui.elements import (
     PrimitiveTupleGui,
     PydanticGui,
     PydanticJsonGui,
+)
+from marimo_config_gui.labels import (
+    _disambiguate_labels,
 )
 from marimo_config_gui.state import (
     ModelT,
@@ -1295,28 +1297,6 @@ def _coerce_field_gui_config(raw_config: dict[str, Any]) -> _FieldGuiConfig:
     )
 
 
-def _humanize_model_name(model_cls: type[BaseModel]) -> str:
-    title = getattr(model_cls, "model_config", {}).get("title")
-    if isinstance(title, str) and title:
-        return title
-    name = model_cls.__name__
-    for suffix in ("Config", "Model"):
-        if name.endswith(suffix) and len(name) > len(suffix):
-            name = name[: -len(suffix)]
-            break
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", name).strip()
-
-
-def _disambiguate_labels(labels: list[str]) -> list[str]:
-    counts: dict[str, int] = {}
-    result: list[str] = []
-    for label in labels:
-        count = counts.get(label, 0) + 1
-        counts[label] = count
-        result.append(label if count == 1 else f"{label} ({count})")
-    return result
-
-
 def _slider_limits(
     annotation: type[int] | type[float],
     bounds: _NumericBounds,
@@ -1425,7 +1405,9 @@ def _default_value_for_annotation(
             for model_type in _model_tuple_types(annotation)
         )
     if _is_compact_primitive_tuple_type(annotation):
-        return tuple(item_type() for item_type in _primitive_tuple_types(annotation))
+        return tuple(
+            item_type() for item_type in _primitive_tuple_types(annotation)
+        )
     if _is_primitive_list_type(annotation):
         return []
     if _is_json_sequence_type(annotation):

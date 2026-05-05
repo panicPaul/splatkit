@@ -319,7 +319,7 @@ namespace ember_fastgs::rasterization::kernels::forward {
         const float center_y,
         const float near_plane,
         const float far_plane,
-        const bool proper_antialiasing,
+        const bool mip_splatting_screen_filter,
         const float compact_box_scale)
     {
         constexpr uint warp_size = 32;
@@ -409,7 +409,7 @@ namespace ember_fastgs::rasterization::kernels::forward {
             dot(jwc_r2, jw_r2)
         );
         const float determinant_raw = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-        const float kernel_size = proper_antialiasing ? config::dilation_proper_antialiasing : config::dilation;
+        const float kernel_size = mip_splatting_screen_filter ? config::dilation_mip_splatting_screen_filter : config::dilation;
         cov2d.x += kernel_size;
         cov2d.z += kernel_size;
         const float determinant = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
@@ -419,7 +419,7 @@ namespace ember_fastgs::rasterization::kernels::forward {
             -cov2d.y / determinant,
             cov2d.x / determinant
         );
-        if (proper_antialiasing) {
+        if (mip_splatting_screen_filter) {
             opacity *= sqrtf(fmaxf(determinant_raw / determinant, 0.0f));
             if (config::original_opacity_interpretation && opacity < config::min_alpha_threshold) active = false;
         }

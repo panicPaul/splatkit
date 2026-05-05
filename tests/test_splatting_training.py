@@ -40,6 +40,7 @@ from ember_native_faster_gs.faster_gs.renderer import (
 from ember_native_faster_gs.faster_gs_depth.renderer import (
     FasterGSDepthNativeRenderOptions,
 )
+from ember_native_faster_gs.fastgs.renderer import FastGSNativeRenderOptions
 from ember_native_faster_gs.gaussian_pop.renderer import (
     GaussianPopNativeRenderOptions,
 )
@@ -106,7 +107,9 @@ def test_rgb_l1_dssim_loss_hides_inactive_regularizer_metrics(
 ) -> None:
     monkeypatch.setattr(
         "ember_splatting_training.losses.dssim_loss",
-        lambda prediction, target, *, backend="cuda": prediction.new_tensor(0.0),
+        lambda prediction, target, *, backend="cuda": prediction.new_tensor(
+            0.0
+        ),
     )
     scene = GaussianScene3D(
         center_position=torch.zeros((1, 3), dtype=torch.float32),
@@ -129,7 +132,9 @@ def test_rgb_l1_dssim_loss_hides_inactive_regularizer_metrics(
         seed=0,
         device=torch.device("cpu"),
     )
-    batch = SimpleNamespace(images=torch.zeros((1, 1, 1, 3), dtype=torch.float32))
+    batch = SimpleNamespace(
+        images=torch.zeros((1, 1, 1, 3), dtype=torch.float32)
+    )
     render_output = RenderOutput(
         render=torch.zeros((1, 1, 1, 3), dtype=torch.float32)
     )
@@ -276,9 +281,7 @@ def test_gaussian_3dgs_optimization_recipe_accepts_paper_aliases() -> None:
 
     assert payload["center_position_lr_init"] == 0.1
     assert "means_lr_init" not in payload
-    assert [
-        group.target.name for group in config.parameter_groups
-    ] == [
+    assert [group.target.name for group in config.parameter_groups] == [
         "center_position",
         "feature",
         "feature",
@@ -309,8 +312,8 @@ def _trainable_scene(scene: GaussianScene3D) -> GaussianScene3D:
     for field_def in fields(scene):
         value = getattr(scene, field_def.name)
         if isinstance(value, torch.Tensor):
-            updates[field_def.name] = value.detach().clone().requires_grad_(
-                value.is_floating_point()
+            updates[field_def.name] = (
+                value.detach().clone().requires_grad_(value.is_floating_point())
             )
     return replace(scene, **updates)
 
@@ -758,7 +761,9 @@ def test_training_viewer_rerender_can_wait_when_configured() -> None:
     assert viewer.wait_values == [True]
 
 
-def test_training_viewer_is_noop_outside_notebook(monkeypatch, tmp_path: Path) -> None:
+def test_training_viewer_is_noop_outside_notebook(
+    monkeypatch, tmp_path: Path
+) -> None:
     del tmp_path
     monkeypatch.setattr(
         "ember_splatting_training.training_viewer.mo.running_in_notebook",
@@ -886,7 +891,9 @@ def test_training_viewer_snapshot_reports_throughput_and_eta() -> None:
     assert snapshot.eta_seconds == pytest.approx(1.75, abs=1e-3)
 
 
-def test_training_viewer_start_training_rejects_duplicate_runs(monkeypatch) -> None:
+def test_training_viewer_start_training_rejects_duplicate_runs(
+    monkeypatch,
+) -> None:
     started = threading.Event()
     release = threading.Event()
 
@@ -1082,7 +1089,9 @@ def test_training_viewer_render_uses_stable_snapshot() -> None:
     assert torch.equal(rendered, torch.ones((2, 2, 3)))
 
 
-def test_training_viewer_render_falls_back_to_dc_features_for_black_frame() -> None:
+def test_training_viewer_render_falls_back_to_dc_features_for_black_frame() -> (
+    None
+):
     scene = GaussianScene3D(
         center_position=torch.zeros((1, 3)),
         log_scales=torch.zeros((1, 3)),
@@ -1146,5 +1155,6 @@ def test_training_viewer_interaction_boost_uses_boost_cadence() -> None:
 
 def test_faster_gs_family_antialiasing_defaults_enabled() -> None:
     assert FasterGSNativeRenderOptions().mip_splatting_screen_filter is True
+    assert FastGSNativeRenderOptions().mip_splatting_screen_filter is False
     assert FasterGSDepthNativeRenderOptions().proper_antialiasing is True
     assert GaussianPopNativeRenderOptions().proper_antialiasing is True

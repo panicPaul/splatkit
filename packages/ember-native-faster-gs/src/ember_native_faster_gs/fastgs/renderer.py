@@ -21,10 +21,8 @@ from ember_native_faster_gs.faster_gs.renderer import (
     _split_sh_coefficients,
     _validate_inputs,
 )
-from ember_native_faster_gs.faster_gs.runtime import (
-    blend_metric_counts,
-)
 from ember_native_faster_gs.fastgs.runtime import (
+    blend_metric_counts,
     preprocess,
     sort,
 )
@@ -46,7 +44,7 @@ class FastGSNativeRenderOutput(RenderOutput):
 class FastGSNativeDensificationRenderOutput(FastGSNativeRenderOutput):
     """Native FastGS output with densification accumulators."""
 
-    densification_info: Float[Tensor, " 2 num_splats"]
+    densification_info: Float[Tensor, " 4 num_splats"]
 
 
 @beartype
@@ -54,6 +52,7 @@ class FastGSNativeDensificationRenderOutput(FastGSNativeRenderOutput):
 class FastGSNativeRenderOptions(FasterGSNativeRenderOptions):
     """Native FastGS render configuration."""
 
+    mip_splatting_screen_filter: bool = False
     compact_box_scale: float = 0.5
 
 
@@ -120,11 +119,11 @@ class FastGSNativeGaussianMetricAttribution(GaussianMetricAttribution):
             focal_y=float(intrinsics[1, 1].item()),
             center_x=float(intrinsics[0, 2].item()),
             center_y=float(intrinsics[1, 2].item()),
-            proper_antialiasing=resolved_options.proper_antialiasing,
-            active_sh_bases=active_sh_bases,
-            compact_box_scale=(
-                resolved_options.compact_box_scale
+            mip_splatting_screen_filter=(
+                resolved_options.mip_splatting_screen_filter
             ),
+            active_sh_bases=active_sh_bases,
+            compact_box_scale=(resolved_options.compact_box_scale),
         )
         sort_result = sort(
             preprocess_result.depth_keys,
@@ -137,9 +136,7 @@ class FastGSNativeGaussianMetricAttribution(GaussianMetricAttribution):
             preprocess_result.instance_count,
             width=width,
             height=height,
-            compact_box_scale=(
-                resolved_options.compact_box_scale
-            ),
+            compact_box_scale=(resolved_options.compact_box_scale),
         )
         metric_counts = blend_metric_counts(
             sort_result.instance_primitive_indices,
@@ -151,9 +148,9 @@ class FastGSNativeGaussianMetricAttribution(GaussianMetricAttribution):
             preprocess_result.colors_rgb,
             background_color,
             metric_map_flat,
-            resolved_options.proper_antialiasing,
-            width=width,
-            height=height,
+            resolved_options.mip_splatting_screen_filter,
+            image_width=width,
+            image_height=height,
         )
         return metric_counts.to(dtype=scene.center_position.dtype)
 
@@ -228,7 +225,7 @@ def render_fastgs_native(
     renders: list[Tensor] = []
     densification_info = (
         torch.zeros(
-            (2, scene.center_position.shape[0]),
+            (4, scene.center_position.shape[0]),
             dtype=torch.float32,
             device=scene.center_position.device,
         )
@@ -258,11 +255,11 @@ def render_fastgs_native(
             center_x=float(camera_intrinsics[0, 2].item()),
             center_y=float(camera_intrinsics[1, 2].item()),
             bg_color=background_color,
-            proper_antialiasing=resolved_options.proper_antialiasing,
-            active_sh_bases=active_sh_bases,
-            compact_box_scale=(
-                resolved_options.compact_box_scale
+            mip_splatting_screen_filter=(
+                resolved_options.mip_splatting_screen_filter
             ),
+            active_sh_bases=active_sh_bases,
+            compact_box_scale=(resolved_options.compact_box_scale),
             densification_info=densification_info,
         )
         renders.append(render_result.image.permute(1, 2, 0).contiguous())

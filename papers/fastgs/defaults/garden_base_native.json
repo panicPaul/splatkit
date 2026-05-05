@@ -43,7 +43,7 @@
       "backend": "faster_gs.fastgs",
       "near_plane": 0.2,
       "far_plane": 10000.0,
-      "proper_antialiasing": false,
+      "mip_splatting_screen_filter": false,
       "compact_box_scale": 0.5,
       "background_color": [
         0.0,

@@ -15,12 +15,6 @@ from ember_native_faster_gs.faster_gs.runtime.ops._common import (
     TILE_WIDTH,
     requires_grad,
 )
-from ember_native_faster_gs.faster_gs.runtime.ops.blend import (
-    _blend_bwd_fake,
-    _blend_fwd_fake,
-    blend_bwd_op,
-    blend_fwd_op,
-)
 from ember_native_faster_gs.faster_gs.runtime.ops.preprocess import (
     _preprocess_bwd_fake,
     preprocess_bwd_op,
@@ -60,6 +54,230 @@ def backend() -> Any:
     return load_extension()
 
 
+@torch.library.custom_op("fastgs::blend_fwd", mutates_args=())
+def blend_fwd_op(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Low-level native FastGS blend forward op."""
+    return backend().blend_fwd(
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bucket_count,
+        projected_means,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
+    )
+
+
+@blend_fwd_op.register_fake
+def _blend_fwd_fake(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    del (
+        instance_primitive_indices,
+        tile_bucket_offsets,
+        bucket_count,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        mip_splatting_screen_filter,
+    )
+    device = projected_means.device
+    dtype = projected_means.dtype
+    tile_count = int(tile_instance_ranges.shape[0])
+    tile_pixels = tile_count * TILE_WIDTH * TILE_HEIGHT
+    return (
+        torch.empty((3, image_height, image_width), device=device, dtype=dtype),
+        torch.empty((tile_pixels,), device=device, dtype=dtype),
+        torch.empty((tile_count,), device=device, dtype=torch.int32),
+        torch.empty((tile_pixels,), device=device, dtype=torch.int32),
+        torch.empty((tile_count,), device=device, dtype=torch.int32),
+        torch.empty(
+            (tile_count * TILE_WIDTH * TILE_HEIGHT, 4),
+            device=device,
+            dtype=dtype,
+        ),
+    )
+
+
+@torch.library.custom_op("fastgs::blend_metric_counts_fwd", mutates_args=())
+def blend_metric_counts_fwd_op(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    metric_map: Tensor,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
+) -> Tensor:
+    """Low-level native FastGS metric-count attribution op."""
+    return backend().blend_metric_counts_fwd(
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bucket_count,
+        projected_means,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        metric_map,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
+    )
+
+
+@blend_metric_counts_fwd_op.register_fake
+def _blend_metric_counts_fwd_fake(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    metric_map: Tensor,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
+) -> Tensor:
+    del (
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bucket_count,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        metric_map,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
+    )
+    return torch.empty(
+        (projected_means.shape[0],),
+        device=projected_means.device,
+        dtype=torch.int32,
+    )
+
+
+@torch.library.custom_op("fastgs::blend_bwd", mutates_args=())
+def blend_bwd_op(
+    grad_image: Tensor,
+    image: Tensor,
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    tile_final_transmittances: Tensor,
+    tile_max_n_processed: Tensor,
+    tile_n_processed: Tensor,
+    bucket_tile_index: Tensor,
+    bucket_color_transmittance: Tensor,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Low-level native FastGS blend backward op."""
+    return backend().blend_bwd(
+        grad_image,
+        image,
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        projected_means,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        tile_final_transmittances,
+        tile_max_n_processed,
+        tile_n_processed,
+        bucket_tile_index,
+        bucket_color_transmittance,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
+    )
+
+
+@blend_bwd_op.register_fake
+def _blend_bwd_fake(
+    grad_image: Tensor,
+    image: Tensor,
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    tile_final_transmittances: Tensor,
+    tile_max_n_processed: Tensor,
+    tile_n_processed: Tensor,
+    bucket_tile_index: Tensor,
+    bucket_color_transmittance: Tensor,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    del (
+        grad_image,
+        image,
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bg_color,
+        tile_final_transmittances,
+        tile_max_n_processed,
+        tile_n_processed,
+        bucket_tile_index,
+        bucket_color_transmittance,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
+    )
+    return (
+        torch.empty_like(projected_means),
+        torch.empty_like(projected_means),
+        torch.empty_like(conic_opacity),
+        torch.empty_like(colors_rgb),
+    )
+
+
 @torch.library.custom_op("fastgs::preprocess_fwd", mutates_args=())
 def preprocess_fwd_op(
     center_positions: Tensor,
@@ -78,7 +296,7 @@ def preprocess_fwd_op(
     focal_y: float,
     center_x: float,
     center_y: float,
-    proper_antialiasing: bool,
+    mip_splatting_screen_filter: bool,
     active_sh_bases: int,
     compact_box_scale: float,
 ) -> tuple[
@@ -111,7 +329,7 @@ def preprocess_fwd_op(
         focal_y,
         center_x,
         center_y,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         active_sh_bases,
         compact_box_scale,
     )
@@ -135,7 +353,7 @@ def _preprocess_fwd_fake(
     focal_y: float,
     center_x: float,
     center_y: float,
-    proper_antialiasing: bool,
+    mip_splatting_screen_filter: bool,
     active_sh_bases: int,
     compact_box_scale: float,
 ) -> tuple[
@@ -166,7 +384,7 @@ def _preprocess_fwd_fake(
         focal_y,
         center_x,
         center_y,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         active_sh_bases,
         compact_box_scale,
     )
@@ -272,7 +490,7 @@ def render_fwd_op(
     center_x: float,
     center_y: float,
     bg_color: Tensor,
-    proper_antialiasing: bool,
+    mip_splatting_screen_filter: bool,
     active_sh_bases: int,
     compact_box_scale: float,
 ) -> RenderOpOutput:
@@ -294,7 +512,7 @@ def render_fwd_op(
         focal_y,
         center_x,
         center_y,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         active_sh_bases,
         compact_box_scale,
     )
@@ -320,7 +538,7 @@ def render_fwd_op(
         preprocess_outputs[1],
         preprocess_outputs[2],
         bg_color,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         width,
         height,
     )
@@ -350,7 +568,7 @@ def _render_fwd_fake(
     center_x: float,
     center_y: float,
     bg_color: Tensor,
-    proper_antialiasing: bool,
+    mip_splatting_screen_filter: bool,
     active_sh_bases: int,
     compact_box_scale: float,
 ) -> RenderOpOutput:
@@ -371,7 +589,7 @@ def _render_fwd_fake(
         focal_y,
         center_x,
         center_y,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         active_sh_bases,
         compact_box_scale,
     )
@@ -397,7 +615,7 @@ def _render_fwd_fake(
         preprocess_outputs[1],
         preprocess_outputs[2],
         bg_color,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         width,
         height,
     )
@@ -437,7 +655,7 @@ def render_bwd_op(
     bucket_color_transmittance: Tensor,
     densification_info: Tensor,
     grad_image: Tensor,
-    proper_antialiasing: bool,
+    mip_splatting_screen_filter: bool,
     width: int,
     height: int,
     focal_x: float,
@@ -447,7 +665,12 @@ def render_bwd_op(
     active_sh_bases: int,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """Low-level composed FastGS render backward op."""
-    grad_projected_means, grad_conic_opacity, grad_colors_rgb = blend_bwd_op(
+    (
+        grad_projected_means,
+        grad_projected_means_abs,
+        grad_conic_opacity,
+        grad_colors_rgb,
+    ) = blend_bwd_op(
         grad_image,
         image,
         instance_primitive_indices,
@@ -462,11 +685,24 @@ def render_bwd_op(
         tile_n_processed,
         bucket_tile_index,
         bucket_color_transmittance,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         width,
         height,
     )
-    return preprocess_bwd_op(
+    if densification_info.ndim == 2 and densification_info.shape[0] >= 4:
+        grad_projected_means_abs_ndc = 0.5 * torch.stack(
+            (
+                grad_projected_means_abs[:, 0] * width,
+                grad_projected_means_abs[:, 1] * height,
+            ),
+            dim=1,
+        )
+        densification_info[2].add_(grad_projected_means_abs_ndc.norm(dim=-1))
+    if densification_info.ndim == 2 and densification_info.shape[0] >= 2:
+        core_densification_info = densification_info[:2]
+    else:
+        core_densification_info = densification_info
+    grads = preprocess_bwd_op(
         center_positions,
         log_scales,
         unnormalized_rotations,
@@ -480,16 +716,17 @@ def render_bwd_op(
         grad_conic_opacity,
         grad_colors_rgb,
         torch.zeros_like(projected_means[:, 0]),
-        densification_info,
+        core_densification_info,
         width,
         height,
         focal_x,
         focal_y,
         center_x,
         center_y,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         active_sh_bases,
     )
+    return grads
 
 
 @render_bwd_op.register_fake
@@ -518,7 +755,7 @@ def _render_bwd_fake(
     bucket_color_transmittance: Tensor,
     densification_info: Tensor,
     grad_image: Tensor,
-    proper_antialiasing: bool,
+    mip_splatting_screen_filter: bool,
     width: int,
     height: int,
     focal_x: float,
@@ -539,7 +776,12 @@ def _render_bwd_fake(
         bucket_tile_index,
         bucket_color_transmittance,
     )
-    grad_projected_means, grad_conic_opacity, grad_colors_rgb = _blend_bwd_fake(
+    (
+        grad_projected_means,
+        _grad_projected_means_abs,
+        grad_conic_opacity,
+        grad_colors_rgb,
+    ) = _blend_bwd_fake(
         grad_image,
         center_positions,
         center_positions,
@@ -554,7 +796,7 @@ def _render_bwd_fake(
         center_positions,
         center_positions,
         center_positions,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         width,
         height,
     )
@@ -579,7 +821,7 @@ def _render_bwd_fake(
         focal_y,
         center_x,
         center_y,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         active_sh_bases,
     )
 
@@ -602,7 +844,7 @@ def _render_impl(
     center_x: float,
     center_y: float,
     bg_color: Tensor,
-    proper_antialiasing: bool,
+    mip_splatting_screen_filter: bool,
     active_sh_bases: int,
     compact_box_scale: float,
     densification_info: Tensor,
@@ -627,7 +869,7 @@ def _render_impl(
         center_x,
         center_y,
         bg_color,
-        proper_antialiasing,
+        mip_splatting_screen_filter,
         active_sh_bases,
         compact_box_scale,
     )
@@ -686,7 +928,7 @@ def _render_setup_context(
     ctx.focal_y = inputs[13]
     ctx.center_x = inputs[14]
     ctx.center_y = inputs[15]
-    ctx.proper_antialiasing = inputs[17]
+    ctx.mip_splatting_screen_filter = inputs[17]
     ctx.active_sh_bases = inputs[18]
 
 
@@ -701,7 +943,7 @@ def _render_backward(
     grads = render_bwd_op(
         *ctx.saved_tensors,
         grad_image,
-        ctx.proper_antialiasing,
+        ctx.mip_splatting_screen_filter,
         ctx.width,
         ctx.height,
         ctx.focal_x,

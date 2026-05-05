@@ -19,6 +19,7 @@ from ember_native_faster_gs.faster_gs import (
     register as register_faster_gs,
 )
 from ember_native_faster_gs.fastgs import (
+    FastGSNativeDensificationRenderOutput,
     FastGSNativeRenderOptions,
     FastGSNativeRenderOutput,
     register,
@@ -96,7 +97,9 @@ def test_fastgs_native_backend_matches_existing_fastgs_adapter(
         render_fastgs_native(
             cuda_scene,
             cuda_camera,
-            options=FastGSNativeRenderOptions(proper_antialiasing=False),
+            options=FastGSNativeRenderOptions(
+                mip_splatting_screen_filter=False
+            ),
         ),
     )
     adapter_output = cast(
@@ -144,7 +147,7 @@ def test_fastgs_native_metric_attribution_matches_existing_fastgs_adapter(
         cuda_scene,
         cuda_camera,
         metric_map,
-        options=FastGSNativeRenderOptions(proper_antialiasing=False),
+        options=FastGSNativeRenderOptions(mip_splatting_screen_filter=False),
     )
     adapter_counts = adapter_provider.attribute_metric_map(
         cuda_scene,
@@ -202,6 +205,65 @@ def test_fastgs_native_metric_attribution_rejects_invalid_inputs(
             ),
             options=FastGSNativeRenderOptions(),
         )
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_fastgs_native_collects_expanded_densification_info(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    output = cast(
+        FastGSNativeDensificationRenderOutput,
+        render_fastgs_native(
+            cuda_scene,
+            cuda_camera,
+            options=FastGSNativeRenderOptions(
+                collect_densification_info=True,
+            ),
+        ),
+    )
+
+    assert output.densification_info.shape == (
+        4,
+        cuda_scene.center_position.shape[0],
+    )
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_fastgs_native_densification_info_allows_backward(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    scene = replace(
+        cuda_scene,
+        center_position=cuda_scene.center_position.detach().requires_grad_(),
+        log_scales=cuda_scene.log_scales.detach().requires_grad_(),
+        quaternion_orientation=(
+            cuda_scene.quaternion_orientation.detach().requires_grad_()
+        ),
+        logit_opacity=cuda_scene.logit_opacity.detach().requires_grad_(),
+        feature=cuda_scene.feature.detach().requires_grad_(),
+    )
+    output = cast(
+        FastGSNativeDensificationRenderOutput,
+        render_fastgs_native(
+            scene,
+            cuda_camera,
+            options=FastGSNativeRenderOptions(
+                collect_densification_info=True,
+            ),
+        ),
+    )
+
+    output.render.sum().backward()
+
+    assert scene.center_position.grad is not None
+    assert output.densification_info.shape == (
+        4,
+        scene.center_position.shape[0],
+    )
 
 
 def test_faster_gs_core_does_not_expose_fastgs_metric_attribution() -> None:

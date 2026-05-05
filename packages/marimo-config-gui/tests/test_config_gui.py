@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import marimo_config_gui.api as pgui
+import marimo_config_gui.labels as labels
 import marimo_config_gui.widgets as widgets
 import pytest
 from marimo._runtime.control_flow import MarimoStopError
@@ -23,7 +24,7 @@ from marimo_config_gui.elements import (
 )
 from marimo_config_gui.presets import load_json_config, load_preset_config
 from marimo_config_gui.state import ConfigBindings
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 config_gui_panel = pgui.config_gui_panel
 config_json_editor = pgui.config_json_editor
@@ -148,6 +149,15 @@ class _UnionB(BaseModel):
 
 class _UnionRoot(BaseModel):
     item: _UnionA | _UnionB = Field(default_factory=_UnionA)
+
+
+class _UnionFieldDefaultRoot(BaseModel):
+    enabled: bool = True
+    item: _UnionA | _UnionB = Field(_UnionA())
+
+
+class _TitledResNetConfig(BaseModel):
+    model_config = ConfigDict(title="Custom ResNet-50")
 
 
 @pytest.fixture
@@ -1314,6 +1324,40 @@ def test_union_json_serialization_keeps_kind(notebook_runtime: None) -> None:
     )
 
     assert '"__kind__": "_UnionB"' in widgets._payload_to_json(form_gui_state())
+
+
+@pytest.mark.parametrize(
+    ("identifier", "expected"),
+    [
+        ("TrainingConfig", "Training"),
+        ("TrainingRunConfig", "Training Run"),
+        ("HTTPServerConfig", "HTTP Server"),
+        ("NDGSRendererConfig", "NDGS Renderer"),
+        ("ResNet50Config", "ResNet50"),
+        ("MobileNetV3Config", "MobileNetV3"),
+        ("Stage2TrainingConfig", "Stage2 Training"),
+        ("Gaussian2DTrainingConfig", "Gaussian2D Training"),
+    ],
+)
+def test_model_name_humanization_is_alphanumeric_aware(
+    identifier: str,
+    expected: str,
+) -> None:
+    model_cls = type(identifier, (BaseModel,), {})
+
+    assert labels.humanize_model_name(model_cls) == expected
+
+
+def test_model_name_humanization_uses_pydantic_title() -> None:
+    assert labels.humanize_model_name(_TitledResNetConfig) == "Custom ResNet-50"
+
+
+def test_config_gui_builds_model_union_field_default(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_UnionFieldDefaultRoot, background=None)
+
+    assert type(config_gui.gui_panel()).__name__ == "PydanticGui"
 
 
 def test_json_editor_uses_model_field_order(notebook_runtime: None) -> None:

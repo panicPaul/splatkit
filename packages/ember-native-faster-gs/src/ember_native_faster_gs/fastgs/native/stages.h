@@ -34,7 +34,7 @@ preprocess_fwd_wrapper(
     float focal_y,
     float center_x,
     float center_y,
-    bool proper_antialiasing,
+    bool mip_splatting_screen_filter,
     int active_sh_bases,
     float compact_box_scale);
 
@@ -51,5 +51,59 @@ sort_fwd_wrapper(
     int width,
     int height,
     float compact_box_scale);
+
+std::tuple<
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor>
+blend_fwd_wrapper(
+    const torch::Tensor& instance_primitive_indices,
+    const torch::Tensor& tile_instance_ranges,
+    const torch::Tensor& tile_bucket_offsets,
+    const torch::Tensor& bucket_count,
+    const torch::Tensor& projected_means,
+    const torch::Tensor& conic_opacity,
+    const torch::Tensor& colors_rgb,
+    const torch::Tensor& bg_color,
+    bool mip_splatting_screen_filter,
+    int width,
+    int height);
+
+torch::Tensor blend_metric_counts_fwd_wrapper(
+    const torch::Tensor& instance_primitive_indices,
+    const torch::Tensor& tile_instance_ranges,
+    const torch::Tensor& tile_bucket_offsets,
+    const torch::Tensor& bucket_count,
+    const torch::Tensor& projected_means,
+    const torch::Tensor& conic_opacity,
+    const torch::Tensor& colors_rgb,
+    const torch::Tensor& bg_color,
+    const torch::Tensor& metric_map,
+    bool mip_splatting_screen_filter,
+    int width,
+    int height);
+
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+blend_bwd_wrapper(
+    const torch::Tensor& grad_image,
+    const torch::Tensor& image,
+    const torch::Tensor& instance_primitive_indices,
+    const torch::Tensor& tile_instance_ranges,
+    const torch::Tensor& tile_bucket_offsets,
+    const torch::Tensor& projected_means,
+    const torch::Tensor& conic_opacity,
+    const torch::Tensor& colors_rgb,
+    const torch::Tensor& bg_color,
+    const torch::Tensor& tile_final_transmittances,
+    const torch::Tensor& tile_max_n_processed,
+    const torch::Tensor& tile_n_processed,
+    const torch::Tensor& bucket_tile_index,
+    const torch::Tensor& bucket_color_transmittance,
+    bool mip_splatting_screen_filter,
+    int width,
+    int height);
 
 }  // namespace ember_core::fastgs_native

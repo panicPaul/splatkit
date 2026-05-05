@@ -24,6 +24,10 @@ from marimo_config_gui.constants import (
     TABS_KEY,
     UNION_ACTIVE_KEY,
 )
+from marimo_config_gui.labels import (
+    _disambiguate_labels,
+    _humanize_model_name,
+)
 from marimo_config_gui.state import ModelT
 
 CONFIG_FORM_VIEW_KEY = "__config_form__"
@@ -1964,5 +1968,23 @@ def _parse_structural_frontend_value(*args: Any, **kwargs: Any) -> Any:
     from marimo_config_gui.widgets import (
         _parse_structural_frontend_value as impl,
     )
+
+    return impl(*args, **kwargs)
+
+
+def _union_kind_for_model(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _union_kind_for_model as impl
+
+    return impl(*args, **kwargs)
+
+
+def _union_payload(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _union_payload as impl
+
+    return impl(*args, **kwargs)
+
+
+def _union_value_matches_branch(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _union_value_matches_branch as impl
 
     return impl(*args, **kwargs)
