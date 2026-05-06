@@ -50,6 +50,10 @@ def test_fastgs_resolved_training_config_defaults_to_native_backend() -> None:
     training_config = module.resolve_training_config(experiment_config)
 
     assert experiment_config.training.render.backend == "faster_gs.fastgs"
+    assert experiment_config.data.materialization_stage == "prepared"
+    assert experiment_config.data.materialization_mode == "eager"
+    assert experiment_config.data.materialization_num_workers == 8
+    assert experiment_config.training.batching.num_workers == 8
     assert training_config.render.backend == "faster_gs.fastgs"
     assert training_config.render.backend_options == {
         "near_plane": 0.2,
@@ -83,6 +87,10 @@ def test_fastgs_garden_big_preset_uses_native_upstream_settings() -> None:
     training_config = module.resolve_training_config(experiment_config)
 
     assert experiment_config.training.render.backend == "faster_gs.fastgs"
+    assert experiment_config.data.materialization_stage == "prepared"
+    assert experiment_config.data.materialization_mode == "eager"
+    assert experiment_config.data.materialization_num_workers == 8
+    assert experiment_config.training.batching.num_workers == 8
     assert training_config.render.backend == "faster_gs.fastgs"
     assert (
         training_config.checkpoint.output_dir

@@ -95,9 +95,12 @@ def test_fastergs_resolved_training_config_supports_both_backends(
             training_config.densification.builders[0].target
             == "papers.fastergs.notebook.FasterGSVanillaDensification"
         )
-        assert training_config.densification.builders[0].context_kwargs == {}
+        assert training_config.densification.builders[0].context_kwargs == {
+            "camera_extent": "camera_extent"
+        }
         assert (
-            "camera_extent" in training_config.densification.builders[0].kwargs
+            "camera_extent"
+            not in training_config.densification.builders[0].kwargs
         )
         assert (
             training_config.render.training_backend_options_builder.target

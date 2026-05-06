@@ -94,7 +94,7 @@ def test_benchmark_dataloader_reports_expected_metrics() -> None:
             materialization=MaterializationConfig(
                 stage="prepared",
                 mode="eager",
-                num_workers=0,
+                num_workers=8,
             ),
             image_preparation=ImagePreparationConfig(normalize=True),
         ),
@@ -128,7 +128,7 @@ def test_benchmark_dataloader_applies_prepare_batch_callback() -> None:
             materialization=MaterializationConfig(
                 stage="prepared",
                 mode="eager",
-                num_workers=0,
+                num_workers=8,
             ),
             image_preparation=ImagePreparationConfig(normalize=True),
         ),

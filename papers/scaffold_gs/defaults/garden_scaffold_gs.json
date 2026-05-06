@@ -1,0 +1,132 @@
+{
+  "preset": "garden_scaffold_gs",
+  "scene": {
+    "path": "dataset/mipnerf360/garden",
+    "image_root": null,
+    "undistort_output_dir": null,
+    "align_horizon": true,
+    "white_background": false
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 1.0,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "none",
+    "materialization_mode": "lazy",
+    "materialization_num_workers": 0,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 0,
+      "max_steps": 30000
+    },
+    "profiler": {
+      "enabled": false,
+      "log_every": 10,
+      "cuda_memory": true,
+      "sync_timing": false,
+      "output_path": null
+    },
+    "batching": {
+      "batch_size": 1,
+      "shuffle": true,
+      "num_workers": 8,
+      "persistent_workers": true,
+      "pin_memory": true
+    },
+    "model": {
+      "spherical_harmonics_degree": 3,
+      "anchor_feature_dimension": 32,
+      "neural_offsets_per_anchor": 10,
+      "initial_voxel_size": 0.001,
+      "anchor_update_depth": 3,
+      "anchor_update_initial_factor": 16,
+      "anchor_update_hierarchy_factor": 4,
+      "use_feature_bank": false,
+      "appearance_embedding_dimension": 32,
+      "point_cloud_sampling_ratio": 1.0,
+      "level_of_detail": 0,
+      "downsample_factor": 1,
+      "use_lowpoly_mode": false,
+      "use_undistorted_inputs": false,
+      "include_distance_in_opacity_mlp": false,
+      "include_distance_in_covariance_mlp": false,
+      "include_distance_in_color_mlp": false
+    },
+    "render": {
+      "backend": "faster_gs.core",
+      "near_plane": 0.01,
+      "far_plane": 1000.0,
+      "background_color": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mip_splatting_screen_filter": true,
+      "clamp_output": true,
+      "opacity_selection_threshold": 0.0
+    },
+    "optimization": {
+      "iterations": 30000,
+      "position_learning_rate_initial": 0.0,
+      "position_learning_rate_final": 0.0,
+      "position_learning_rate_delay_multiplier": 0.01,
+      "position_learning_rate_max_steps": 30000,
+      "offset_learning_rate_initial": 0.01,
+      "offset_learning_rate_final": 0.0001,
+      "offset_learning_rate_delay_multiplier": 0.01,
+      "offset_learning_rate_max_steps": 30000,
+      "feature_learning_rate": 0.0075,
+      "opacity_learning_rate": 0.02,
+      "scaling_learning_rate": 0.007,
+      "rotation_learning_rate": 0.002,
+      "opacity_mlp_learning_rate_initial": 0.002,
+      "opacity_mlp_learning_rate_final": 0.00002,
+      "covariance_mlp_learning_rate_initial": 0.004,
+      "covariance_mlp_learning_rate_final": 0.004,
+      "color_mlp_learning_rate_initial": 0.008,
+      "color_mlp_learning_rate_final": 0.00005,
+      "feature_bank_mlp_learning_rate_initial": 0.01,
+      "feature_bank_mlp_learning_rate_final": 0.00001,
+      "appearance_learning_rate_initial": 0.05,
+      "appearance_learning_rate_final": 0.0005,
+      "percent_dense": 0.01
+    },
+    "loss": {
+      "structural_similarity_weight": 0.2,
+      "scaling_regularization_weight": 0.01
+    },
+    "densification": {
+      "statistics_start_iteration": 500,
+      "anchor_update_start_iteration": 1500,
+      "anchor_update_interval": 100,
+      "anchor_update_until_iteration": 15000,
+      "minimum_opacity": 0.005,
+      "success_threshold": 0.8,
+      "densification_gradient_threshold": 0.0002
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/scaffold_gs/garden_scaffold_gs/faster_gs.core",
+      "export_ply": false,
+      "overwrite": false
+    },
+    "viewer": {
+      "enabled": true,
+      "update_every_steps": 500,
+      "min_update_seconds": 2.0,
+      "pause_on_interaction": true,
+      "pause_poll_seconds": 0.05,
+      "max_pause_seconds": null,
+      "interaction_boost_seconds": 3.0,
+      "boost_update_every_steps": 25,
+      "boost_min_update_seconds": 0.25,
+      "show_progress": true,
+      "progress_every_steps": 10,
+      "wait_for_render": false
+    }
+  }
+}

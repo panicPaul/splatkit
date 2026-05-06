@@ -25,7 +25,7 @@ Targets Python 3.11+.
 uv pip install marimo-3dv
 ```
 
-Desktop Qt controls are optional:
+The `desktop` extra is reserved for desktop integration dependencies:
 
 ```bash
 uv pip install "marimo-3dv[desktop]"
@@ -52,8 +52,8 @@ is clearer than passing loose values between cells.
 
 The simplest viewer takes a Python callback that maps a typed camera state to
 an image tensor. The callback receives the live camera pose, field of view, and
-measured widget size. It returns an `H x W x 3` or `H x W x 4` image-like value,
-usually a `torch.Tensor`, NumPy array, or PIL-compatible image.
+measured widget size. It returns an `H x W x 3` image-like value, usually a
+`torch.Tensor`, NumPy array, or PIL-compatible image.
 
 ```python
 import torch

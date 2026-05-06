@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from beartype import beartype
@@ -18,10 +19,13 @@ from torch import Tensor
 
 from ember_native_faster_gs.faster_gs.renderer import (
     FasterGSNativeRenderOptions,
+    _direct_rgb_features,
+    _dummy_sh_coefficients,
     _split_sh_coefficients,
     _validate_inputs,
 )
 from ember_native_faster_gs.fastgs.runtime import (
+    blend,
     blend_metric_counts,
     preprocess,
     sort,
@@ -52,6 +56,9 @@ class FastGSNativeDensificationRenderOutput(FastGSNativeRenderOutput):
 class FastGSNativeRenderOptions(FasterGSNativeRenderOptions):
     """Native FastGS render configuration."""
 
+    color_source: Literal["spherical_harmonics", "direct_rgb"] = (
+        "spherical_harmonics"
+    )
     mip_splatting_screen_filter: bool = False
     compact_box_scale: float = 0.5
 
@@ -211,6 +218,81 @@ def render_fastgs_native(
     )
     resolved_options = options or FastGSNativeRenderOptions()
     _validate_inputs(scene, camera)
+    if resolved_options.color_source == "direct_rgb":
+        if resolved_options.collect_densification_info:
+            raise ValueError(
+                "faster_gs.fastgs direct_rgb color_source does not support "
+                "collect_densification_info."
+            )
+        colors_rgb = _direct_rgb_features(scene).contiguous()
+        sh_coefficients_0, sh_coefficients_rest = _dummy_sh_coefficients(scene)
+        intrinsics = camera.get_intrinsics()
+        background_color = resolved_options.background_color.to(
+            device=scene.center_position.device,
+            dtype=scene.center_position.dtype,
+        )
+        renders: list[Tensor] = []
+        for camera_index in range(camera.cam_to_world.shape[0]):
+            cam_to_world = camera.cam_to_world[camera_index]
+            world_2_camera = torch.linalg.inv(cam_to_world)
+            camera_intrinsics = intrinsics[camera_index]
+            width = int(camera.width[camera_index].item())
+            height = int(camera.height[camera_index].item())
+            preprocess_result = preprocess(
+                scene.center_position.contiguous(),
+                scene.log_scales.contiguous(),
+                scene.quaternion_orientation.contiguous(),
+                scene.logit_opacity[:, None].contiguous(),
+                sh_coefficients_0.contiguous(),
+                sh_coefficients_rest.contiguous(),
+                world_2_camera.contiguous(),
+                cam_to_world[:3, 3].contiguous(),
+                near_plane=resolved_options.near_plane,
+                far_plane=resolved_options.far_plane,
+                width=width,
+                height=height,
+                focal_x=float(camera_intrinsics[0, 0].item()),
+                focal_y=float(camera_intrinsics[1, 1].item()),
+                center_x=float(camera_intrinsics[0, 2].item()),
+                center_y=float(camera_intrinsics[1, 2].item()),
+                mip_splatting_screen_filter=(
+                    resolved_options.mip_splatting_screen_filter
+                ),
+                active_sh_bases=1,
+                compact_box_scale=(resolved_options.compact_box_scale),
+            )
+            sort_result = sort(
+                preprocess_result.depth_keys,
+                preprocess_result.primitive_indices,
+                preprocess_result.num_touched_tiles,
+                preprocess_result.screen_bounds,
+                preprocess_result.projected_means,
+                preprocess_result.conic_opacity,
+                preprocess_result.visible_count,
+                preprocess_result.instance_count,
+                width=width,
+                height=height,
+                compact_box_scale=(resolved_options.compact_box_scale),
+            )
+            blend_result = blend(
+                sort_result.instance_primitive_indices,
+                sort_result.tile_instance_ranges,
+                sort_result.tile_bucket_offsets,
+                sort_result.bucket_count,
+                preprocess_result.projected_means,
+                preprocess_result.conic_opacity,
+                colors_rgb,
+                background_color,
+                resolved_options.mip_splatting_screen_filter,
+                image_width=width,
+                image_height=height,
+            )
+            renders.append(blend_result.image.permute(1, 2, 0).contiguous())
+        rendered = torch.stack(renders, dim=0)
+        if resolved_options.clamp_output:
+            rendered = rendered.clamp(0.0, 1.0)
+        return FastGSNativeRenderOutput(render=rendered)
+
     active_sh_bases = (
         int(scene.feature.shape[1])
         if resolved_options.active_sh_bases is None

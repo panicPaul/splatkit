@@ -39,14 +39,12 @@ The notebook is also the Python config/module surface used by script mode:
 Default JSON configs:
 
 - `garden_base`
-- `garden_base_native`
 - `garden_big`
 - `garden_debug_val`
 
 Stored at:
 
 - `papers/fastgs/defaults/garden_base.json`
-- `papers/fastgs/defaults/garden_base_native.json`
 - `papers/fastgs/defaults/garden_big.json`
 - `papers/fastgs/defaults/garden_debug_val.json`
 

@@ -151,7 +151,7 @@ class SVRasterInitializationConfig(SVRasterConfigBase):
         """Build the runtime sparse-voxel initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.callable_spec(
+            initializer=ember.bound_callable(
                 target="ember_svraster_training.initialize_svraster_paper_scene",
                 kwargs={
                     **self.model_dump(mode="python"),
@@ -160,9 +160,9 @@ class SVRasterInitializationConfig(SVRasterConfigBase):
                     "sh_degree": model.sh_degree,
                     "initial_sh_degree": model.initial_sh_degree,
                 },
-                context_kwargs={
-                    "device": "device",
-                    "frame_dataset": "frame_dataset",
+                bind={
+                    "device": ember.ctx.run.device,
+                    "frame_dataset": ember.ctx.run.frame_dataset,
                 },
             )
         )
@@ -184,7 +184,7 @@ class SVRasterOptimizationRecipeConfig(SVRasterConfigBase):
     def build(self) -> ember.OptimizationConfig:
         """Build SVRaster optimizer groups through the training package."""
         return ember.OptimizationConfig(
-            builder=ember.callable_spec(
+            builder=ember.bound_callable(
                 target="ember_svraster_training.svraster_optimization_config",
                 kwargs={
                     "recipe": {
@@ -249,7 +249,7 @@ class SVRasterRegularizationConfig(SVRasterConfigBase):
         if self.tv_density_weight == 0.0:
             return []
         return [
-            ember.callable_spec(
+            ember.bound_callable(
                 target="ember_svraster_training.SVRasterTVDensityHook",
                 kwargs={
                     "weight": self.tv_density_weight,
@@ -278,7 +278,7 @@ class SVRasterAdaptiveConfig(SVRasterConfigBase):
     def build(self) -> ember.DensificationConfig:
         """Build the SVRaster adaptive pruning/subdivision config."""
         return ember.densification_config(
-            ember.callable_spec(
+            ember.bound_callable(
                 target=(
                     "ember_svraster_training.SVRasterAdaptivePruneSubdivide"
                 ),
@@ -374,7 +374,7 @@ class SVRasterExperimentConfig(SVRasterConfigBase):
                     ),
                     "track_max_weight": True,
                 },
-                training_backend_options_builder=ember.callable_spec(
+                training_backend_options_builder=ember.bound_callable(
                     target=(
                         "ember_svraster_training."
                         "svraster_paper_training_backend_options"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any, Generic, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal, cast
 
 import marimo as mo
 from marimo._plugins.core.web_component import JSONType
@@ -29,6 +29,9 @@ from marimo_config_gui.labels import (
     _humanize_model_name,
 )
 from marimo_config_gui.state import ModelT
+
+if TYPE_CHECKING:
+    from marimo_config_gui.widgets import _FieldSpec
 
 CONFIG_FORM_VIEW_KEY = "__config_form__"
 CONFIG_JSON_VIEW_KEY = "__config_json__"
@@ -116,7 +119,7 @@ class NullableGui(UIElement[dict[str, JSONType], Any]):
             "</div>"
         )
         self._draft_frontend_value = _current_element_frontend_value(child)
-        self._elements = {
+        self._elements: dict[str, UIElement[Any, Any]] = {
             NULLABLE_ENABLED_KEY: self._toggle,
             NULLABLE_VALUE_KEY: child,
         }
@@ -166,7 +169,7 @@ class NullableGui(UIElement[dict[str, JSONType], Any]):
     ) -> Any:
         merged = self._current_frontend_value()
         if isinstance(value, dict):
-            merged.update(value)
+            merged.update(cast(dict[str, JSONType], value))
 
         enabled_frontend = merged.get(
             NULLABLE_ENABLED_KEY,
@@ -225,7 +228,10 @@ class NullableGui(UIElement[dict[str, JSONType], Any]):
     def _is_enabled_frontend_value(self, frontend_value: JSONType) -> bool:
         if isinstance(frontend_value, bool):
             return frontend_value
-        return self._toggle._convert_value(frontend_value) == NULLABLE_SET_TAB
+        return (
+            cast(Any, self._toggle)._convert_value(frontend_value)
+            == NULLABLE_SET_TAB
+        )
 
     def _tabs_frontend_value(self, enabled: bool) -> JSONType:
         return 1 if enabled else 0
@@ -259,7 +265,7 @@ class ModelUnionGui(UIElement[dict[str, JSONType], Any]):
         self._key_to_index = {
             key: index for index, key in enumerate(self._branch_keys)
         }
-        tabs = {
+        tabs: dict[str, Any] = {
             label: mo.callout(child, kind="neutral")
             for label, child in zip(self._branch_labels, children, strict=False)
         }
@@ -290,7 +296,9 @@ class ModelUnionGui(UIElement[dict[str, JSONType], Any]):
             "</div>"
             "</div>"
         )
-        self._elements = {UNION_ACTIVE_KEY: self._selector}
+        self._elements: dict[str, UIElement[Any, Any]] = {
+            UNION_ACTIVE_KEY: self._selector
+        }
         self._elements.update(
             {
                 key: child
@@ -348,7 +356,7 @@ class ModelUnionGui(UIElement[dict[str, JSONType], Any]):
     ) -> Any:
         merged = self._current_frontend_value()
         if isinstance(value, dict):
-            merged.update(value)
+            merged.update(cast(dict[str, JSONType], value))
 
         active_frontend = merged.get(
             UNION_ACTIVE_KEY,
@@ -403,7 +411,7 @@ class ModelUnionGui(UIElement[dict[str, JSONType], Any]):
         return frontend
 
     def _active_index_from_frontend(self, frontend_value: JSONType) -> int:
-        label = self._selector._convert_value(frontend_value)
+        label = cast(Any, self._selector)._convert_value(frontend_value)
         return self._branch_labels.index(label)
 
     def _tabs_frontend_value(self, index: int) -> JSONType:
@@ -474,7 +482,7 @@ class ModelTupleGui(UIElement[dict[str, JSONType], Any]):
             "</div>"
             "</div>"
         )
-        self._elements = {
+        self._elements: dict[str, UIElement[Any, Any]] = {
             str(index): child for index, child in enumerate(children)
         }
         super().__init__(
@@ -522,7 +530,7 @@ class ModelTupleGui(UIElement[dict[str, JSONType], Any]):
     ) -> tuple[Any, ...]:
         merged = self._current_frontend_value()
         if isinstance(value, dict):
-            merged.update(value)
+            merged.update(cast(dict[str, JSONType], value))
 
         payloads: list[Any] = []
         for name, child in self._elements.items():
@@ -531,8 +539,8 @@ class ModelTupleGui(UIElement[dict[str, JSONType], Any]):
             )
             if update_children and child._value_frontend != child_frontend:
                 _set_local_frontend_value(child, child_frontend)
-            payload, _ = child._payload_from_frontend(
-                child_frontend,
+            payload, _ = cast(PydanticGui[Any], child)._payload_from_frontend(
+                cast(dict[str, JSONType], child_frontend),
                 update_children=update_children,
                 force_json=False,
             )
@@ -643,7 +651,7 @@ class PrimitiveTupleGui(UIElement[dict[str, JSONType], tuple[Any, ...]]):
     ) -> tuple[Any, ...]:
         merged = self._current_frontend_value()
         if isinstance(value, dict):
-            merged.update(value)
+            merged.update(cast(dict[str, JSONType], value))
 
         items: list[Any] = []
         for index, (name, child) in enumerate(self._elements.items()):
@@ -1292,6 +1300,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
 
     def _convert_value(self, value: Any) -> ModelT | None:
         if self._force_direct_json:
+            assert self._editor is not None
             editor_value = (
                 value.get(DIRECT_JSON_EDITOR_KEY, self._editor._value_frontend)
                 if isinstance(value, dict)
@@ -1309,6 +1318,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
                 update_children=True,
             )
         else:
+            assert self._editor is not None
             editor_value = (
                 value.get(DIRECT_JSON_EDITOR_KEY, self._editor._value_frontend)
                 if isinstance(value, dict)
@@ -1334,6 +1344,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
         if value is None:
             return None
         if self._force_direct_json:
+            assert self._editor is not None
             editor_value = (
                 value.get(DIRECT_JSON_EDITOR_KEY, self._editor._value_frontend)
                 if isinstance(value, dict)
@@ -1347,6 +1358,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
                 update_children=False,
             )
         else:
+            assert self._editor is not None
             editor_value = (
                 value.get(DIRECT_JSON_EDITOR_KEY, self._editor._value_frontend)
                 if isinstance(value, dict)
@@ -1742,7 +1754,7 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
     def _apply_form_update(self, form_value: JSONType) -> None:
         if not isinstance(form_value, dict):
             return
-        self._form._convert_value(form_value)
+        self._form._convert_value(cast(dict[str, JSONType], form_value))
         next_payload = _order_payload_for_model(
             self._model_cls,
             self._form._last_payload,
@@ -1944,8 +1956,28 @@ def _set_local_frontend_value(*args: Any, **kwargs: Any) -> Any:
     return impl(*args, **kwargs)
 
 
+def _wrap_live_update_layout(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _wrap_live_update_layout as impl
+
+    return impl(*args, **kwargs)
+
+
 def _frontend_value_for_element(*args: Any, **kwargs: Any) -> Any:
     from marimo_config_gui.widgets import _frontend_value_for_element as impl
+
+    return impl(*args, **kwargs)
+
+
+def _frontend_value_for_structural_child(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import (
+        _frontend_value_for_structural_child as impl,
+    )
+
+    return impl(*args, **kwargs)
+
+
+def _payload_for_branch_model(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _payload_for_branch_model as impl
 
     return impl(*args, **kwargs)
 
@@ -1986,5 +2018,29 @@ def _union_payload(*args: Any, **kwargs: Any) -> Any:
 
 def _union_value_matches_branch(*args: Any, **kwargs: Any) -> Any:
     from marimo_config_gui.widgets import _union_value_matches_branch as impl
+
+    return impl(*args, **kwargs)
+
+
+def _jsonify_model_value(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _jsonify_model_value as impl
+
+    return impl(*args, **kwargs)
+
+
+def _json_output(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _json_output as impl
+
+    return impl(*args, **kwargs)
+
+
+def _validation_output(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _validation_output as impl
+
+    return impl(*args, **kwargs)
+
+
+def _invalid_json_output(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _invalid_json_output as impl
 
     return impl(*args, **kwargs)

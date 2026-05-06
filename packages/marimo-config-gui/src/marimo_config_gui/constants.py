@@ -20,3 +20,4 @@ UNION_KIND_KEY = "__kind__"
 
 RenderMode = Literal["auto", "json", "widget"]
 WidgetMode = Literal["auto", "slider"]
+ConfigGuiMode = Literal["form", "hybrid", "json"]

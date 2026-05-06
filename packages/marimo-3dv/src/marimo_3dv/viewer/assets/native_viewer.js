@@ -1275,7 +1275,7 @@ function updateCameraMatrix() {
     connectFrameStream();
   };
   const onFramePacketChange = () => {
-    if (model.get("transport_mode") !== "comm") {
+    if (model.get("transport_mode") !== "widget") {
       return;
     }
     handleFramePacket(model.get("frame_packet"), performance.now());

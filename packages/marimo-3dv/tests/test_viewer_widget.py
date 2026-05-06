@@ -593,7 +593,7 @@ def test_stable_anywidget_uses_virtual_file_js_url(
         stream_port=1,
         stream_path="/stream",
         stream_token="token",
-        transport_mode="comm",
+        transport_mode="widget",
     )
 
     wrapped = _StableMarimoAnyWidget(widget)
@@ -922,12 +922,12 @@ def test_marimo_viewer_exposes_configured_aspect_ratio() -> None:
     assert viewer.anywidget().aspect_ratio == 2.0
 
 
-def test_marimo_viewer_uses_comm_transport_by_default() -> None:
+def test_marimo_viewer_uses_widget_transport_by_default() -> None:
     viewer = marimo_viewer(
         lambda state: np.zeros((state.height, state.width, 3), dtype=np.uint8)
     )
 
-    assert viewer.anywidget().transport_mode == "comm"
+    assert viewer.anywidget().transport_mode == "widget"
     assert viewer.anywidget().frame_packet
 
 

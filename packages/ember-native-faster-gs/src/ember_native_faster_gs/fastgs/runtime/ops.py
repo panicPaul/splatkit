@@ -8,6 +8,7 @@ import torch
 from torch import Tensor
 
 from ember_native_faster_gs.faster_gs.reuse.factories import (
+    register_blend_family,
     register_render_family,
 )
 from ember_native_faster_gs.faster_gs.runtime.ops._common import (
@@ -21,6 +22,7 @@ from ember_native_faster_gs.faster_gs.runtime.ops.preprocess import (
 )
 from ember_native_faster_gs.faster_gs.runtime.packing import (
     pack_render_outputs,
+    parse_blend_outputs,
     parse_render_outputs,
 )
 from ember_native_faster_gs.fastgs.runtime._extension import load_extension
@@ -276,6 +278,115 @@ def _blend_bwd_fake(
         torch.empty_like(conic_opacity),
         torch.empty_like(colors_rgb),
     )
+
+
+def _blend_impl(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    mip_splatting_screen_filter: bool,
+    image_width: int,
+    image_height: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Autograd-enabled FastGS blend op."""
+    return blend_fwd_op(
+        instance_primitive_indices,
+        tile_instance_ranges,
+        tile_bucket_offsets,
+        bucket_count,
+        projected_means,
+        conic_opacity,
+        colors_rgb,
+        bg_color,
+        mip_splatting_screen_filter,
+        image_width,
+        image_height,
+    )
+
+
+def _blend_fake(
+    *args: Any,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Fake implementation for the autograd FastGS blend op."""
+    return _blend_fwd_fake(*args)
+
+
+def _blend_setup_context(
+    ctx: Any,
+    inputs: tuple[Any, ...],
+    output: tuple[Tensor, ...],
+) -> None:
+    blend_result = parse_blend_outputs(output)
+    ctx.save_for_backward(
+        blend_result.image,
+        inputs[0],
+        inputs[1],
+        inputs[2],
+        inputs[4],
+        inputs[5],
+        inputs[6],
+        inputs[7],
+        blend_result.tile_final_transmittances,
+        blend_result.tile_max_n_processed,
+        blend_result.tile_n_processed,
+        blend_result.bucket_tile_index,
+        blend_result.bucket_color_transmittance,
+    )
+    ctx.mip_splatting_screen_filter = inputs[8]
+    ctx.image_width = inputs[9]
+    ctx.image_height = inputs[10]
+
+
+def _blend_backward(
+    ctx: Any,
+    grad_image: Tensor,
+    grad_tile_final_transmittances: Tensor,
+    grad_tile_max_n_processed: Tensor,
+    grad_tile_n_processed: Tensor,
+    grad_bucket_tile_index: Tensor,
+    grad_bucket_color_transmittance: Tensor,
+) -> tuple[Tensor | None, ...]:
+    del (
+        grad_tile_final_transmittances,
+        grad_tile_max_n_processed,
+        grad_tile_n_processed,
+        grad_bucket_tile_index,
+        grad_bucket_color_transmittance,
+    )
+    grad_projected_means, _, grad_conic_opacity, grad_colors_rgb = blend_bwd_op(
+        grad_image,
+        *ctx.saved_tensors,
+        ctx.mip_splatting_screen_filter,
+        ctx.image_width,
+        ctx.image_height,
+    )
+    return (
+        None,
+        None,
+        None,
+        None,
+        grad_projected_means,
+        grad_conic_opacity,
+        grad_colors_rgb,
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+blend_op = register_blend_family(
+    op_name="fastgs::blend",
+    forward_impl=_blend_impl,
+    fake_impl=_blend_fake,
+    setup_context=_blend_setup_context,
+    backward_impl=_blend_backward,
+)
 
 
 @torch.library.custom_op("fastgs::preprocess_fwd", mutates_args=())

@@ -11,9 +11,9 @@
     "image_scale_factor": 0.25,
     "split_target": "train",
     "split_every_n": 8,
-    "materialization_stage": "none",
-    "materialization_mode": "lazy",
-    "materialization_num_workers": 0,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
     "normalize_images": true,
     "interpolation": "bicubic"
   },
@@ -26,7 +26,7 @@
     "batching": {
       "batch_size": 1,
       "shuffle": true,
-      "num_workers": 4,
+      "num_workers": 8,
       "persistent_workers": true,
       "pin_memory": true
     },

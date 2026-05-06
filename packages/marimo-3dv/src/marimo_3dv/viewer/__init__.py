@@ -114,6 +114,7 @@ __all__ = [
     "ViewerTransformConfig",
     "apply_viewer_config",
     "link_viewer_states",
+    "marimo_viewer",
     "viewer_controls_config",
     "viewer_controls_gui",
     "viewer_controls_handle",

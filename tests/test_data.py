@@ -441,9 +441,9 @@ def test_colmap_scene_and_prepared_frame_defaults_are_split() -> None:
         "train_ratio": None,
     }
     assert prepared_payload["materialization"] == {
-        "stage": "decoded",
+        "stage": "prepared",
         "mode": "eager",
-        "num_workers": 0,
+        "num_workers": 8,
     }
     assert prepared_payload["image_preparation"] == {
         "normalize": True,

@@ -75,6 +75,55 @@ def test_generic_render_dispatches_to_faster_gs_native(
 
 @pytest.mark.backend
 @pytest.mark.cuda
+def test_render_faster_gs_native_direct_rgb_allows_feature_gradients(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    rgb_scene = replace(
+        cuda_scene,
+        feature=torch.tensor(
+            [
+                [0.9, 0.2, 0.2],
+                [0.2, 0.9, 0.2],
+                [0.2, 0.2, 0.9],
+            ],
+            dtype=cuda_scene.feature.dtype,
+            device=cuda_scene.feature.device,
+        ).requires_grad_(True),
+    )
+
+    output = cast(
+        FasterGSNativeRenderOutput,
+        render_faster_gs_native(
+            rgb_scene,
+            cuda_camera,
+            options=FasterGSNativeRenderOptions(color_source="direct_rgb"),
+        ),
+    )
+    output.render.sum().backward()
+
+    assert output.render.shape == (1, 32, 32, 3)
+    assert rgb_scene.feature.grad is not None
+    assert torch.isfinite(rgb_scene.feature.grad).all()
+
+
+def test_render_faster_gs_native_direct_rgb_rejects_sh_features(
+    cpu_scene,
+    cpu_camera,
+) -> None:
+    if torch.cuda.is_available():
+        cpu_scene = cpu_scene.to(torch.device("cuda"))
+        cpu_camera = cpu_camera.to(torch.device("cuda"))
+    with pytest.raises(ValueError, match="direct_rgb"):
+        render_faster_gs_native(
+            cpu_scene,
+            cpu_camera,
+            options=FasterGSNativeRenderOptions(color_source="direct_rgb"),
+        )
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
 def test_native_backend_matches_fastergs_backend(
     cuda_scene,
     cuda_camera,

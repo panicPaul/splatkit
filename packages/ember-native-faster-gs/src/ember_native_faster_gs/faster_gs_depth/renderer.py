@@ -56,6 +56,9 @@ class FasterGSDepthNativeRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
+    color_source: Literal["spherical_harmonics", "direct_rgb"] = (
+        "spherical_harmonics"
+    )
     proper_antialiasing: bool = True
 
 
@@ -132,10 +135,17 @@ def render_faster_gs_depth(
                 background_color=options.background_color,
                 near_plane=options.near_plane,
                 far_plane=options.far_plane,
-                proper_antialiasing=options.proper_antialiasing,
+                color_source=options.color_source,
+                mip_splatting_screen_filter=options.proper_antialiasing,
             ),
         )
         return FasterGSDepthNativeRenderOutput(render=rgb_only.render)
+    if options.color_source == "direct_rgb":
+        raise ValueError(
+            "faster_gs.depth direct_rgb color_source is only supported for "
+            "RGB-only rendering; depth rendering still uses the SH depth "
+            "runtime."
+        )
 
     sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)
     intrinsics = camera.get_intrinsics()

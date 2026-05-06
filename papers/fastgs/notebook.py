@@ -52,7 +52,7 @@ with app.setup:
     DEFAULT_CHECKPOINT_ROOT = REPO_ROOT / "checkpoints" / "papers" / "fastgs"
     FastGSBackendName = Literal["adapter.fastgs", "faster_gs.fastgs"]
     FastGSDefaultName = Literal[
-        "garden_base", "garden_base_native", "garden_big", "garden_debug_val"
+        "garden_base", "garden_big", "garden_debug_val"
     ]
     sys.modules.setdefault("papers.fastgs.notebook", sys.modules[__name__])
     ember_fastgs_adapter.register()
@@ -172,9 +172,9 @@ class FastGSDataConfig(FastGSConfigBase):
     max_resized_image_caches: int = Field(default=4, ge=1)
     split_target: Literal["train", "val", "all"] = "train"
     split_every_n: int | None = Field(default=8, ge=1)
-    materialization_stage: Literal["none", "decoded", "prepared"] = "none"
-    materialization_mode: Literal["lazy", "eager"] = "lazy"
-    materialization_num_workers: int | None = 0
+    materialization_stage: Literal["none", "decoded", "prepared"] = "prepared"
+    materialization_mode: Literal["lazy", "eager"] = "eager"
+    materialization_num_workers: int | None = 8
     normalize_images: bool = True
     interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
 
@@ -211,7 +211,7 @@ class FastGSInitializationConfig(FastGSConfigBase):
         """Build the runtime initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.callable_spec(
+            initializer=ember.bound_callable(
                 target=(
                     "papers.fastgs.notebook."
                     "initialize_fastgs_model_from_scene_record"
@@ -221,7 +221,7 @@ class FastGSInitializationConfig(FastGSConfigBase):
                     "use_mcmc": self.use_mcmc,
                     "default_color": self.default_color,
                 },
-                context_kwargs={"device": "device"},
+                bind={"device": ember.ctx.run.device},
             )
         )
 
@@ -237,7 +237,7 @@ class FastGSTrainingBackendOptionsConfig(FastGSConfigBase):
 
     def build(self) -> ember.CallableSpec:
         """Build the runtime training backend options builder."""
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="papers.fastgs.notebook.fastgs_training_backend_options",
             kwargs=self.model_dump(mode="python"),
         )
@@ -322,7 +322,7 @@ class FastGSOptimizationConfig(FastGSConfigBase):
                     optimizer=optimizer,
                     lr=self.center_position_lr_init * context.camera_extent,
                     optimizer_kwargs=optimizer_kwargs,
-                    scheduler=ember.callable_spec(
+                    scheduler=ember.bound_callable(
                         target="ember_core.training.exponential_decay_to",
                         kwargs={
                             "final_lr": (
@@ -442,12 +442,14 @@ class FastGSVanillaDensificationConfig(FastGSConfigBase):
 
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime vanilla FastGS densification spec."""
-        kwargs = self.model_dump(mode="python")
-        kwargs["camera_extent"] = context.camera_extent
-        kwargs["backend"] = context.backend
-        return ember.callable_spec(
+        del context
+        return ember.bound_callable(
             target="papers.fastgs.notebook.FastGSVanillaDensification",
-            kwargs=kwargs,
+            kwargs=self.model_dump(mode="python"),
+            bind={
+                "camera_extent": ember.ctx.run.camera_extent,
+                "backend": ember.ctx.run.backend,
+            },
         )
 
 
@@ -465,7 +467,7 @@ class FastGSMCMCDensificationConfig(FastGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime MCMC densification spec."""
         del context
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="papers.fastgs.notebook.build_fastgs_mcmc_densification",
             kwargs=self.model_dump(mode="python"),
         )
@@ -485,7 +487,7 @@ class FastGSMortonOrderingConfig(FastGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime Morton ordering spec."""
         del context
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="ember_splatting_training.GaussianMortonOrdering",
             kwargs={"schedule": self.schedule.model_dump(mode="python")},
         )
@@ -500,7 +502,7 @@ class FastGSFinalCleanupConfig(FastGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime final cleanup spec."""
         del context
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="papers.fastgs.notebook.FastGSFinalCleanup",
             kwargs=self.model_dump(mode="python"),
         )
@@ -596,7 +598,7 @@ class FastGSTrainingConfig(FastGSConfigBase):
             densification=self.densification.build(context),
             hooks=ember.HookConfig(
                 builders=[
-                    ember.callable_spec(
+                    ember.bound_callable(
                         target="papers.fastgs.notebook.FastGSSHTrainingHook",
                         kwargs=self.render.training_backend_options.model_dump(
                             mode="python"
@@ -645,12 +647,6 @@ def fastgs_preset_catalog() -> ConfigPresetCatalog[FastGSExperimentConfig]:
                 name="garden_base",
                 path=DEFAULTS_DIR / "garden_base.json",
                 label="Garden base",
-                base_dir=REPO_ROOT,
-            ),
-            "garden_base_native": ConfigPreset(
-                name="garden_base_native",
-                path=DEFAULTS_DIR / "garden_base_native.json",
-                label="Garden base native",
                 base_dir=REPO_ROOT,
             ),
             "garden_big": ConfigPreset(

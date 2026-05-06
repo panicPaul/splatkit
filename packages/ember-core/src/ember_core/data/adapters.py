@@ -119,9 +119,9 @@ class PreparedFrameDataset(Dataset[PreparedFrameSample]):
         config: PreparedFrameDatasetConfig | None = None,
         camera_sensor_id: str | None = None,
         preparation: ImagePreparationSpec | None = None,
-        materialization_stage: MaterializationStage = "decoded",
+        materialization_stage: MaterializationStage = "prepared",
         materialization_mode: MaterializationMode = "eager",
-        materialization_num_workers: int | None = 0,
+        materialization_num_workers: int | None = 8,
     ) -> None:
         self.scene_record = scene_record
         self.config = config

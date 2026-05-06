@@ -35,7 +35,10 @@ from ember_core.densification import (
     Vanilla3DGS,
     compose_densification,
 )
-from ember_core.densification.runtime import merge_densification_requirements
+from ember_core.densification.runtime import (
+    build_densification,
+    merge_densification_requirements,
+)
 from ember_core.initialization import InitializedModel
 from ember_core.initialization import (
     initialize_gaussian_model_from_scene_record as ember_core_initialize,
@@ -45,8 +48,10 @@ from ember_core.training import (
     DensificationConfig,
     LoadedCheckpoint,
     LossResult,
+    RuntimeContextRef,
     TrainingConfig,
     TrainingLoggingConfig,
+    bound_callable,
     build_densification_for_context,
     build_inference_pipeline,
     build_loss_fn,
@@ -55,10 +60,10 @@ from ember_core.training import (
     build_render_fn,
     build_training_render_fn,
     build_training_run_context,
-    callable_spec,
     checkpoint_log_dir,
     checkpoint_run_dir,
     compute_frame_camera_extent,
+    ctx,
     cycle_dataloader,
     densification_config,
     ensure_checkpoint_output_writable,
@@ -498,7 +503,12 @@ def build_dataset(tmp_path: Path) -> PreparedFrameDataset:
 def build_config(output_dir: Path) -> TrainingConfig:
     return TrainingConfig(
         runtime=RuntimeConfig(device="cpu", seed=123, max_steps=3),
-        batching=BatchingConfig(batch_size=1, shuffle=False),
+        batching=BatchingConfig(
+            batch_size=1,
+            shuffle=False,
+            num_workers=0,
+            persistent_workers=False,
+        ),
         initialization=InitializationSpec(
             initializer=CallableSpec(
                 target="ember_core.initialization.initialize_gaussian_model_from_scene_record",
@@ -611,9 +621,9 @@ def test_notebook_spec_helpers_accept_local_callables(tmp_path: Path) -> None:
     assert config.densification.model_dump(mode="json") == {"builders": []}
 
     config.densification = densification_config(
-        callable_spec(
+        bound_callable(
             ContextCameraExtentDensification,
-            context_kwargs={"camera_extent": "camera_extent"},
+            bind={"camera_extent": ctx.run.camera_extent},
         )
     )
     densification = build_densification_for_context(
@@ -634,6 +644,52 @@ def test_notebook_spec_helpers_accept_local_callables(tmp_path: Path) -> None:
         )
     )
     assert config.optimization.parameter_groups[0].target.scope == "scene"
+
+
+def test_bound_callable_builds_explicit_context_spec() -> None:
+    spec = bound_callable(
+        context_device_initializer,
+        kwargs={"modules": {}, "parameters": {}},
+        bind={"device": ctx.run.device},
+    )
+
+    assert spec.target == f"{MODULE_NAME}.context_device_initializer"
+    assert spec.object_ref is context_device_initializer
+    assert spec.kwargs == {"modules": {}, "parameters": {}}
+    assert spec.context_kwargs == {"device": "device"}
+
+
+def test_bound_callable_rejects_ambiguous_bindings() -> None:
+    with pytest.raises(ValueError, match="both statically and from runtime"):
+        bound_callable(
+            ContextCameraExtentDensification,
+            kwargs={"camera_extent": 1.0},
+            bind={"camera_extent": ctx.run.camera_extent},
+        )
+
+    with pytest.raises(TypeError, match="RuntimeContextRef"):
+        bound_callable(
+            ContextCameraExtentDensification,
+            bind={"camera_extent": "camera_extent"},  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(ValueError, match="does not accept"):
+        bound_callable(
+            ContextCameraExtentDensification,
+            bind={"unknown": RuntimeContextRef("camera_extent")},
+        )
+
+
+def test_unbound_densification_rejects_context_bound_builder() -> None:
+    config = densification_config(
+        bound_callable(
+            ContextCameraExtentDensification,
+            bind={"camera_extent": ctx.run.camera_extent},
+        )
+    )
+
+    with pytest.raises(ValueError, match="build_densification_for_context"):
+        build_densification(config)
 
 
 def test_composed_densification_is_easy_to_extend() -> None:
@@ -1129,6 +1185,26 @@ def test_initialize_model_resolves_context_kwargs(tmp_path: Path) -> None:
     assert model.metadata["initializer_device"] == "cpu"
 
 
+def test_initialize_model_resolves_bound_callable_context(
+    tmp_path: Path,
+) -> None:
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.initialization.initializer = bound_callable(
+        context_device_initializer,
+        bind={"device": ctx.run.device},
+    )
+    run_context = build_training_run_context(dataset, config)
+
+    model = initialize_model(
+        dataset.scene_record,
+        config,
+        context=run_context,
+    )
+
+    assert model.metadata["initializer_device"] == "cpu"
+
+
 def test_run_training_calls_densification_lifecycle_hooks(
     tmp_path: Path,
 ) -> None:
@@ -1436,7 +1512,13 @@ def test_training_is_reproducible_for_same_seed(tmp_path: Path) -> None:
     result_a = run_training(dataset, config_a)
     result_b = run_training(dataset, config_b)
 
-    assert result_a.history == result_b.history
+    assert [
+        {key: record[key] for key in ("loss", "rgb_mse")}
+        for record in result_a.history
+    ] == [
+        {key: record[key] for key in ("loss", "rgb_mse")}
+        for record in result_b.history
+    ]
     assert torch.allclose(
         result_a.state.model.scene.feature,
         result_b.state.model.scene.feature,

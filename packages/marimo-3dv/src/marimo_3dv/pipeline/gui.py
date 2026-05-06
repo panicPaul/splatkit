@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 import numpy as np
 from pydantic import BaseModel, create_model
@@ -49,7 +49,7 @@ class RenderNode(Generic[RenderViewT]):
     """Pure render-view transform."""
 
     name: str
-    apply: Callable[[RenderViewT, BaseModel, ViewerContext], RenderViewT]
+    apply: Callable[[RenderViewT, Any, ViewerContext], RenderViewT]
     config_model: type[BaseModel] | None = None
     default_config: BaseModel | None = None
 
@@ -60,7 +60,7 @@ class EffectNode(Generic[CompiledViewT, StateT]):
 
     name: str
     apply: Callable[
-        [RenderResult, BaseModel, ViewerContext, StateT], RenderResult
+        [RenderResult, Any, ViewerContext, StateT], RenderResult
     ]
     config_model: type[BaseModel] | None = None
     default_config: BaseModel | None = None
@@ -85,7 +85,7 @@ PipelineItem = RenderNode[Any] | EffectNode[Any, Any] | PipelineGroup
 def render_node(
     *,
     name: str,
-    apply: Callable[[RenderViewT, BaseModel, ViewerContext], RenderViewT],
+    apply: Callable[[RenderViewT, Any, ViewerContext], RenderViewT],
     config_model: type[BaseModel] | None = None,
     default_config: BaseModel | None = None,
 ) -> RenderNode[RenderViewT]:
@@ -106,9 +106,7 @@ def render_node(
 def effect_node(
     *,
     name: str,
-    apply: Callable[
-        [RenderResult, BaseModel, ViewerContext, StateT], RenderResult
-    ],
+    apply: Callable[[RenderResult, Any, ViewerContext, StateT], RenderResult],
     config_model: type[BaseModel] | None = None,
     default_config: BaseModel | None = None,
     state_factory: Callable[[], StateT] | None = None,
@@ -314,7 +312,7 @@ def _build_group_config(
     effect_nodes: list[_ConfiguredEffectNode[Any]],
 ) -> _ConfigEntry | None:
     if isinstance(item, PipelineGroup):
-        group_fields: dict[str, tuple[Any, Any]] = {}
+        group_fields: dict[str, Any] = {}
         group_defaults: dict[str, Any] = {}
         for child in item.items:
             if isinstance(child, RenderNode):
@@ -403,7 +401,7 @@ def _build_group_config(
 
         group_model = create_model(
             f"{_title_case(item.name)}ConfigGroup",
-            **group_fields,
+            **cast(dict[str, Any], group_fields),
         )
         return _ConfigEntry(
             field_name=item.name,
@@ -460,7 +458,7 @@ def _build_config_model(
 ]:
     render_nodes: list[_ConfiguredRenderNode[Any]] = []
     effect_nodes: list[_ConfiguredEffectNode[Any]] = []
-    top_level_fields: dict[str, tuple[type[BaseModel], BaseModel]] = {}
+    top_level_fields: dict[str, Any] = {}
 
     for item in (*render_items, *effect_items):
         config_entry = _build_group_config(
@@ -480,7 +478,10 @@ def _build_config_model(
             config_entry.default_value,
         )
 
-    root_model = create_model("ViewerPipelineConfig", **top_level_fields)
+    root_model = create_model(
+        "ViewerPipelineConfig",
+        **top_level_fields,
+    )
     defaults = {
         field_name: default_value
         for field_name, (_, default_value) in top_level_fields.items()

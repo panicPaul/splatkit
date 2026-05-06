@@ -9,6 +9,8 @@ keeps the reading order and interactive marimo entrypoints easy to find.
 - [Root README](../README.md): install, package map, backend families, packaging
   and development notes.
 - [North Star](../NORTH_STAR.md): design goals and architectural direction.
+- [Ember quality audit](ember_quality_audit.md): scoped package, paper-notebook,
+  and native-backend quality findings.
 - [ember-core](../packages/ember-core/README.md): contracts, data, rendering,
   training, and viewer bridge.
 - [marimo-config-gui](marimo-config-gui.md): typed config UIs for notebooks.

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from ember_core.training.config import (
@@ -18,12 +20,70 @@ from ember_core.training.config import (
 )
 
 
+@dataclass(frozen=True)
+class RuntimeContextRef:
+    """Reference to a runtime value available while materializing config."""
+
+    path: str
+
+
+@dataclass(frozen=True)
+class _RunContextRefs:
+    frame_dataset: RuntimeContextRef = RuntimeContextRef("frame_dataset")
+    camera_extent: RuntimeContextRef = RuntimeContextRef("camera_extent")
+    max_steps: RuntimeContextRef = RuntimeContextRef("max_steps")
+    backend: RuntimeContextRef = RuntimeContextRef("backend")
+    device: RuntimeContextRef = RuntimeContextRef("device")
+
+
+@dataclass(frozen=True)
+class _ContextRefs:
+    run: _RunContextRefs = _RunContextRefs()
+
+
+ctx = _ContextRefs()
+
+
 def _target_name(target: str | Callable[..., Any]) -> str:
     if isinstance(target, str):
         return target
     module = getattr(target, "__module__", "")
     qualname = getattr(target, "__qualname__", getattr(target, "__name__", ""))
     return f"{module}.{qualname}" if module and qualname else repr(target)
+
+
+def _validate_callable_signature(
+    target: Callable[..., Any],
+    kwargs: Mapping[str, Any],
+    context_kwargs: Mapping[str, str],
+) -> None:
+    try:
+        signature = inspect.signature(target)
+    except (TypeError, ValueError):
+        return
+    parameters = signature.parameters
+    if any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        return
+    names = set(kwargs) | set(context_kwargs)
+    accepted = {
+        name
+        for name, parameter in parameters.items()
+        if parameter.kind
+        in {
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        }
+    }
+    unsupported = sorted(names - accepted)
+    if unsupported:
+        unsupported_list = ", ".join(repr(name) for name in unsupported)
+        raise ValueError(
+            f"Callable target {_target_name(target)!r} does not accept "
+            f"declared kwarg(s): {unsupported_list}."
+        )
 
 
 def callable_spec(
@@ -41,6 +101,51 @@ def callable_spec(
         object_ref=None if isinstance(target, str) else target,
         kwargs=resolved_kwargs,
         context_kwargs=dict(context_kwargs or {}),
+    )
+
+
+def bound_callable(
+    target: str | Callable[..., Any],
+    *,
+    kwargs: Mapping[str, Any] | None = None,
+    bind: Mapping[str, RuntimeContextRef] | None = None,
+    **inline_kwargs: Any,
+) -> CallableSpec:
+    """Create a callable spec with explicit runtime context bindings."""
+    resolved_kwargs = dict(kwargs or {})
+    duplicate_static = sorted(set(resolved_kwargs) & set(inline_kwargs))
+    if duplicate_static:
+        duplicate_list = ", ".join(repr(name) for name in duplicate_static)
+        raise ValueError(
+            "Duplicate static callable kwarg(s) supplied in both kwargs and "
+            f"inline kwargs: {duplicate_list}."
+        )
+    resolved_kwargs.update(inline_kwargs)
+
+    context_kwargs: dict[str, str] = {}
+    for kwarg_name, ref in dict(bind or {}).items():
+        if not isinstance(ref, RuntimeContextRef):
+            raise TypeError(
+                "bound_callable bind values must be RuntimeContextRef "
+                f"objects, got {type(ref).__name__} for {kwarg_name!r}."
+            )
+        context_kwargs[kwarg_name] = ref.path
+
+    duplicate_bound = sorted(set(resolved_kwargs) & set(context_kwargs))
+    if duplicate_bound:
+        duplicate_list = ", ".join(repr(name) for name in duplicate_bound)
+        raise ValueError(
+            "Callable kwarg(s) cannot be supplied both statically and from "
+            f"runtime context: {duplicate_list}."
+        )
+
+    if not isinstance(target, str):
+        _validate_callable_signature(target, resolved_kwargs, context_kwargs)
+
+    return callable_spec(
+        target,
+        kwargs=resolved_kwargs,
+        context_kwargs=context_kwargs,
     )
 
 
@@ -198,7 +303,10 @@ def densification_config(
 
 
 __all__ = [
+    "RuntimeContextRef",
+    "bound_callable",
     "callable_spec",
+    "ctx",
     "densification_config",
     "hooks_config",
     "loss_config",

@@ -83,7 +83,7 @@ class MaterializationConfig(DataConfigBase):
     """Caching policy for frame dataset materialization."""
 
     stage: MaterializationStage = Field(
-        default="decoded",
+        default="prepared",
         description="Which stage of the dataset pipeline should be cached.",
     )
     mode: MaterializationMode = Field(
@@ -91,9 +91,9 @@ class MaterializationConfig(DataConfigBase):
         description="Whether to build caches eagerly or on first access.",
     )
     num_workers: int | None = Field(
-        default=0,
+        default=8,
         description=(
-            "Number of worker threads for eager decoded materialization. "
+            "Number of worker threads for eager materialization. "
             "Use 0 for serial materialization, None to pick a heuristic, "
             "or 2+ for explicit parallel materialization."
         ),

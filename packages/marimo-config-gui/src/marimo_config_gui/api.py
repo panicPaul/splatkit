@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable, Sequence
 from enum import Flag
 from pathlib import Path
-from typing import Annotated, Any, overload
+from typing import Annotated, Any, cast
 
 import marimo as mo
 import tyro
@@ -183,7 +183,7 @@ def _initial_config_payload(
                     )
         else:
             parsed = script_loader(model_cls, value, script_args)
-        resolved_value: ModelT | dict[str, Any] | None = parsed
+        resolved_value: ModelT | dict[str, Any] | None = cast(ModelT, parsed)
     elif value is None and presets is not None:
         resolved_value = load_preset_config(presets)
     else:
@@ -230,7 +230,7 @@ def _script_input_model_for(
     presets: ConfigPresetCatalog[Any] | None = None,
 ) -> type[BaseModel]:
     base_override_model = override_model_for_config(model_cls)
-    fields: dict[str, tuple[Any, Any]] = {
+    fields: dict[str, Any] = {
         "config": (Annotated[Path | None, tyro.conf.Positional], None),
         "overlay": (tuple[Path, ...], ()),
     }
@@ -374,7 +374,6 @@ def load_script_config(
     )
 
 
-@overload
 def create_config_state(
     model_cls: type[ModelT],
     *,
@@ -385,20 +384,7 @@ def create_config_state(
     overlays: Sequence[ConfigFileEntry] = (),
     path_defaults: Sequence[ConfigFileEntry] = (),
     path_defaults_source: str | Path | None = None,
-) -> tuple[Any, Any, ConfigBindings[ModelT]]: ...
-
-
-def create_config_state(
-    model_cls: type[ModelT],
-    *,
-    value: ModelT | dict[str, Any] | None = None,
-    script_loader: ScriptConfigLoader | None = None,
-    script_args: Sequence[str] | None = None,
-    presets: ConfigPresetCatalog[ModelT] | None = None,
-    overlays: Sequence[ConfigFileEntry] = (),
-    path_defaults: Sequence[ConfigFileEntry] = (),
-    path_defaults_source: str | Path | None = None,
-) -> Any:
+) -> tuple[Any, Any, ConfigBindings[ModelT]]:
     """Create reactive state for form and JSON config GUIs.
 
     Args:
@@ -734,4 +720,6 @@ def validated_config(
             mo.stop(True, _build_error_view(current_error))
         raise ValueError(current_error)
     value, _ = _validate_payload_with_error(model_cls, form_gui_state())
-    return value
+    if value is None:
+        raise ValueError("Config validation succeeded without a model value.")
+    return cast(ModelT, value)

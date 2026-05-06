@@ -199,7 +199,7 @@ class FasterGSInitializationConfig(FasterGSConfigBase):
         """Build the runtime initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.callable_spec(
+            initializer=ember.bound_callable(
                 target=(
                     "papers.fastergs.notebook."
                     "initialize_fastergs_model_from_scene_record"
@@ -209,7 +209,7 @@ class FasterGSInitializationConfig(FasterGSConfigBase):
                     "use_mcmc": self.use_mcmc,
                     "default_color": self.default_color,
                 },
-                context_kwargs={"device": "device"},
+                bind={"device": ember.ctx.run.device},
             )
         )
 
@@ -225,7 +225,7 @@ class FasterGSTrainingBackendOptionsConfig(FasterGSConfigBase):
 
     def build(self) -> ember.CallableSpec:
         """Build the runtime training backend options builder."""
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="ember_splatting_training.fastergs_training_backend_options",
             kwargs=self.model_dump(mode="python"),
         )
@@ -320,11 +320,11 @@ class FasterGSVanillaDensificationConfig(FasterGSConfigBase):
 
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime vanilla FasterGS densification spec."""
-        kwargs = self.model_dump(mode="python")
-        kwargs["camera_extent"] = context.camera_extent
-        return ember.callable_spec(
+        del context
+        return ember.bound_callable(
             target="papers.fastergs.notebook.FasterGSVanillaDensification",
-            kwargs=kwargs,
+            kwargs=self.model_dump(mode="python"),
+            bind={"camera_extent": ember.ctx.run.camera_extent},
         )
 
 
@@ -342,7 +342,7 @@ class FasterGSMCMCDensificationConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime MCMC densification spec."""
         del context
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="papers.fastergs.notebook.build_fastergs_mcmc_densification",
             kwargs=self.model_dump(mode="python"),
         )
@@ -362,7 +362,7 @@ class FasterGSMortonOrderingConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime Morton ordering spec."""
         del context
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="ember_splatting_training.GaussianMortonOrdering",
             kwargs={"schedule": self.schedule.model_dump(mode="python")},
         )
@@ -390,7 +390,7 @@ class FasterGSMipSplatting3DFilterConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime Mip-Splatting 3D filter spec."""
         del context
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="ember_splatting_training.GaussianMipSplatting3DFilter",
             kwargs={
                 "recompute_schedule": self.recompute_schedule.model_dump(
@@ -428,7 +428,7 @@ class FasterGSFinalCleanupConfig(FasterGSConfigBase):
     def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
         """Build the runtime final cleanup spec."""
         del context
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="papers.fastergs.notebook.FasterGSFinalCleanup",
             kwargs=self.model_dump(mode="python"),
         )

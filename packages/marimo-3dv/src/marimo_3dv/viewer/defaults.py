@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 
 import marimo as mo
 from marimo_config_gui import create_config_gui
@@ -372,8 +372,9 @@ def apply_viewer_pipeline_config(
     config: BaseModel,
 ) -> BaseModel:
     """Apply combined viewer config and return the pipeline config subtree."""
-    apply_viewer_config(viewer_state, config.viewer)
-    pipeline_config = config.pipeline
+    viewer_config = cast(Any, config).viewer
+    apply_viewer_config(viewer_state, viewer_config)
+    pipeline_config = cast(Any, config).pipeline
     if not isinstance(pipeline_config, BaseModel):
         raise TypeError(
             "Expected combined config to expose a BaseModel pipeline."

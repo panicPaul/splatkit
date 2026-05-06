@@ -19,7 +19,7 @@ import weakref
 from collections.abc import Callable, Iterator, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import anywidget
 import cv2
@@ -48,7 +48,7 @@ from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 CameraConvention = Literal["opencv", "opengl", "blender", "colmap"]
-ViewerTransportMode = Literal["comm", "websocket"]
+ViewerTransportMode = Literal["widget", "websocket"]
 LinkedViewerStateField = Literal[
     "camera_state",
     "show_axes",
@@ -116,7 +116,8 @@ def _register_process_cleanup_handlers() -> None:
             _cleanup_active_marimo_viewers()
 
             if callable(previous_handler):
-                previous_handler(signum, frame)
+                handler = cast(Callable[[int, object | None], None], previous_handler)
+                handler(signum, frame)
                 return
             if previous_handler == signal.SIG_IGN:
                 return
@@ -198,11 +199,7 @@ class _FrameStreamState:
 
     token: str
     latest_packet: bytes | None = None
-    senders: dict[WebSocket, _ClientSender] | None = None
-
-    def __post_init__(self) -> None:
-        if self.senders is None:
-            self.senders = {}
+    senders: dict[WebSocket, _ClientSender] = field(default_factory=dict)
 
 
 class _FrameStreamServer:
@@ -232,7 +229,7 @@ class _FrameStreamServer:
         self._ready.set()
         config = uvicorn.Config(
             self._app,
-            host="0.0.0.0",
+            host="127.0.0.1",
             port=self.port,
             log_level="warning",
         )
@@ -728,7 +725,7 @@ class ViewerState:
         internal_render_max_side: int | None = 3840,
         interactive_max_side: int | None = 1980,
         raise_on_error: bool = True,
-        transport_mode: ViewerTransportMode = "comm",
+        transport_mode: ViewerTransportMode = "widget",
         last_click: ViewerClick | None = None,
         show_axes: bool = True,
         show_horizon: bool = False,
@@ -770,9 +767,9 @@ class ViewerState:
                 "interactive_max_side must be None or a positive integer, "
                 f"got {interactive_max_side}."
             )
-        if transport_mode not in {"comm", "websocket"}:
+        if transport_mode not in {"widget", "websocket"}:
             raise ValueError(
-                "transport_mode must be 'comm' or 'websocket', "
+                "transport_mode must be 'widget' or 'websocket', "
                 f"got {transport_mode!r}."
             )
         if keyboard_move_speed <= 0.0:
@@ -1253,7 +1250,7 @@ class _StableMarimoAnyWidget(BaseMarimoAnyWidget):
             return {}
 
         self.widget.set_state(value)
-        return value
+        return cast(AnyWidgetState, value)
 
     @property
     def value(self) -> AnyWidgetState:
@@ -1283,10 +1280,10 @@ class _StableMarimoAnyWidget(BaseMarimoAnyWidget):
         return getattr(self.widget, name)
 
     def __getitem__(self, key: Any) -> Any:
-        return self.widget[key]
+        return cast(Any, self.widget)[key]
 
     def __contains__(self, key: Any) -> bool:
-        return key in self.widget
+        return key in cast(Any, self.widget)
 
 
 class _LatestOnlyRenderer:
@@ -1296,7 +1293,7 @@ class _LatestOnlyRenderer:
         self,
         render_fn: Callable[[CameraState], np.ndarray | torch.Tensor],
         publish_frame: Callable[
-            [int, CameraState, np.ndarray, float, bool], None
+            [int, CameraState, np.ndarray, float, float, bool], None
         ],
         publish_error: Callable[[int, Exception, str], None],
         complete_revision: Callable[[int, Exception | None], None],
@@ -1433,7 +1430,7 @@ class _NativeViewerAnyWidget(anywidget.AnyWidget):
     stream_port = traitlets.Int(0).tag(sync=True)
     stream_path = traitlets.Unicode("").tag(sync=True)
     stream_token = traitlets.Unicode("").tag(sync=True)
-    transport_mode = traitlets.Unicode("comm").tag(sync=True)
+    transport_mode = traitlets.Unicode("widget").tag(sync=True)
     frame_packet = traitlets.Bytes(b"").tag(sync=True)
     _camera_revision = traitlets.Int(0).tag(sync=True)
     render_revision = traitlets.Int(0).tag(sync=True)
@@ -1553,7 +1550,12 @@ class MarimoViewer(_StableMarimoAnyWidget):
         self._interactive_max_side = interactive_max_side
         self._raise_on_error = raise_on_error
         self._state = state
-        self._stream_server = _get_frame_stream_server()
+        self._native_widget = anywidget_instance
+        self._stream_server = (
+            _get_frame_stream_server()
+            if anywidget_instance.transport_mode == "websocket"
+            else None
+        )
         self._stream_path = anywidget_instance.stream_path
         self._stream_id = self._stream_path.removeprefix("/streams/")
         self._last_debug_sample_at: float | None = None
@@ -1577,21 +1579,21 @@ class MarimoViewer(_StableMarimoAnyWidget):
             complete_revision=self._complete_revision,
             set_rendering=self._set_rendering,
         )
-        self.widget.observe(
+        self._native_widget.observe(
             self._on_camera_revision_change, names=["_camera_revision"]
         )
-        self.widget.observe(
+        self._native_widget.observe(
             self._on_camera_state_json_change, names=["camera_state_json"]
         )
-        self.widget.observe(
+        self._native_widget.observe(
             self._on_last_click_json_change, names=["last_click_json"]
         )
-        self.widget.observe(self._on_show_axes_change, names=["show_axes"])
-        self.widget.observe(
+        self._native_widget.observe(self._on_show_axes_change, names=["show_axes"])
+        self._native_widget.observe(
             self._on_show_horizon_change, names=["show_horizon"]
         )
-        self.widget.observe(self._on_show_origin_change, names=["show_origin"])
-        self.widget.observe(self._on_show_stats_change, names=["show_stats"])
+        self._native_widget.observe(self._on_show_origin_change, names=["show_origin"])
+        self._native_widget.observe(self._on_show_stats_change, names=["show_stats"])
         if self._state is not None:
             self._state._reset_camera_callback = self.set_camera_state
             self._state._viewer_rotation_callback = self.set_viewer_rotation
@@ -1611,28 +1613,28 @@ class MarimoViewer(_StableMarimoAnyWidget):
         if self._closed:
             return
         self._closed = True
-        self.widget.closed = True
-        self.widget.interaction_active = False
-        self.widget.is_rendering = False
-        self.widget.send_state(["closed", "interaction_active", "is_rendering"])
+        self._native_widget.closed = True
+        self._native_widget.interaction_active = False
+        self._native_widget.is_rendering = False
+        self._native_widget.send_state(["closed", "interaction_active", "is_rendering"])
         _ACTIVE_MARIMO_VIEWERS.pop(id(self), None)
-        self.widget.unobserve(
+        self._native_widget.unobserve(
             self._on_camera_revision_change, names=["_camera_revision"]
         )
-        self.widget.unobserve(
+        self._native_widget.unobserve(
             self._on_camera_state_json_change, names=["camera_state_json"]
         )
-        self.widget.unobserve(
+        self._native_widget.unobserve(
             self._on_last_click_json_change, names=["last_click_json"]
         )
-        self.widget.unobserve(self._on_show_axes_change, names=["show_axes"])
-        self.widget.unobserve(
+        self._native_widget.unobserve(self._on_show_axes_change, names=["show_axes"])
+        self._native_widget.unobserve(
             self._on_show_horizon_change, names=["show_horizon"]
         )
-        self.widget.unobserve(
+        self._native_widget.unobserve(
             self._on_show_origin_change, names=["show_origin"]
         )
-        self.widget.unobserve(self._on_show_stats_change, names=["show_stats"])
+        self._native_widget.unobserve(self._on_show_stats_change, names=["show_stats"])
         if self._state is not None:
             self._clear_state_callback("_reset_camera_callback")
             self._clear_state_callback("_viewer_rotation_callback")
@@ -1648,7 +1650,8 @@ class MarimoViewer(_StableMarimoAnyWidget):
             if active_viewer is self:
                 self._state._active_marimo_viewer_ref = None
         self._renderer.close()
-        self._stream_server.unregister_stream(self._stream_id)
+        if self._stream_server is not None:
+            self._stream_server.unregister_stream(self._stream_id)
 
     def _clear_state_callback(self, attribute_name: str) -> None:
         """Clear a ViewerState callback only when it points at this viewer."""
@@ -1684,20 +1687,20 @@ class MarimoViewer(_StableMarimoAnyWidget):
 
     def anywidget(self) -> _NativeViewerAnyWidget:
         """Return the underlying raw anywidget instance."""
-        return self.widget
+        return self._native_widget
 
     @property
     def value(self) -> MutableMapping[str, object]:
         """Return a live mapping of synced widget traits."""
-        return _WidgetValueProxy(self.widget)
+        return _WidgetValueProxy(self._native_widget)
 
     def get_camera_state(self) -> CameraState:
         """Return the current synced camera state."""
-        return CameraState.from_json(self.widget.camera_state_json)
+        return CameraState.from_json(self._native_widget.camera_state_json)
 
     def get_last_click(self) -> ViewerClick | None:
         """Return the last primary-button click, if any."""
-        value = self.widget.last_click_json
+        value = self._native_widget.last_click_json
         if not value:
             return None
         return ViewerClick.from_json(value)
@@ -1724,28 +1727,28 @@ class MarimoViewer(_StableMarimoAnyWidget):
         latency sample (`latency_sample_ms`).
         """
         debug_info: dict[str, float | str] = {
-            "error_text": str(self.widget.error_text),
-            "latency_ms": float(self.widget.latency_ms),
-            "latency_sample_ms": float(self.widget.latency_sample_ms),
-            "render_time_ms": float(self.widget.render_time_ms),
-            "render_queue_time_ms": float(self.widget.render_queue_time_ms),
-            "encode_time_ms": float(self.widget.encode_time_ms),
-            "stream_queue_time_ms": float(self.widget.stream_queue_time_ms),
-            "stream_send_time_ms": float(self.widget.stream_send_time_ms),
+            "error_text": str(self._native_widget.error_text),
+            "latency_ms": float(self._native_widget.latency_ms),
+            "latency_sample_ms": float(self._native_widget.latency_sample_ms),
+            "render_time_ms": float(self._native_widget.render_time_ms),
+            "render_queue_time_ms": float(self._native_widget.render_queue_time_ms),
+            "encode_time_ms": float(self._native_widget.encode_time_ms),
+            "stream_queue_time_ms": float(self._native_widget.stream_queue_time_ms),
+            "stream_send_time_ms": float(self._native_widget.stream_send_time_ms),
             "backend_to_browser_time_ms": float(
-                self.widget.backend_to_browser_time_ms
+                self._native_widget.backend_to_browser_time_ms
             ),
-            "packet_size_bytes": int(self.widget.packet_size_bytes),
+            "packet_size_bytes": int(self._native_widget.packet_size_bytes),
             "browser_receive_queue_ms": float(
-                self.widget.browser_receive_queue_ms
+                self._native_widget.browser_receive_queue_ms
             ),
             "browser_post_receive_ms": float(
-                self.widget.browser_post_receive_ms
+                self._native_widget.browser_post_receive_ms
             ),
-            "browser_decode_time_ms": float(self.widget.browser_decode_time_ms),
-            "browser_draw_time_ms": float(self.widget.browser_draw_time_ms),
+            "browser_decode_time_ms": float(self._native_widget.browser_decode_time_ms),
+            "browser_draw_time_ms": float(self._native_widget.browser_draw_time_ms),
             "browser_present_wait_ms": float(
-                self.widget.browser_present_wait_ms
+                self._native_widget.browser_present_wait_ms
             ),
         }
         accounted_leaf_latency_ms = (
@@ -1864,11 +1867,11 @@ class MarimoViewer(_StableMarimoAnyWidget):
         self, camera_state: CameraState, *, wait: bool = False
     ) -> None:
         """Apply a camera state and request a fresh render."""
-        self.widget.camera_state_json = camera_state.to_json()
-        self.widget.error_text = ""
-        self.widget._camera_revision += 1
+        self._native_widget.camera_state_json = camera_state.to_json()
+        self._native_widget.error_text = ""
+        self._native_widget._camera_revision += 1
         if wait:
-            self._wait_for_revision(self.widget._camera_revision)
+            self._wait_for_revision(self._native_widget._camera_revision)
 
     def set_viewer_rotation(
         self,
@@ -1877,10 +1880,10 @@ class MarimoViewer(_StableMarimoAnyWidget):
         z_degrees: float,
     ) -> None:
         """Update the viewer-frame rotation used by controls and overlays."""
-        self.widget.viewer_rotation_x_degrees = x_degrees
-        self.widget.viewer_rotation_y_degrees = y_degrees
-        self.widget.viewer_rotation_z_degrees = z_degrees
-        self.widget.send_state(
+        self._native_widget.viewer_rotation_x_degrees = x_degrees
+        self._native_widget.viewer_rotation_y_degrees = y_degrees
+        self._native_widget.viewer_rotation_z_degrees = z_degrees
+        self._native_widget.send_state(
             [
                 "viewer_rotation_x_degrees",
                 "viewer_rotation_y_degrees",
@@ -1890,30 +1893,30 @@ class MarimoViewer(_StableMarimoAnyWidget):
 
     def set_show_axes(self, show_axes: bool) -> None:
         """Update axis-gizmo visibility in the live viewer."""
-        self.widget.show_axes = show_axes
-        self.widget.send_state("show_axes")
+        self._native_widget.show_axes = show_axes
+        self._native_widget.send_state("show_axes")
 
     def set_show_horizon(self, show_horizon: bool) -> None:
         """Update horizon visibility in the live viewer."""
-        self.widget.show_horizon = show_horizon
-        self.widget.send_state("show_horizon")
+        self._native_widget.show_horizon = show_horizon
+        self._native_widget.send_state("show_horizon")
 
     def set_show_origin(self, show_origin: bool) -> None:
         """Update origin visibility in the live viewer."""
-        self.widget.show_origin = show_origin
-        self.widget.send_state("show_origin")
+        self._native_widget.show_origin = show_origin
+        self._native_widget.send_state("show_origin")
 
     def set_show_stats(self, show_stats: bool) -> None:
         """Update stats visibility in the live viewer."""
-        self.widget.show_stats = show_stats
-        self.widget.send_state("show_stats")
+        self._native_widget.show_stats = show_stats
+        self._native_widget.send_state("show_stats")
 
     def set_origin(self, x: float, y: float, z: float) -> None:
         """Update the origin marker position in the live viewer."""
-        self.widget.origin_x = x
-        self.widget.origin_y = y
-        self.widget.origin_z = z
-        self.widget.send_state(["origin_x", "origin_y", "origin_z"])
+        self._native_widget.origin_x = x
+        self._native_widget.origin_y = y
+        self._native_widget.origin_z = z
+        self._native_widget.send_state(["origin_x", "origin_y", "origin_z"])
 
     def set_keyboard_navigation(
         self,
@@ -1921,9 +1924,9 @@ class MarimoViewer(_StableMarimoAnyWidget):
         sprint_multiplier: float,
     ) -> None:
         """Update keyboard navigation tuning in the live viewer."""
-        self.widget.keyboard_move_speed = move_speed
-        self.widget.keyboard_sprint_multiplier = sprint_multiplier
-        self.widget.send_state(
+        self._native_widget.keyboard_move_speed = move_speed
+        self._native_widget.keyboard_sprint_multiplier = sprint_multiplier
+        self._native_widget.send_state(
             ["keyboard_move_speed", "keyboard_sprint_multiplier"]
         )
 
@@ -1935,11 +1938,11 @@ class MarimoViewer(_StableMarimoAnyWidget):
         pan_invert_y: bool,
     ) -> None:
         """Update pointer interaction inversion controls in the live viewer."""
-        self.widget.orbit_invert_x = orbit_invert_x
-        self.widget.orbit_invert_y = orbit_invert_y
-        self.widget.pan_invert_x = pan_invert_x
-        self.widget.pan_invert_y = pan_invert_y
-        self.widget.send_state(
+        self._native_widget.orbit_invert_x = orbit_invert_x
+        self._native_widget.orbit_invert_y = orbit_invert_y
+        self._native_widget.pan_invert_x = pan_invert_x
+        self._native_widget.pan_invert_y = pan_invert_y
+        self._native_widget.send_state(
             [
                 "orbit_invert_x",
                 "orbit_invert_y",
@@ -1956,12 +1959,12 @@ class MarimoViewer(_StableMarimoAnyWidget):
         When `interactive` is True the render uses interactive quality and
         scale, and a settled render is automatically scheduled afterward.
         """
-        self.widget.error_text = ""
+        self._native_widget.error_text = ""
         if interactive:
-            self.widget.interaction_active = True
-        self.widget._camera_revision += 1
+            self._native_widget.interaction_active = True
+        self._native_widget._camera_revision += 1
         if wait:
-            self._wait_for_revision(self.widget._camera_revision)
+            self._wait_for_revision(self._native_widget._camera_revision)
 
     def _camera_state_with_max_side(
         self, camera_state: CameraState, max_side: int | None
@@ -2000,13 +2003,13 @@ class MarimoViewer(_StableMarimoAnyWidget):
     def _on_camera_revision_change(self, change: dict[str, object]) -> None:
         del change
         camera_state = self._render_camera_state(
-            CameraState.from_json(self.widget.camera_state_json),
-            interaction_active=self.widget.interaction_active,
+            CameraState.from_json(self._native_widget.camera_state_json),
+            interaction_active=self._native_widget.interaction_active,
         )
         self._renderer.request(
-            self.widget._camera_revision,
+            self._native_widget._camera_revision,
             camera_state,
-            self.widget.interaction_active,
+            self._native_widget.interaction_active,
         )
 
     def _complete_revision(
@@ -2115,9 +2118,10 @@ class MarimoViewer(_StableMarimoAnyWidget):
             },
             encoded_bytes,
         )
-        transport_mode = self.widget.transport_mode
+        transport_mode = self._native_widget.transport_mode
         broadcast_future = None
         if transport_mode == "websocket":
+            assert self._stream_server is not None
             broadcast_future = self._stream_server.publish(
                 self._stream_path.removeprefix("/streams/"),
                 packet,
@@ -2144,23 +2148,23 @@ class MarimoViewer(_StableMarimoAnyWidget):
                         stream_queue_time_ms=timings["stream_queue_time_ms"],
                         stream_send_time_ms=timings["stream_send_time_ms"],
                     )
-                    self.widget.render_queue_time_ms = smoothed_metrics[
+                    self._native_widget.render_queue_time_ms = smoothed_metrics[
                         "render_queue_time_ms"
                     ]
-                    self.widget.render_time_ms = smoothed_metrics[
+                    self._native_widget.render_time_ms = smoothed_metrics[
                         "render_time_ms"
                     ]
-                    self.widget.encode_time_ms = smoothed_metrics[
+                    self._native_widget.encode_time_ms = smoothed_metrics[
                         "encode_time_ms"
                     ]
-                    self.widget.stream_queue_time_ms = smoothed_metrics[
+                    self._native_widget.stream_queue_time_ms = smoothed_metrics[
                         "stream_queue_time_ms"
                     ]
-                    self.widget.stream_send_time_ms = smoothed_metrics[
+                    self._native_widget.stream_send_time_ms = smoothed_metrics[
                         "stream_send_time_ms"
                     ]
-                    self.widget.render_fps = render_fps
-                    self.widget.send_state(
+                    self._native_widget.render_fps = render_fps
+                    self._native_widget.send_state(
                         [
                             "render_queue_time_ms",
                             "render_time_ms",
@@ -2176,16 +2180,16 @@ class MarimoViewer(_StableMarimoAnyWidget):
             broadcast_future.add_done_callback(_on_broadcast_done)
 
         def _apply_trait_updates() -> None:
-            self.widget.error_text = ""
-            self.widget.send_state("error_text")
-            if transport_mode == "comm":
-                self.widget.frame_packet = packet
-                self.widget.send_state("frame_packet")
-            self.widget.render_revision = revision
-            self.widget.send_state("render_revision")
+            self._native_widget.error_text = ""
+            self._native_widget.send_state("error_text")
+            if transport_mode == "widget":
+                self._native_widget.frame_packet = packet
+                self._native_widget.send_state("frame_packet")
+            self._native_widget.render_revision = revision
+            self._native_widget.send_state("render_revision")
             if next_camera_state_json is not None:
-                self.widget.camera_state_json = next_camera_state_json
-                self.widget.send_state("camera_state_json")
+                self._native_widget.camera_state_json = next_camera_state_json
+                self._native_widget.send_state("camera_state_json")
 
         self._run_on_main_loop(_apply_trait_updates)
         self._complete_revision(revision)
@@ -2194,16 +2198,16 @@ class MarimoViewer(_StableMarimoAnyWidget):
         self, revision: int, error: Exception, message: str
     ) -> None:
         def _apply_error_update() -> None:
-            self.widget.error_text = message
-            self.widget.send_state("error_text")
+            self._native_widget.error_text = message
+            self._native_widget.send_state("error_text")
 
         self._run_on_main_loop(_apply_error_update)
         self._complete_revision(revision, error)
 
     def _set_rendering(self, value: bool) -> None:
         def _apply_rendering_update() -> None:
-            self.widget.is_rendering = value
-            self.widget.send_state("is_rendering")
+            self._native_widget.is_rendering = value
+            self._native_widget.send_state("is_rendering")
 
         self._run_on_main_loop(_apply_rendering_update)
 
@@ -2240,7 +2244,7 @@ def marimo_viewer(
     use `rerender(interactive=True)` to drive rendering from Python instead.
     When `raise_on_error` is `True`, Python-triggered renders re-raise render
     exceptions instead of only surfacing them in widget state.
-    `transport_mode="comm"` streams frames through marimo's existing widget
+    `transport_mode="widget"` streams frames through marimo's existing widget
     channel and works through ordinary SSH port forwarding. Use
     `transport_mode="websocket"` for the older direct local websocket stream.
 
@@ -2282,7 +2286,7 @@ def marimo_viewer(
                 raise_on_error if raise_on_error is not None else True
             ),
             transport_mode=(
-                transport_mode if transport_mode is not None else "comm"
+                transport_mode if transport_mode is not None else "widget"
             ),
         )
     elif initial_view is not None:
@@ -2299,8 +2303,15 @@ def marimo_viewer(
         existing_viewer.close()
 
     resolved_camera_state = state.camera_state
-    stream_server = _get_frame_stream_server()
-    stream_id, stream_token = stream_server.register_stream()
+    if state.transport_mode == "websocket":
+        stream_server = _get_frame_stream_server()
+        stream_id, stream_token = stream_server.register_stream()
+        stream_port = stream_server.port
+        stream_path = f"/streams/{stream_id}"
+    else:
+        stream_token = ""
+        stream_port = 0
+        stream_path = ""
     anywidget_instance = _NativeViewerAnyWidget(
         camera_state=resolved_camera_state,
         aspect_ratio=state.aspect_ratio,
@@ -2320,8 +2331,8 @@ def marimo_viewer(
         orbit_invert_y=state.orbit_invert_y,
         pan_invert_x=state.pan_invert_x,
         pan_invert_y=state.pan_invert_y,
-        stream_port=stream_server.port,
-        stream_path=f"/streams/{stream_id}",
+        stream_port=stream_port,
+        stream_path=stream_path,
         stream_token=stream_token,
         transport_mode=state.transport_mode,
     )

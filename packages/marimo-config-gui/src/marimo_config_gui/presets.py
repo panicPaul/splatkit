@@ -493,7 +493,7 @@ def _override_model_for(
     *,
     name: str | None = None,
 ) -> type[BaseModel]:
-    fields: dict[str, tuple[Any, Any]] = {}
+    fields: dict[str, Any] = {}
     for field_name, field in model_cls.model_fields.items():
         annotation = field.annotation
         if _is_model_annotation(annotation):
@@ -521,7 +521,7 @@ def override_model_for_catalog(
 ) -> type[BaseModel]:
     """Build the internal sparse CLI override model for a preset catalog."""
     base_override_model = _override_model_for(catalog.model_cls)
-    fields: dict[str, tuple[Any, Any]] = {}
+    fields: dict[str, Any] = {}
     for field_name, field in base_override_model.model_fields.items():
         if field_name == catalog.preset_field:
             fields[field_name] = (str, catalog.default)

@@ -195,13 +195,13 @@ class Stoch3DGSInitializationConfig(Stoch3DGSConfigBase):
         """Build the runtime initializer spec."""
         del context
         return ember.InitializationSpec(
-            initializer=ember.callable_spec(
+            initializer=ember.bound_callable(
                 target=(
                     "papers.stoch3dgs.notebook."
                     "initialize_stoch3dgs_model_from_scene_record"
                 ),
                 kwargs=self.model_dump(mode="python"),
-                context_kwargs={"device": "device"},
+                bind={"device": ember.ctx.run.device},
             )
         )
 
@@ -216,7 +216,7 @@ class Stoch3DGSTrainingBackendOptionsConfig(Stoch3DGSConfigBase):
 
     def build_feature_fn(self) -> ember.CallableSpec:
         """Build the active-SH feature function spec."""
-        return ember.callable_spec(
+        return ember.bound_callable(
             target="papers.stoch3dgs.notebook.stoch3dgs_active_sh_scene",
         )
 
@@ -304,7 +304,7 @@ class Stoch3DGSOptimizationConfig(Stoch3DGSConfigBase):
                     optimizer="adam",
                     lr=self.center_position_lr_init * context.camera_extent,
                     optimizer_kwargs={"eps": self.adam_eps},
-                    scheduler=ember.callable_spec(
+                    scheduler=ember.bound_callable(
                         target="ember_core.training.exponential_decay_to",
                         kwargs={
                             "final_lr": (
@@ -429,11 +429,11 @@ class Stoch3DGSDensificationConfig(Stoch3DGSConfigBase):
         """Build the runtime Stoch3DGS densification stack."""
         del context
         return ember.densification_config(
-            ember.callable_spec(
+            ember.bound_callable(
                 target="papers.stoch3dgs.notebook.Stoch3DGSDensification",
                 kwargs=self.model_dump(mode="python"),
             ),
-            ember.callable_spec(
+            ember.bound_callable(
                 target="papers.stoch3dgs.notebook.Stoch3DGSFinalCleanup",
             ),
         )
@@ -494,7 +494,7 @@ class Stoch3DGSTrainingConfig(Stoch3DGSConfigBase):
             densification=self.densification.build(context),
             hooks=ember.HookConfig(
                 builders=[
-                    ember.callable_spec(
+                    ember.bound_callable(
                         target=(
                             "papers.stoch3dgs.notebook.Stoch3DGSActiveSHHook"
                         ),

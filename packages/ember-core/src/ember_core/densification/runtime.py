@@ -97,6 +97,12 @@ def build_densification(
     if not methods and not config.builders:
         return None
     for builder_spec in config.builders:
+        if getattr(builder_spec, "context_kwargs", None):
+            raise ValueError(
+                "Densification builder "
+                f"{builder_spec.target!r} has runtime context bindings; use "
+                "build_densification_for_context instead."
+            )
         builder = getattr(builder_spec, "object_ref", None)
         if builder is None:
             builder = _resolve_target(builder_spec.target)

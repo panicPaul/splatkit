@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from beartype import beartype
@@ -16,6 +17,11 @@ from ember_core.core.registry import output_set, register_backend
 from jaxtyping import Float
 from torch import Tensor
 
+from ember_native_faster_gs.faster_gs.runtime import (
+    blend,
+    preprocess,
+    sort,
+)
 from ember_native_faster_gs.faster_gs.runtime import (
     render as render_runtime,
 )
@@ -44,6 +50,9 @@ class FasterGSNativeRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
+    color_source: Literal["spherical_harmonics", "direct_rgb"] = (
+        "spherical_harmonics"
+    )
     mip_splatting_screen_filter: bool = True
     active_sh_bases: int | None = None
     clamp_output: bool = True
@@ -68,6 +77,39 @@ def _split_sh_coefficients(
 
 
 @beartype
+def _direct_rgb_features(scene: GaussianScene3D) -> Float[Tensor, " num_splats 3"]:
+    """Return direct RGB features for color-source bypass rendering."""
+    if scene.feature.ndim != 2 or scene.feature.shape[1] != 3:
+        raise ValueError(
+            "faster_gs direct_rgb color_source expects scene.feature with "
+            f"shape (num_splats, 3); got {tuple(scene.feature.shape)}."
+        )
+    return scene.feature
+
+
+@beartype
+def _dummy_sh_coefficients(
+    scene: GaussianScene3D,
+) -> tuple[
+    Float[Tensor, " num_splats 1 3"],
+    Float[Tensor, " num_splats 0 3"],
+]:
+    """Build inert SH tensors for geometry-only preprocess calls."""
+    num_splats = int(scene.center_position.shape[0])
+    sh_coefficients_0 = torch.zeros(
+        (num_splats, 1, 3),
+        dtype=scene.center_position.dtype,
+        device=scene.center_position.device,
+    )
+    sh_coefficients_rest = torch.empty(
+        (num_splats, 0, 3),
+        dtype=scene.center_position.dtype,
+        device=scene.center_position.device,
+    )
+    return sh_coefficients_0, sh_coefficients_rest
+
+
+@beartype
 def _validate_inputs(scene: GaussianScene3D, camera: CameraState) -> None:
     if scene.center_position.device.type != "cuda":
         raise ValueError("faster_gs requires scene tensors on CUDA.")
@@ -83,6 +125,72 @@ def _validate_inputs(scene: GaussianScene3D, camera: CameraState) -> None:
             "faster_gs only supports 3D Gaussian scales with shape "
             f"(num_splats, 3); got {tuple(scene.log_scales.shape)}."
         )
+
+
+@beartype
+def _render_direct_rgb_single_camera(
+    scene: GaussianScene3D,
+    camera: CameraState,
+    camera_index: int,
+    options: FasterGSNativeRenderOptions,
+) -> Tensor:
+    """Render one camera with precomputed per-Gaussian RGB features."""
+    colors_rgb = _direct_rgb_features(scene).contiguous()
+    sh_coefficients_0, sh_coefficients_rest = _dummy_sh_coefficients(scene)
+    camera_to_world_matrix = camera.cam_to_world[camera_index]
+    world_to_camera_matrix = torch.linalg.inv(camera_to_world_matrix)
+    camera_intrinsics = camera.get_intrinsics()[camera_index]
+    image_width = int(camera.width[camera_index].item())
+    image_height = int(camera.height[camera_index].item())
+    preprocess_result = preprocess(
+        scene.center_position.contiguous(),
+        scene.log_scales.contiguous(),
+        scene.quaternion_orientation.contiguous(),
+        scene.logit_opacity[:, None].contiguous(),
+        sh_coefficients_0.contiguous(),
+        sh_coefficients_rest.contiguous(),
+        world_to_camera_matrix.contiguous(),
+        camera_to_world_matrix[:3, 3].contiguous(),
+        near_plane=options.near_plane,
+        far_plane=options.far_plane,
+        image_width=image_width,
+        image_height=image_height,
+        focal_length_x=float(camera_intrinsics[0, 0].item()),
+        focal_length_y=float(camera_intrinsics[1, 1].item()),
+        principal_point_x=float(camera_intrinsics[0, 2].item()),
+        principal_point_y=float(camera_intrinsics[1, 2].item()),
+        mip_splatting_screen_filter=options.mip_splatting_screen_filter,
+        active_sh_bases=1,
+    )
+    sort_result = sort(
+        preprocess_result.depth_keys,
+        preprocess_result.primitive_indices,
+        preprocess_result.num_touched_tiles,
+        preprocess_result.screen_bounds,
+        preprocess_result.projected_means,
+        preprocess_result.conic_opacity,
+        preprocess_result.visible_count,
+        preprocess_result.instance_count,
+        image_width=image_width,
+        image_height=image_height,
+    )
+    blend_result = blend(
+        sort_result.instance_primitive_indices,
+        sort_result.tile_instance_ranges,
+        sort_result.tile_bucket_offsets,
+        sort_result.bucket_count,
+        preprocess_result.projected_means,
+        preprocess_result.conic_opacity,
+        colors_rgb,
+        options.background_color.to(
+            device=scene.center_position.device,
+            dtype=scene.center_position.dtype,
+        ),
+        options.mip_splatting_screen_filter,
+        image_width=image_width,
+        image_height=image_height,
+    )
+    return blend_result.image.permute(1, 2, 0).contiguous()
 
 
 @beartype
@@ -121,6 +229,26 @@ def render_faster_gs_native(
 
     _validate_inputs(scene, camera)
     options = options or FasterGSNativeRenderOptions()
+    if options.color_source == "direct_rgb":
+        if options.collect_densification_info:
+            raise ValueError(
+                "faster_gs.core direct_rgb color_source does not support "
+                "collect_densification_info."
+            )
+        renders = [
+            _render_direct_rgb_single_camera(
+                scene,
+                camera,
+                camera_index,
+                options,
+            )
+            for camera_index in range(camera.cam_to_world.shape[0])
+        ]
+        render = torch.stack(renders, dim=0)
+        if options.clamp_output:
+            render = render.clamp(0.0, 1.0)
+        return FasterGSNativeRenderOutput(render=render)
+
     active_sh_bases = (
         int(scene.feature.shape[1])
         if options.active_sh_bases is None

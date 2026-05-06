@@ -84,6 +84,40 @@ def test_fastgs_native_backend_accepts_compact_box_scale(
 
 @pytest.mark.backend
 @pytest.mark.cuda
+def test_fastgs_native_direct_rgb_allows_feature_gradients(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    rgb_scene = replace(
+        cuda_scene,
+        feature=torch.tensor(
+            [
+                [0.9, 0.2, 0.2],
+                [0.2, 0.9, 0.2],
+                [0.2, 0.2, 0.9],
+            ],
+            dtype=cuda_scene.feature.dtype,
+            device=cuda_scene.feature.device,
+        ).requires_grad_(True),
+    )
+
+    output = cast(
+        FastGSNativeRenderOutput,
+        render_fastgs_native(
+            rgb_scene,
+            cuda_camera,
+            options=FastGSNativeRenderOptions(color_source="direct_rgb"),
+        ),
+    )
+    output.render.sum().backward()
+
+    assert output.render.shape == (1, 32, 32, 3)
+    assert rgb_scene.feature.grad is not None
+    assert torch.isfinite(rgb_scene.feature.grad).all()
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
 def test_fastgs_native_backend_matches_existing_fastgs_adapter(
     cuda_scene,
     cuda_camera,

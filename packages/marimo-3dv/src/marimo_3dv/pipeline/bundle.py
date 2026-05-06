@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
-from marimo_3dv.pipeline.gui import PipelineItem, ViewerPipeline
+from marimo_3dv.pipeline.gui import (
+    AbstractRenderView,
+    EffectNode,
+    PipelineGroup,
+    RenderNode,
+    ViewerPipeline,
+)
 from marimo_3dv.viewer.defaults import (
     ViewerControlsConfig,
     viewer_controls_config,
@@ -14,7 +20,7 @@ from marimo_3dv.viewer.defaults import (
 from marimo_3dv.viewer.widget import ViewerState
 
 SceneT = TypeVar("SceneT")
-RenderViewT = TypeVar("RenderViewT")
+RenderViewT = TypeVar("RenderViewT", bound=AbstractRenderView[Any])
 CompiledViewT = TypeVar("CompiledViewT")
 
 
@@ -25,12 +31,12 @@ class ViewerBackendBundle(Generic[SceneT, RenderViewT, CompiledViewT]):
     name: str
     render_view_factory: Callable[[SceneT], RenderViewT]
     compile_view: Callable[[RenderViewT], CompiledViewT]
-    default_render_items: tuple[PipelineItem, ...] = field(
-        default_factory=tuple
+    default_render_items: tuple[RenderNode[RenderViewT] | PipelineGroup, ...] = (
+        field(default_factory=tuple)
     )
-    default_effect_items: tuple[PipelineItem, ...] = field(
-        default_factory=tuple
-    )
+    default_effect_items: tuple[
+        EffectNode[CompiledViewT, Any] | PipelineGroup, ...
+    ] = field(default_factory=tuple)
     viewer_controls_transform: (
         Callable[[ViewerControlsConfig], ViewerControlsConfig] | None
     ) = None
@@ -62,8 +68,10 @@ def backend_bundle(
     name: str,
     render_view_factory: Callable[[SceneT], RenderViewT],
     compile_view: Callable[[RenderViewT], CompiledViewT],
-    default_render_items: Sequence[PipelineItem] = (),
-    default_effect_items: Sequence[PipelineItem] = (),
+    default_render_items: Sequence[RenderNode[RenderViewT] | PipelineGroup] = (),
+    default_effect_items: Sequence[
+        EffectNode[CompiledViewT, Any] | PipelineGroup
+    ] = (),
     viewer_controls_transform: (
         Callable[[ViewerControlsConfig], ViewerControlsConfig] | None
     ) = None,

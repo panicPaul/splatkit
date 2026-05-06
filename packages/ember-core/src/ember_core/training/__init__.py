@@ -82,7 +82,10 @@ from ember_core.training.runtime import (
 )
 from ember_core.training.schedules import exponential_decay_to
 from ember_core.training.specs import (
+    RuntimeContextRef,
+    bound_callable,
     callable_spec,
+    ctx,
     densification_config,
     hooks_config,
     loss_config,
@@ -116,6 +119,7 @@ __all__ = [
     "RenderFn",
     "RenderPipelineSpec",
     "RuntimeConfig",
+    "RuntimeContextRef",
     "TensorBoardTrainingLogger",
     "TensorSliceSpec",
     "TensorViewSpec",
@@ -129,6 +133,7 @@ __all__ = [
     "TrainingResult",
     "TrainingRunContext",
     "TrainingStepProfile",
+    "bound_callable",
     "build_checkpoint_metadata",
     "build_dataloader",
     "build_densification_for_context",
@@ -149,6 +154,7 @@ __all__ = [
     "checkpoint_log_dir",
     "checkpoint_run_dir",
     "compute_frame_camera_extent",
+    "ctx",
     "cycle_dataloader",
     "densification_config",
     "ensure_checkpoint_output_writable",

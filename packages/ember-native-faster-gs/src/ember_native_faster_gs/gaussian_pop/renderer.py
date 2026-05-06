@@ -85,6 +85,9 @@ class GaussianPopNativeRenderOptions(RenderOptions):
 
     near_plane: float = 0.01
     far_plane: float = 1000.0
+    color_source: Literal["spherical_harmonics", "direct_rgb"] = (
+        "spherical_harmonics"
+    )
     proper_antialiasing: bool = True
 
 
@@ -194,6 +197,7 @@ def render_gaussian_pop(
                     background_color=options.background_color,
                     near_plane=options.near_plane,
                     far_plane=options.far_plane,
+                    color_source=options.color_source,
                     proper_antialiasing=options.proper_antialiasing,
                 ),
             )
@@ -208,10 +212,17 @@ def render_gaussian_pop(
                 background_color=options.background_color,
                 near_plane=options.near_plane,
                 far_plane=options.far_plane,
-                proper_antialiasing=options.proper_antialiasing,
+                color_source=options.color_source,
+                mip_splatting_screen_filter=options.proper_antialiasing,
             ),
         )
         return GaussianPopNativeRenderOutput(render=rgb_result.render)
+
+    if options.color_source == "direct_rgb":
+        raise ValueError(
+            "faster_gs.gaussian_pop direct_rgb color_source is only supported "
+            "for RGB-only rendering without Gaussian impact scores."
+        )
 
     _validate_inputs(scene, camera)
     sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(scene)

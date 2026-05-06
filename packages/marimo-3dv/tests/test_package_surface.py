@@ -22,6 +22,7 @@ def test_core_imports_work() -> None:
         ViewerTransformConfig,
         apply_viewer_config,
         link_viewer_states,
+        marimo_viewer,
         viewer_controls_config,
         viewer_controls_gui,
         viewer_controls_handle,
@@ -44,6 +45,7 @@ def test_core_imports_work() -> None:
     assert ViewerTransformConfig is not None
     assert apply_viewer_config is not None
     assert link_viewer_states is not None
+    assert marimo_viewer is not None
     assert viewer_controls_config is not None
     assert viewer_controls_handle is not None
     assert viewer_controls_gui is not None

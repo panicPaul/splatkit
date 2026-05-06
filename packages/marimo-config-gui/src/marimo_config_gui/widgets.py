@@ -37,6 +37,7 @@ from marimo_config_gui.constants import (
     DIRECT_JSON_EDITOR_KEY,
     MAX_MATRIX_CELLS,
     UNION_KIND_KEY,
+    ConfigGuiMode,
     RenderMode,
     WidgetMode,
 )
@@ -142,7 +143,7 @@ class _FieldSpec:
 
         if isinstance(element, PydanticGui):
             payload, _ = element._payload_from_frontend(
-                frontend_value,
+                cast(dict[str, JSONType], frontend_value),
                 update_children=update_children,
                 force_json=False,
             )
@@ -241,7 +242,7 @@ def _build_model_gui(
     else:
         layout = mo.vstack(direct_controls)
 
-    return field_specs, elements, layout
+    return field_specs, elements, cast(UIElement[Any, Any], layout)
 
 
 def _resolve_cli_default(
@@ -350,7 +351,13 @@ def _build_model_config_gui(
     else:
         layout = mo.vstack(direct_controls)
 
-    return field_specs, field_names, direct_field_names, elements, layout
+    return (
+        field_specs,
+        field_names,
+        direct_field_names,
+        elements,
+        cast(UIElement[Any, Any], layout),
+    )
 
 
 def _field_uses_direct_json_editor(
@@ -755,11 +762,17 @@ def _build_primitive_tuple_element(
     for index, item_type in enumerate(item_types):
         item_value = values[index] if index < len(values) else None
         if item_type in (int, float):
+            numeric_type = cast(type[int] | type[float], item_type)
             children.append(
                 _build_numeric_element(
-                    item_type,
+                    numeric_type,
                     spec.info,
-                    _default_primitive_item_value(item_type, item_value),
+                    cast(
+                        int | float,
+                        _default_primitive_item_value(
+                            numeric_type, item_value
+                        ),
+                    ),
                     labels[index],
                     prefer_slider=spec.widget_mode == "slider",
                 )
@@ -1195,7 +1208,7 @@ def _array_widget_bounds(
     info: FieldInfo,
     matrix_value: Any,
 ) -> tuple[int | float | None, int | float | None, int | float]:
-    extras = info.json_schema_extra or {}
+    extras = cast(dict[str, Any], info.json_schema_extra or {})
     if not isinstance(extras, dict):
         extras = {}
 
@@ -1253,7 +1266,7 @@ def _field_gui_config(
     info: FieldInfo,
     gui_mode: ConfigGuiMode,
 ) -> _FieldGuiConfig:
-    extras = info.json_schema_extra or {}
+    extras = cast(dict[str, Any], info.json_schema_extra or {})
     if not isinstance(extras, dict):
         return _FieldGuiConfig()
 
@@ -1867,12 +1880,14 @@ def _frontend_value_for_element(
         return element._frontend_value_from_payload(value)
     if isinstance(element, PydanticGui):
         return element._frontend_value_from_payload(
-            _payload_for_branch_model(element._model_cls, value)
+            _payload_for_branch_model(
+                cast(type[BaseModel], element._model_cls), value
+            )
         )
     if isinstance(element, PydanticJsonGui):
         return _frontend_value_for_structural_child(
             element,
-            element._model_cls,
+            cast(type[BaseModel], element._model_cls),
             value,
         )
 
@@ -1950,7 +1965,7 @@ def _parse_structural_frontend_value(
         )
     if isinstance(element, PydanticGui):
         payload, _ = element._payload_from_frontend(
-            frontend_value,
+            cast(dict[str, JSONType], frontend_value),
             update_children=update_children,
             force_json=False,
         )
@@ -1960,23 +1975,25 @@ def _parse_structural_frontend_value(
             if not isinstance(frontend_value, dict):
                 raise ValueError(f"{spec.name}: Expected an object.")
             payload, error = element._payload_from_frontend(
-                element._merged_frontend_value(frontend_value),
+                element._merged_frontend_value(
+                    cast(dict[str, JSONType], frontend_value)
+                ),
                 update_children=update_children,
             )
         else:
             if isinstance(frontend_value, dict):
-                frontend_value = frontend_value.get(
+                frontend_value = cast(dict[str, Any], frontend_value).get(
                     DIRECT_JSON_EDITOR_KEY,
                     element._current_frontend_value().get(
                         DIRECT_JSON_EDITOR_KEY,
                         "",
                     ),
                 )
-            payload, error = _json_text_to_payload(frontend_value)
+            payload, error = _json_text_to_payload(str(frontend_value))
         if error is not None:
             raise ValueError(error)
         _, validation_error = _validate_payload_with_error(
-            element._model_cls,
+            cast(type[BaseModel], element._model_cls),
             payload,
         )
         if validation_error is not None:

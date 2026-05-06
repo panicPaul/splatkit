@@ -10,17 +10,20 @@ from ember_native_faster_gs.faster_gs.runtime.ops._common import (
 )
 from ember_native_faster_gs.faster_gs.runtime.packing import (
     make_render_result,
+    parse_blend_outputs,
     parse_preprocess_outputs,
     parse_render_outputs,
     parse_sort_outputs,
 )
 from ember_native_faster_gs.faster_gs.runtime.types import (
+    BlendResult,
     PreprocessResult,
     RenderResult,
     SortResult,
 )
 from ember_native_faster_gs.fastgs.runtime.ops import (
     blend_metric_counts_fwd_op,
+    blend_op,
     preprocess_fwd_op,
     render_op,
     sort_fwd_op,
@@ -103,6 +106,38 @@ def sort(
             width,
             height,
             compact_box_scale,
+        )
+    )
+
+
+def blend(
+    instance_primitive_indices: Tensor,
+    tile_instance_ranges: Tensor,
+    tile_bucket_offsets: Tensor,
+    bucket_count: Tensor,
+    projected_means: Tensor,
+    conic_opacity: Tensor,
+    colors_rgb: Tensor,
+    bg_color: Tensor,
+    mip_splatting_screen_filter: bool,
+    *,
+    image_width: int,
+    image_height: int,
+) -> BlendResult:
+    """Run the native FastGS blend stage."""
+    return parse_blend_outputs(
+        blend_op(
+            instance_primitive_indices,
+            tile_instance_ranges,
+            tile_bucket_offsets,
+            bucket_count,
+            projected_means,
+            conic_opacity,
+            colors_rgb,
+            bg_color,
+            mip_splatting_screen_filter,
+            image_width,
+            image_height,
         )
     )
 
@@ -215,9 +250,11 @@ def render(
 
 
 __all__ = [
+    "BlendResult",
     "PreprocessResult",
     "RenderResult",
     "SortResult",
+    "blend",
     "blend_metric_counts",
     "preprocess",
     "render",

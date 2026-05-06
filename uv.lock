@@ -1655,7 +1655,7 @@ requires-dist = [
     { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.29" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-provides-extras = ["cu128", "cu130", "dev", "examples"]
+provides-extras = ["cu128", "cu130", "desktop", "dev", "examples"]
 
 [[package]]
 name = "marimo-config-gui"
