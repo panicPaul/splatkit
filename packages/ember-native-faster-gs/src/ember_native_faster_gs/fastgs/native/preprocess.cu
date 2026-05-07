@@ -40,6 +40,35 @@ __global__ void compute_primitive_depth_cu(
                                      w2c_r3.z * mean3d.z + w2c_r3.w;
 }
 
+__global__ void update_densification_radii_cu(
+    const uint* __restrict__ num_touched_tiles,
+    const float4* __restrict__ conic_opacity,
+    float* __restrict__ densification_info,
+    const uint n_primitives
+) {
+    const uint primitive_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (primitive_idx >= n_primitives) {
+        return;
+    }
+    const float4 conic = conic_opacity[primitive_idx];
+    const float conic_det = conic.x * conic.z - conic.y * conic.y;
+    if (num_touched_tiles[primitive_idx] == 0 || conic_det <= 0.0f) {
+        return;
+    }
+
+    const float inv_det = 1.0f / conic_det;
+    const float cov_a = conic.z * inv_det;
+    const float cov_b = -conic.y * inv_det;
+    const float cov_c = conic.x * inv_det;
+    const float cov_det = cov_a * cov_c - cov_b * cov_b;
+    const float mid = 0.5f * (cov_a + cov_c);
+    const float eig_sqrt = sqrtf(fmaxf(mid * mid - cov_det, 0.1f));
+    const float max_eigenvalue = fmaxf(mid + eig_sqrt, 0.0f);
+    const float radius = ceilf(3.0f * sqrtf(max_eigenvalue));
+    float* radius_info = densification_info + 3 * n_primitives;
+    radius_info[primitive_idx] = fmaxf(radius_info[primitive_idx], radius);
+}
+
 }  // namespace
 
 std::tuple<
@@ -173,6 +202,49 @@ preprocess_fwd_wrapper(
         visible_count,
         instance_count,
     };
+}
+
+void update_densification_radii_fwd_wrapper(
+    const torch::Tensor& num_touched_tiles,
+    const torch::Tensor& conic_opacity,
+    torch::Tensor& densification_info) {
+    check_cuda_int_tensor(num_touched_tiles, "num_touched_tiles");
+    check_cuda_float_tensor(conic_opacity, "conic_opacity");
+    check_cuda_float_tensor(densification_info, "densification_info");
+    TORCH_CHECK(
+        num_touched_tiles.dim() == 1,
+        "num_touched_tiles must have shape (n_primitives)."
+    );
+    const int n_primitives = num_touched_tiles.size(0);
+    TORCH_CHECK(
+        conic_opacity.dim() == 2 && conic_opacity.size(0) == n_primitives &&
+            conic_opacity.size(1) == 4,
+        "conic_opacity must have shape (n_primitives, 4)."
+    );
+    TORCH_CHECK(
+        densification_info.dim() == 2 && densification_info.size(0) >= 4 &&
+            densification_info.size(1) == n_primitives,
+        "densification_info must have shape (>=4, n_primitives)."
+    );
+    TORCH_CHECK(
+        densification_info.is_contiguous(),
+        "densification_info must be contiguous."
+    );
+    if (n_primitives == 0) {
+        return;
+    }
+
+    torch::Tensor touched_c = num_touched_tiles.contiguous();
+    torch::Tensor conic_c = conic_opacity.contiguous();
+    update_densification_radii_cu<<<
+        div_round_up(n_primitives, config::block_size_preprocess),
+        config::block_size_preprocess>>>(
+            reinterpret_cast<const uint*>(touched_c.data_ptr<int>()),
+            reinterpret_cast<const float4*>(conic_c.data_ptr<float>()),
+            densification_info.data_ptr<float>(),
+            static_cast<uint>(n_primitives)
+        );
+    CHECK_CUDA(config::debug, "fastgs_update_densification_radii_fwd")
 }
 
 }  // namespace ember_core::fastgs_native

@@ -19,6 +19,7 @@ from ember_core.densification import GaussianMetricAttribution
 from ember_native_faster_gs.faster_gs import (
     register as register_faster_gs,
 )
+from ember_native_faster_gs.faster_gs.renderer import _split_sh_coefficients
 from ember_native_faster_gs.fastgs import (
     FastGSNativeDensificationRenderOutput,
     FastGSNativeRenderOptions,
@@ -26,10 +27,35 @@ from ember_native_faster_gs.fastgs import (
     register,
     render_fastgs_native,
 )
+from ember_native_faster_gs.fastgs.runtime import preprocess
 
 register()
 register_faster_gs()
 register_adapter_fastgs()
+
+
+def _expected_fastgs_radius_from_conic(
+    num_touched_tiles: torch.Tensor,
+    conic_opacity: torch.Tensor,
+) -> torch.Tensor:
+    conic = conic_opacity.to(dtype=torch.float32)
+    conic_a = conic[:, 0]
+    conic_b = conic[:, 1]
+    conic_c = conic[:, 2]
+    conic_det = conic_a * conic_c - conic_b.square()
+    valid = (num_touched_tiles > 0) & (conic_det > 0)
+    cov_a = conic_c / conic_det.clamp_min(1e-12)
+    cov_b = -conic_b / conic_det.clamp_min(1e-12)
+    cov_c = conic_a / conic_det.clamp_min(1e-12)
+    cov_det = cov_a * cov_c - cov_b.square()
+    mid = 0.5 * (cov_a + cov_c)
+    eig_sqrt = torch.sqrt((mid.square() - cov_det).clamp_min(0.1))
+    max_eigenvalue = (mid + eig_sqrt).clamp_min(0.0)
+    return torch.where(
+        valid,
+        torch.ceil(3.0 * torch.sqrt(max_eigenvalue)),
+        torch.zeros_like(max_eigenvalue),
+    )
 
 
 def test_clear_completed_build_lock_removes_stale_lock(
@@ -257,6 +283,100 @@ def test_fastgs_native_metric_attribution_matches_existing_fastgs_adapter(
     )
 
     torch.testing.assert_close(fastgs_counts, adapter_counts)
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_fastgs_native_densification_radius_matches_existing_fastgs_adapter(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    pytest.importorskip(
+        "diff_gaussian_rasterization_fastgs",
+        exc_type=ImportError,
+    )
+    fastgs_output = cast(
+        FastGSNativeDensificationRenderOutput,
+        render_fastgs_native(
+            cuda_scene,
+            cuda_camera,
+            options=FastGSNativeRenderOptions(
+                collect_densification_info=True,
+                mip_splatting_screen_filter=False,
+            ),
+        ),
+    )
+    adapter_output = cast(
+        FastGSRenderOutput,
+        render_fastgs(
+            cuda_scene,
+            cuda_camera,
+            options=FastGSRenderOptions(mult=0.5),
+        ),
+    )
+
+    torch.testing.assert_close(
+        fastgs_output.densification_info[3],
+        adapter_output.radii[0].to(
+            dtype=fastgs_output.densification_info.dtype
+        ),
+    )
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+@pytest.mark.parametrize("mip_splatting_screen_filter", [False, True])
+def test_fastgs_native_densification_radius_uses_preprocess_conic(
+    cuda_scene,
+    cuda_camera,
+    mip_splatting_screen_filter: bool,
+) -> None:
+    output = cast(
+        FastGSNativeDensificationRenderOutput,
+        render_fastgs_native(
+            cuda_scene,
+            cuda_camera,
+            options=FastGSNativeRenderOptions(
+                collect_densification_info=True,
+                mip_splatting_screen_filter=mip_splatting_screen_filter,
+            ),
+        ),
+    )
+    sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(
+        cuda_scene
+    )
+    camera_intrinsics = cuda_camera.get_intrinsics()[0]
+    cam_to_world = cuda_camera.cam_to_world[0]
+    preprocess_result = preprocess(
+        cuda_scene.center_position.contiguous(),
+        cuda_scene.log_scales.contiguous(),
+        cuda_scene.quaternion_orientation.contiguous(),
+        cuda_scene.logit_opacity[:, None].contiguous(),
+        sh_coefficients_0.contiguous(),
+        sh_coefficients_rest.contiguous(),
+        torch.linalg.inv(cam_to_world).contiguous(),
+        cam_to_world[:3, 3].contiguous(),
+        near_plane=FastGSNativeRenderOptions().near_plane,
+        far_plane=FastGSNativeRenderOptions().far_plane,
+        width=int(cuda_camera.width[0].item()),
+        height=int(cuda_camera.height[0].item()),
+        focal_x=float(camera_intrinsics[0, 0].item()),
+        focal_y=float(camera_intrinsics[1, 1].item()),
+        center_x=float(camera_intrinsics[0, 2].item()),
+        center_y=float(camera_intrinsics[1, 2].item()),
+        mip_splatting_screen_filter=mip_splatting_screen_filter,
+        active_sh_bases=int(cuda_scene.feature.shape[1]),
+        compact_box_scale=FastGSNativeRenderOptions().compact_box_scale,
+    )
+    expected_radius = _expected_fastgs_radius_from_conic(
+        preprocess_result.num_touched_tiles,
+        preprocess_result.conic_opacity,
+    )
+
+    torch.testing.assert_close(
+        output.densification_info[3],
+        expected_radius.to(dtype=output.densification_info.dtype),
+    )
 
 
 @pytest.mark.backend

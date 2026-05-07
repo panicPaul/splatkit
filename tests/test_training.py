@@ -413,6 +413,23 @@ class LifecycleRecordingDensification(CloneFirstSplatDensification):
         context.state.model.metadata["after_training_step"] = context.state.step
 
 
+class OptimizerOrderRecordingDensification(CloneFirstSplatDensification):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pre_optimizer_feature: torch.Tensor | None = None
+        self.post_optimizer_feature: torch.Tensor | None = None
+
+    def pre_optimizer_step(self, context: DensificationContext) -> None:
+        self.pre_optimizer_feature = (
+            context.state.model.scene.feature.detach().clone()
+        )
+
+    def post_optimizer_step(self, context: DensificationContext) -> None:
+        self.post_optimizer_feature = (
+            context.state.model.scene.feature.detach().clone()
+        )
+
+
 def build_sparse_voxel_model(
     scene_record: SceneRecord,
     *,
@@ -971,6 +988,52 @@ def test_train_step_supports_direct_densification_injection(
 
     assert densification.post_optimizer_count == 1
     assert state.model.scene.feature.shape[0] == 2
+
+
+def test_train_step_calls_densification_before_optimizer_step(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
+    initial_feature = model.scene.feature.detach().clone()
+    state = TrainState(
+        model=model,
+        step=0,
+        seed=config.runtime.seed,
+        device=torch.device("cpu"),
+    )
+    batch = next(iter(build_dataset_loader(dataset, config)))
+    render_fn = build_render_fn(config)
+    loss_fn = build_loss_fn(config)
+    optimizers = build_optimizer_set(state, config)
+    densification = OptimizerOrderRecordingDensification()
+    from ember_core.densification.runtime import bind_densification
+
+    bind_densification(densification, state, optimizers)
+
+    train_step(
+        state,
+        batch,
+        render_fn=render_fn,
+        loss_fn=loss_fn,
+        optimizers=optimizers,
+        densification=densification,
+    )
+
+    assert densification.pre_optimizer_feature is not None
+    assert densification.post_optimizer_feature is not None
+    torch.testing.assert_close(
+        densification.pre_optimizer_feature,
+        initial_feature,
+    )
+    assert not torch.allclose(
+        densification.post_optimizer_feature,
+        initial_feature,
+    )
 
 
 def test_view_backed_optimizer_updates_only_selected_slice(

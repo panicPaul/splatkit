@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from torch import Tensor
 
-from ember_native_faster_gs.faster_gs.runtime.ops._common import (
-    TILE_HEIGHT,
-    TILE_WIDTH,
-)
 from ember_native_faster_gs.faster_gs.runtime.packing import (
     make_render_result,
     parse_blend_outputs,
@@ -27,6 +23,7 @@ from ember_native_faster_gs.fastgs.runtime.ops import (
     preprocess_fwd_op,
     render_op,
     sort_fwd_op,
+    update_densification_radii_fwd,
 )
 
 
@@ -232,19 +229,11 @@ def render(
         and densification_info.ndim == 2
         and densification_info.shape[0] >= 4
     ):
-        screen_bounds = parse_render_outputs(
-            raw_outputs
-        ).preprocess.screen_bounds
-        screen_bounds_f32 = screen_bounds.to(dtype=densification_info.dtype)
-        screen_widths = (
-            screen_bounds_f32[:, 1] - screen_bounds_f32[:, 0]
-        ).clamp_min_(0.0) * TILE_WIDTH
-        screen_heights = (
-            screen_bounds_f32[:, 3] - screen_bounds_f32[:, 2]
-        ).clamp_min_(0.0) * TILE_HEIGHT
-        max_screen_radii = 0.5 * screen_widths.maximum(screen_heights)
-        densification_info[3].data.copy_(
-            densification_info[3].data.maximum(max_screen_radii)
+        preprocess_result = parse_render_outputs(raw_outputs).preprocess
+        update_densification_radii_fwd(
+            preprocess_result.num_touched_tiles,
+            preprocess_result.conic_opacity,
+            densification_info,
         )
     return make_render_result(raw_outputs)
 

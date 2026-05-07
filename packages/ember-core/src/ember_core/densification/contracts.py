@@ -174,6 +174,13 @@ class DensificationCollector(Protocol):
     ) -> None:
         """Run after backward."""
 
+    def pre_optimizer_step(
+        self,
+        context: DensificationContext,
+        signals: DensificationSignals,
+    ) -> None:
+        """Run after backward hooks and before optimizer step."""
+
     def post_optimizer_step(
         self,
         context: DensificationContext,
@@ -222,6 +229,9 @@ class DensificationMethod(Protocol):
     def post_backward(self, context: DensificationContext) -> None:
         """Run after backward."""
 
+    def pre_optimizer_step(self, context: DensificationContext) -> None:
+        """Run after backward hooks and before optimizer step."""
+
     def post_optimizer_step(self, context: DensificationContext) -> None:
         """Run after optimizer step."""
 
@@ -268,6 +278,13 @@ class BaseDensificationComponent:
         del context, signals
 
     def post_backward(
+        self,
+        context: DensificationContext,
+        signals: DensificationSignals,
+    ) -> None:
+        del context, signals
+
+    def pre_optimizer_step(
         self,
         context: DensificationContext,
         signals: DensificationSignals,
@@ -326,6 +343,9 @@ class BaseDensificationMethod:
         del context
 
     def post_backward(self, context: DensificationContext) -> None:
+        del context
+
+    def pre_optimizer_step(self, context: DensificationContext) -> None:
         del context
 
     def post_optimizer_step(self, context: DensificationContext) -> None:

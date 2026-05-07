@@ -38,6 +38,11 @@ preprocess_fwd_wrapper(
     int active_sh_bases,
     float compact_box_scale);
 
+void update_densification_radii_fwd_wrapper(
+    const torch::Tensor& num_touched_tiles,
+    const torch::Tensor& conic_opacity,
+    torch::Tensor& densification_info);
+
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 sort_fwd_wrapper(
     const torch::Tensor& depth_keys,

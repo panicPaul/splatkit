@@ -446,6 +446,19 @@ def preprocess_fwd_op(
     )
 
 
+def update_densification_radii_fwd(
+    num_touched_tiles: Tensor,
+    conic_opacity: Tensor,
+    densification_info: Tensor,
+) -> None:
+    """Update FastGS max screen radii from AA-adjusted conics."""
+    backend().update_densification_radii_fwd(
+        num_touched_tiles,
+        conic_opacity,
+        densification_info,
+    )
+
+
 @preprocess_fwd_op.register_fake
 def _preprocess_fwd_fake(
     center_positions: Tensor,

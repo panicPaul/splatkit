@@ -1232,6 +1232,13 @@ def train_step(
             render_output,
             loss_result,
         )
+    if densification is not None and densification_context is not None:
+        pre_optimizer_step = getattr(
+            densification, "pre_optimizer_step", None
+        )
+        if pre_optimizer_step is not None:
+            with _profile_phase(profile, "densification_pre_optimizer"):
+                pre_optimizer_step(densification_context)
     with _profile_phase(profile, "optimizer"):
         for optimizer_binding in optimizers:
             optimizer_binding.step()

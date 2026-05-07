@@ -422,3 +422,42 @@ def test_fastgs_pruning_score_uses_photometric_probe_loss(
     )
 
     torch.testing.assert_close(pruning_score, torch.tensor([0.0, 1.0]))
+
+
+def test_fastgs_scheduled_adam_preserves_gradients_after_skipped_step() -> None:
+    module = load_fastgs_config_module()
+    parameter = torch.nn.Parameter(torch.tensor([1.0]))
+    optimizer = module.FastGSScheduledAdam(
+        [parameter],
+        lr=0.1,
+        schedule_kind="sh",
+    )
+
+    optimizer.zero_grad(set_to_none=False)
+    parameter.grad = torch.tensor([2.0])
+    optimizer.step()
+
+    assert parameter.item() == pytest.approx(1.0)
+    optimizer.zero_grad(set_to_none=False)
+    assert parameter.grad is not None
+    torch.testing.assert_close(parameter.grad, torch.tensor([2.0]))
+
+
+def test_fastgs_scheduled_adam_clears_gradients_after_real_step() -> None:
+    module = load_fastgs_config_module()
+    parameter = torch.nn.Parameter(torch.tensor([1.0]))
+    optimizer = module.FastGSScheduledAdam(
+        [parameter],
+        lr=0.1,
+        schedule_kind="sh",
+    )
+    optimizer.fastgs_iteration = 15
+
+    optimizer.zero_grad(set_to_none=False)
+    parameter.grad = torch.tensor([2.0])
+    optimizer.step()
+
+    assert parameter.item() == pytest.approx(0.9)
+    optimizer.zero_grad(set_to_none=False)
+    assert parameter.grad is not None
+    torch.testing.assert_close(parameter.grad, torch.zeros_like(parameter.grad))

@@ -10,5 +10,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "blend_metric_counts_fwd",
         &ember_core::fastgs_native::blend_metric_counts_fwd_wrapper
     );
+    m.def(
+        "update_densification_radii_fwd",
+        &ember_core::fastgs_native::update_densification_radii_fwd_wrapper
+    );
     m.def("blend_bwd", &ember_core::fastgs_native::blend_bwd_wrapper);
 }

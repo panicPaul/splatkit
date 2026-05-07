@@ -146,6 +146,20 @@ class ComposedDensificationMethod:
         for component in self.passes:
             component.post_backward(context, self.signals)
 
+    def pre_optimizer_step(self, context: DensificationContext) -> None:
+        for component in self.collectors:
+            pre_optimizer_step = getattr(
+                component, "pre_optimizer_step", None
+            )
+            if pre_optimizer_step is not None:
+                pre_optimizer_step(context, self.signals)
+        for component in self.passes:
+            pre_optimizer_step = getattr(
+                component, "pre_optimizer_step", None
+            )
+            if pre_optimizer_step is not None:
+                pre_optimizer_step(context, self.signals)
+
     def post_optimizer_step(self, context: DensificationContext) -> None:
         for component in self.collectors:
             component.post_optimizer_step(context, self.signals)
@@ -391,7 +405,7 @@ class FastGS(BaseDensificationMethod):
             visible_radii.max(dim=0).values,
         )
 
-    def post_optimizer_step(self, context: DensificationContext) -> None:
+    def pre_optimizer_step(self, context: DensificationContext) -> None:
         if self.family_ops is None:
             return
         if context.step > self.stop_iter:

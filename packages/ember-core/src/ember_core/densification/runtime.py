@@ -57,6 +57,12 @@ class DensificationMethodSequence(BaseDensificationMethod):
         for method in self.methods:
             method.post_backward(context)
 
+    def pre_optimizer_step(self, context: DensificationContext) -> None:
+        for method in self.methods:
+            pre_optimizer_step = getattr(method, "pre_optimizer_step", None)
+            if pre_optimizer_step is not None:
+                pre_optimizer_step(context)
+
     def post_optimizer_step(self, context: DensificationContext) -> None:
         for method in self.methods:
             method.post_optimizer_step(context)
