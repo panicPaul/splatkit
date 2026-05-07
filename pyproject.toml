@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Paul Schlack" }
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "torch>=2.11.0",
     # Editable dependencies
@@ -26,9 +26,11 @@ dependencies = [
 ]
 [project.optional-dependencies]
 adapter-backends = ["ember-adapter-backends"]
+adapter-nht = ["ember-adapter-backends[nht]"]
 native-faster-gs = ["ember-native-faster-gs"]
 native-faster-gs-mojo = ["ember-native-faster-gs-mojo"]
 native-3dgrt = ["ember-native-3dgrt"]
+native-nht = ["ember-native-nht"]
 native-svraster = ["ember-native-svraster"]
 svraster-adapter = ["new-svraster-cuda"]
 svraster-training = ["ember-svraster-training"]
@@ -40,6 +42,7 @@ all-native = [
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
+    "ember-native-nht",
     "ember-native-svraster",
 ]
 all-unrestricted = [
@@ -48,6 +51,7 @@ all-unrestricted = [
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
+    "ember-native-nht",
 ]
 all = [
     "ember-adapter-backends[all]",
@@ -56,6 +60,7 @@ all = [
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
+    "ember-native-nht",
     "ember-native-svraster",
 ]
 cu128 = ["torch>=2.11.0"]
@@ -67,6 +72,7 @@ cu128-dev = [
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
+    "ember-native-nht",
     "ember-native-svraster",
     "torch>=2.11.0",
 ]
@@ -77,6 +83,7 @@ cu130-dev = [
     "ember-native-faster-gs",
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
+    "ember-native-nht",
     "ember-native-svraster",
     "torch>=2.11.0",
 ]
@@ -112,6 +119,10 @@ diff-gaussian-rasterization-fastgs = [
 FasterGSCudaBackend = [{ requirement = "torch", match-runtime = true }]
 fused_ssim = [{ requirement = "torch", match-runtime = true }]
 new-svraster-cuda = [{ requirement = "torch", match-runtime = true }]
+tinycudann = [
+    { requirement = "setuptools<80", match-runtime = false },
+    { requirement = "torch", match-runtime = false },
+]
 
 [tool.uv.sources]
 marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
@@ -123,10 +134,12 @@ ember-adapter-backends = { path = "packages/ember-adapter-backends", editable = 
 ember-native-faster-gs = { path = "packages/ember-native-faster-gs", editable = true }
 ember-native-faster-gs-mojo = { path = "packages/ember-native-faster-gs-mojo", editable = true }
 ember-native-3dgrt = { path = "packages/ember-native-3dgrt", editable = true }
+ember-native-nht = { path = "packages/ember-native-nht", editable = true }
 ember-native-svraster = { path = "packages/ember-native-svraster", editable = true }
 diff-gaussian-rasterization-fastgs = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 fused_ssim = { git = "https://github.com/rahul-goel/fused-ssim", rev = "328dc9836f513d00c4b5bc38fe30478b4435cbb5" }
 new-svraster-cuda = { path = "third_party/sv_raster/backends/new_cuda", editable = true }
+tinycudann = { git = "https://github.com/NVlabs/tiny-cuda-nn", rev = "749dd70c5afc5a9dadb85e5652ed65d55e0ba187", subdirectory = "bindings/torch" }
 max = { index = "modular-nightly" }
 mojo = { index = "modular-nightly" }
 torch = [
@@ -325,6 +338,7 @@ ember-core = { path = "packages/ember-core", editable = true }
 ember-splatting-training = { path = "packages/ember-splatting-training", editable = true }
 ember-svraster-training = { path = "packages/ember-svraster-training", editable = true }
 marimo-3dv = { path = "packages/marimo-3dv", editable = true }
+ember-native-nht = { path = "packages/ember-native-nht", editable = true }
 diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
 "diff-gaussian-rasterization-fastgs" = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 "FasterGSCudaBackend" = { path = "third_party/faster-gaussian-splatting/FasterGSCudaBackend", editable = true }

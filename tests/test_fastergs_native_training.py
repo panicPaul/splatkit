@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import pytest
 import torch
 
@@ -111,6 +113,33 @@ def test_morton_order_sorts_simple_cuda_points() -> None:
     torch.testing.assert_close(
         morton_order(positions).cpu(),
         torch.tensor([0, 1, 2, 3], dtype=torch.int64),
+    )
+
+
+def test_morton_order_detaches_requires_grad_cuda_points() -> None:
+    _require_cuda()
+    from ember_native_faster_gs.faster_gs.training import morton_order
+
+    positions = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.2, 0.0, 0.1],
+            [0.1, 0.3, 0.2],
+        ],
+        dtype=torch.float32,
+        device="cuda",
+        requires_grad=True,
+    )
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        order = morton_order(positions)
+
+    assert order.shape == (3,)
+    assert not any(
+        "Converting a tensor with requires_grad=True to a scalar"
+        in str(warning.message)
+        for warning in captured
     )
 
 

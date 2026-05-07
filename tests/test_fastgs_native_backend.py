@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -29,6 +30,47 @@ from ember_native_faster_gs.fastgs import (
 register()
 register_faster_gs()
 register_adapter_fastgs()
+
+
+def test_clear_completed_build_lock_removes_stale_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ember_native_faster_gs import _torch_extensions
+
+    extension_name = "unit_ext"
+    lock_path = tmp_path / "lock"
+    extension_path = tmp_path / f"{extension_name}.so"
+    lock_path.touch()
+    extension_path.touch()
+    monkeypatch.setattr(
+        _torch_extensions,
+        "_get_build_directory",
+        lambda name, verbose: str(tmp_path),
+    )
+
+    _torch_extensions.clear_completed_build_lock(extension_name)
+
+    assert not lock_path.exists()
+
+
+def test_clear_completed_build_lock_keeps_active_build_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ember_native_faster_gs import _torch_extensions
+
+    lock_path = tmp_path / "lock"
+    lock_path.touch()
+    monkeypatch.setattr(
+        _torch_extensions,
+        "_get_build_directory",
+        lambda name, verbose: str(tmp_path),
+    )
+
+    _torch_extensions.clear_completed_build_lock("unit_ext")
+
+    assert lock_path.exists()
 
 
 @pytest.mark.backend
@@ -75,6 +117,30 @@ def test_fastgs_native_backend_accepts_compact_box_scale(
             cuda_scene,
             cuda_camera,
             options=FastGSNativeRenderOptions(compact_box_scale=0.7),
+        ),
+    )
+
+    assert output.render.shape == (1, 32, 32, 3)
+    assert torch.isfinite(output.render).all()
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_fastgs_native_culls_subthreshold_opacity_compact_boxes(
+    cuda_scene,
+    cuda_camera,
+) -> None:
+    low_opacity_scene = replace(
+        cuda_scene,
+        logit_opacity=torch.full_like(cuda_scene.logit_opacity, -20.0),
+    )
+
+    output = cast(
+        FastGSNativeRenderOutput,
+        render_fastgs_native(
+            low_opacity_scene,
+            cuda_camera,
+            options=FastGSNativeRenderOptions(compact_box_scale=0.5),
         ),
     )
 

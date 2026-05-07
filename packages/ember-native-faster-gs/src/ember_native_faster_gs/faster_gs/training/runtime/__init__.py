@@ -58,14 +58,20 @@ def morton_codes(
         raise ValueError(
             "morton_codes expects positions with shape (num_points, 3)."
         )
-    positions = positions.contiguous()
-    if scene_min is None:
-        scene_min = positions.amin(dim=0)
-    else:
-        scene_min = scene_min.to(device=positions.device, dtype=positions.dtype)
-    if scene_extent is None:
-        scene_max = positions.amax(dim=0)
-        scene_extent = float((scene_max - scene_min).amax().clamp_min(1e-12))
+    positions = positions.detach().contiguous()
+    with torch.no_grad():
+        if scene_min is None:
+            scene_min = positions.amin(dim=0)
+        else:
+            scene_min = scene_min.detach().to(
+                device=positions.device,
+                dtype=positions.dtype,
+            )
+        if scene_extent is None:
+            scene_max = positions.amax(dim=0)
+            scene_extent = float(
+                (scene_max - scene_min).amax().clamp_min(1e-12).item()
+            )
     return morton_codes_op(
         positions,
         scene_min.contiguous(),

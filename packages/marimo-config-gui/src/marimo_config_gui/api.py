@@ -462,6 +462,10 @@ def create_config_gui(
     displayed independently or together, including inside marimo layout
     wrappers, while staying synchronized through the owner.
     """
+    resolved_path_defaults = _path_defaults_with_source(
+        path_defaults,
+        path_defaults_source=path_defaults_source,
+    )
     initial_payload = _initial_config_payload(
         model_cls,
         value=value,
@@ -469,8 +473,7 @@ def create_config_gui(
         script_args=script_args,
         presets=presets,
         overlays=overlays,
-        path_defaults=path_defaults,
-        path_defaults_source=path_defaults_source,
+        path_defaults=resolved_path_defaults,
     )
     return ConfigGui(
         model_cls,
@@ -481,6 +484,7 @@ def create_config_gui(
         nested_models_multiple_open=nested_models_multiple_open,
         nested_models_flat_after_level=nested_models_flat_after_level,
         exclude_fields=exclude_fields,
+        path_defaults=resolved_path_defaults,
     )
 
 

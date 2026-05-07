@@ -14,6 +14,9 @@ dependencies = [
 gsplat = [
     "gsplat>=1.5.3",
 ]
+nht = [
+    "gsplat>=1.5.3",
+]
 fastergs = [
     "FasterGSCudaBackend",
 ]

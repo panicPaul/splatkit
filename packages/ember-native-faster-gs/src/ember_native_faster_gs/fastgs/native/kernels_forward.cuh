@@ -108,6 +108,7 @@ namespace ember_fastgs::rasterization::kernels::forward {
         if (
             conic_opacity.x <= 0.0f ||
             conic_opacity.z <= 0.0f ||
+            conic_opacity.w < config::min_alpha_threshold ||
             discriminant >= 0.0f
         ) {
             return geometry;
@@ -117,6 +118,9 @@ namespace ember_fastgs::rasterization::kernels::forward {
             compact_box_scale *
             2.0f *
             logf(conic_opacity.w * config::min_alpha_threshold_rcp);
+        if (!(compact_power_threshold > 0.0f)) {
+            return geometry;
+        }
         const float x_term = copysignf(
             sqrtf(
                 -(conic_opacity.y * conic_opacity.y * compact_power_threshold) /

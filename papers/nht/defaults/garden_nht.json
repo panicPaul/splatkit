@@ -1,0 +1,60 @@
+{
+  "preset": "garden_nht",
+  "scene": {
+    "path": "dataset/mipnerf360/garden"
+  },
+  "data": {
+    "image_scale_factor": 0.25,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "none"
+  },
+  "training": {
+    "runtime": {
+      "max_steps": 30000,
+      "device": "cuda"
+    },
+    "initialization": {
+      "feature_dim": 48,
+      "features_init_min": -1.5707963267948966,
+      "features_init_max": 1.5707963267948966,
+      "initial_scale": 0.1,
+      "initial_opacity": 0.5
+    },
+    "model": {
+      "shader": {
+        "feature_dim": 48,
+        "hidden_dim": 128,
+        "num_hidden_layers": 3,
+        "view_encoding": "sh",
+        "view_encoding_degree": 3,
+        "view_encoding_scale": 3.0,
+        "view_encoding_frequencies": 4
+      }
+    },
+    "render": {
+      "backend": "nht.3dgut"
+    },
+    "optimization": {
+      "feature_lr": 0.015,
+      "shader_lr": 0.00068
+    },
+    "mcmc": {
+      "enabled": true,
+      "start_iteration": 500,
+      "frequency": 100,
+      "min_opacity": 0.005,
+      "cap_growth_factor": 1.05,
+      "cap_max": 1000000,
+      "inject_position_noise": true,
+      "noise_lr_scale": 500000.0
+    },
+    "loss": {
+      "lambda_l1": 0.8,
+      "lambda_ssim": 0.2,
+      "lambda_opacity_regularization": 0.02,
+      "lambda_scale_regularization": 0.005,
+      "ssim_backend": "cuda"
+    }
+  }
+}

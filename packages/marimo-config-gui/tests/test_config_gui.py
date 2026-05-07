@@ -954,6 +954,54 @@ def test_config_state_initializes_from_preset_catalog(
     assert '"preset": "demo"' in json_gui_state()
 
 
+def test_config_gui_resolves_preset_path_defaults_for_restored_payload(
+    notebook_runtime: None,
+    tmp_path: Path,
+) -> None:
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(
+        '{"preset": "ignored", "title": "preset", "count": 4, "path": "data/scene"}'
+    )
+    (tmp_path / ".path_defaults.json").write_text(
+        '{"path_prefixes": {"data": "/mnt/datasets"}}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "demo": ConfigPreset(
+                name="demo",
+                path=preset_path,
+                base_dir=tmp_path,
+            )
+        },
+        default="demo",
+    )
+
+    config_gui = create_config_gui(
+        _PresetModel,
+        value={
+            "preset": "demo",
+            "title": "restored",
+            "count": 2,
+            "path": "data/restored",
+        },
+        presets=catalog,
+    )
+
+    assert config_gui.validated_config().path == Path("/mnt/datasets/restored")
+
+    config_gui._convert_value(
+        {
+            CONFIG_JSON_VIEW_KEY: (
+                '{"preset": "demo", "title": "edited", '
+                '"count": 3, "path": "data/edited"}'
+            )
+        }
+    )
+
+    assert config_gui.validated_config().path == Path("/mnt/datasets/edited")
+
+
 def test_load_script_config_supports_preset_cli_selection(
     tmp_path: Path,
 ) -> None:

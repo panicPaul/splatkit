@@ -15,6 +15,7 @@ from ember_core.core.contracts import (
     RenderOutput,
 )
 from ember_core.core.registry import BACKEND_REGISTRY, register_backend
+from ember_core.densification.contracts import DensificationContext, Schedule
 from ember_core.densification.families import GaussianFamilyOps
 from ember_core.initialization import InitializedModel
 from ember_core.training.checkpoints import (
@@ -659,6 +660,71 @@ def test_gaussian_family_ops_fused_copy_helpers_match_separate_ops(
 
     _assert_scene_tensors_equal(old_state.model.scene, new_state.model.scene)
     assert torch.equal(_exp_avg(old_optimizer), _exp_avg(new_optimizer))
+
+
+def test_gaussian_mcmc_appends_from_post_relocation_scene(
+    cpu_scene: GaussianScene3D,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ember_splatting_training.densification import mcmc as mcmc_module
+
+    scene = replace(
+        _trainable_scene(cpu_scene),
+        logit_opacity=torch.tensor([-20.0, 2.0, 1.0], requires_grad=True),
+    )
+    state = _state_for_scene(scene)
+    method = mcmc_module.GaussianMCMC(
+        schedule=Schedule(frequency=1),
+        min_opacity=0.005,
+        cap_growth_factor=2.0,
+        inject_position_noise=False,
+    )
+    family_ops = GaussianFamilyOps(state, [])
+    method.bind(state, [], family_ops)
+    multinomial_calls = 0
+
+    def fake_relocation_adjustment(
+        old_opacities: torch.Tensor,
+        old_scales: torch.Tensor,
+        n_samples_per_primitive: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        del n_samples_per_primitive
+        return old_opacities.clamp_min(0.8), old_scales
+
+    def fake_multinomial(
+        weights: torch.Tensor,
+        num_samples: int,
+        replacement: bool,
+    ) -> torch.Tensor:
+        nonlocal multinomial_calls
+        del replacement
+        multinomial_calls += 1
+        if multinomial_calls == 1:
+            return torch.zeros(num_samples, dtype=torch.long)
+        assert weights[0] > 0.79
+        return torch.arange(num_samples, dtype=torch.long) % weights.numel()
+
+    monkeypatch.setattr(
+        mcmc_module,
+        "relocation_adjustment",
+        fake_relocation_adjustment,
+    )
+    monkeypatch.setattr(mcmc_module.torch, "multinomial", fake_multinomial)
+
+    method.post_optimizer_step(
+        DensificationContext(
+            state=state,
+            batch=None,
+            render_output=None,
+            loss_result=None,
+            step=0,
+            optimizers=[],
+        )
+    )
+
+    assert multinomial_calls == 2
+    assert state.model.scene.logit_opacity.shape == (6,)
+    assert torch.sigmoid(state.model.scene.logit_opacity[0]) > 0.79
 
 
 def test_splatting_training_package_exports() -> None:

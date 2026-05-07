@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, cast
 
 import marimo as mo
@@ -1528,6 +1529,8 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
         nested_models_multiple_open: bool = True,
         nested_models_flat_after_level: int | None = None,
         exclude_fields: set[str] | frozenset[str] = frozenset(),
+        path_defaults: Sequence[Any] = (),
+        path_base_dir: Path | None = None,
     ) -> None:
         self._model_cls = model_cls
         self._background = background
@@ -1537,6 +1540,8 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
         self._nested_models_multiple_open = nested_models_multiple_open
         self._nested_models_flat_after_level = nested_models_flat_after_level
         self._exclude_fields = frozenset(exclude_fields)
+        self._path_defaults = tuple(path_defaults)
+        self._path_base_dir = path_base_dir
         self._payload = _order_payload_for_model(
             model_cls,
             _resolve_initial_payload(model_cls, value),
@@ -1597,6 +1602,8 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
             nested_models_multiple_open=self._nested_models_multiple_open,
             nested_models_flat_after_level=self._nested_models_flat_after_level,
             exclude_fields=self._exclude_fields,
+            path_defaults=self._path_defaults,
+            path_base_dir=self._path_base_dir,
         )
 
     def _current_frontend_value(self) -> dict[str, JSONType]:
@@ -1815,7 +1822,43 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
     def _validate_payload(self, payload: dict[str, Any]) -> ModelT | None:
         value, error = _validate_payload_with_error(self._model_cls, payload)
         self._error = error
-        return value
+        if value is None:
+            return None
+        return self._resolve_config_paths(value, payload)
+
+    def _resolve_config_paths(
+        self,
+        value: ModelT,
+        payload: dict[str, Any],
+    ) -> ModelT:
+        path_defaults = self._path_defaults
+        base_dir = self._path_base_dir
+        if self._presets is not None:
+            presets = self._presets
+            preset_field = presets.preset_field or "preset"
+            preset_name = payload.get(preset_field, presets.default)
+            preset = presets.presets.get(str(preset_name))
+            if preset is not None:
+                preset_path = preset.path.expanduser().resolve()
+                path_defaults = (
+                    preset_path.parent / ".path_defaults.json",
+                    *tuple(presets.path_defaults),
+                    *path_defaults,
+                )
+                base_dir = (
+                    preset.base_dir.expanduser().resolve()
+                    if preset.base_dir is not None
+                    else preset_path.parent
+                )
+        if not path_defaults:
+            return value
+        from marimo_config_gui.presets import resolve_config_paths
+
+        return resolve_config_paths(
+            value,
+            base_dir=base_dir,
+            path_defaults=path_defaults,
+        )
 
     def _sync_json_editor(self, json_text: str) -> None:
         self._sync_elements([(self._json_editor, json_text)])

@@ -420,6 +420,20 @@ def test_colmap_scene_config_serializes_source_pipe_kinds() -> None:
     assert prepared_payload["image_preparation"]["normalize"] is True
 
 
+def test_scene_configs_accept_empty_source_pipes() -> None:
+    colmap_config = ColmapSceneConfig(
+        path=Path("scene"),
+        source_pipes=(),
+    )
+    ncore_config = NCoreSceneConfig(
+        component_group_paths=(Path("group"),),
+        source_pipes=(),
+    )
+
+    assert colmap_config.source_pipes == ()
+    assert ncore_config.source_pipes == ()
+
+
 def test_colmap_scene_and_prepared_frame_defaults_are_split() -> None:
     scene_config = ColmapSceneConfig(path=Path("scene"))
     prepared_config = PreparedFrameDatasetConfig()

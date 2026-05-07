@@ -920,7 +920,7 @@ def _(current_config, is_script_mode, prepare_button, train_button):
         if scene_record is not None and current_config is not None
         else None
     )
-    return frame_dataset, scene_record, should_prepare
+    return (frame_dataset,)
 
 
 @app.cell

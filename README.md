@@ -246,6 +246,7 @@ Current native backend names include:
 - `faster_gs.depth`
 - `faster_gs.gaussian_pop`
 - `faster_gs_mojo.core`
+- `3dgrt.nht`
 - `3dgrt.stoch3dgs`
 - `svraster.core`
 
@@ -267,6 +268,7 @@ packages/
 
 papers/
   fastergs/                     Paper-specific notebook/config work
+  nht/                          Neural Harmonic Textures notebook/config work
 
 notebooks/                      Local demos, viewers, and research notebooks
 tests/                          Cross-package tests and backend parity checks

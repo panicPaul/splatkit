@@ -244,6 +244,31 @@ sort_fwd_wrapper(
     const int grid_width = div_round_up(width, config::tile_width);
     const int grid_height = div_round_up(height, config::tile_height);
     const int tile_count = grid_width * grid_height;
+    TORCH_CHECK(
+        n_visible >= 0 && n_visible <= depth_keys.size(0),
+        "fastgs sort received invalid visible_count ",
+        n_visible,
+        " for ",
+        depth_keys.size(0),
+        " primitives."
+    );
+    TORCH_CHECK(
+        n_instances >= 0,
+        "fastgs sort received negative instance_count ",
+        n_instances,
+        "."
+    );
+    TORCH_CHECK(
+        static_cast<int64_t>(n_instances) <=
+            static_cast<int64_t>(tile_count) * static_cast<int64_t>(n_visible),
+        "fastgs sort received invalid instance_count ",
+        n_instances,
+        " for ",
+        n_visible,
+        " visible primitives and ",
+        tile_count,
+        " tiles."
+    );
     const int end_bit = tile_count > 0
                             ? ember_faster_gs_core_vendor::rasterization::extract_end_bit(
                                   tile_count - 1

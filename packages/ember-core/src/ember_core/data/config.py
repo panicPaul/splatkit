@@ -39,7 +39,7 @@ class ColmapSceneConfig(SceneLoadConfig):
             "the COLMAP source contains distorted cameras."
         ),
     )
-    source_pipes: tuple[HorizonAlignPipeConfig] = Field(
+    source_pipes: tuple[HorizonAlignPipeConfig, ...] = Field(
         default=(HorizonAlignPipeConfig(),),
         description=(
             "Ordered source-phase pipes applied while loading the scene "
@@ -62,7 +62,7 @@ class NCoreSceneConfig(SceneLoadConfig):
             "and optional point-cloud sources."
         )
     )
-    source_pipes: tuple[HorizonAlignPipeConfig] = Field(
+    source_pipes: tuple[HorizonAlignPipeConfig, ...] = Field(
         default=(HorizonAlignPipeConfig(),),
         description=(
             "Ordered source-phase pipes applied while loading the scene record."

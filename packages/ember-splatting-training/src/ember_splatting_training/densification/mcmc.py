@@ -107,6 +107,7 @@ class GaussianMCMC(BaseDensificationMethod):
         if not self.schedule.includes(context.step):
             return
         self._relocate_dead(scene)
+        scene = self._family_ops.scene
         self._append_new(scene)
 
     def _inject_noise(
