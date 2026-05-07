@@ -570,8 +570,6 @@ __global__ void duplicateWithKeys(
 
     if (off != n_duplicates_scan[idx])
     {
-        // TODO: remove sanity check.
-        printf("Number of duplication mismatch !???");
         __trap();
     }
 }
@@ -670,7 +668,7 @@ int rasterize_voxels_procedure(
 
     const bool use_wide_sort_key = total_key_bits > SINGLE_SORT_KEY_BITS;
     static bool printed_wide_sort_key_notice = false;
-    if (use_wide_sort_key && !printed_wide_sort_key_notice)
+    if (debug && use_wide_sort_key && !printed_wide_sort_key_notice)
     {
         std::printf(
             "[new_cuda] Render resolution requires 128-bit raster sort keys "

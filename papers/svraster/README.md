@@ -2,12 +2,12 @@
 
 Paper notebook for:
 
-- SVRaster: Efficient 3D Gaussian Splatting with Sparse Voxels
+- Sparse Voxels Rasterization: Real-time High-fidelity Radiance Field Rendering
 
 Paper links:
 
 - Project page: https://svraster.github.io/
-- arXiv: https://arxiv.org/abs/2405.15307
+- arXiv: https://arxiv.org/abs/2412.04459
 
 ## Abstract
 

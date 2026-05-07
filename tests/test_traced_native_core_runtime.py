@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -187,6 +189,145 @@ def _build_rays(
         torch.zeros_like(rays_dir),
         torch.nn.functional.normalize(rays_dir, dim=-1),
     )
+
+
+def _load_upstream_stoch3dgs_tracer_class():
+    upstream_root = _REPO_ROOT / "third_party" / "Stoch3DGS"
+    sys.path.insert(0, str(upstream_root))
+    try:
+        return importlib.import_module("threedgrt_tracer.tracer").Tracer
+    finally:
+        try:
+            sys.path.remove(str(upstream_root))
+        except ValueError:
+            pass
+
+
+@pytest.mark.cuda
+def test_trace_autograd_bridge_matches_upstream_stoch3dgs_forward_backward(
+    cuda_scene,
+    cuda_camera,
+    monkeypatch,
+) -> None:
+    upstream_tracer = _load_upstream_stoch3dgs_tracer_class()
+    native_fake_tracer = _FakeOptixTracer()
+    upstream_fake_tracer = _FakeOptixTracer()
+    monkeypatch.setattr(
+        "ember_native_3dgrt.core.runtime.state._make_tracer_wrapper",
+        lambda config: native_fake_tracer,
+    )
+    state_token = acquire_state_token(
+        _state_config(), cuda_scene.center_position.device
+    )
+    ray_to_world, ray_ori, ray_dir = _build_rays(cuda_camera)
+    native_position = (
+        cuda_scene.center_position.detach().clone().requires_grad_(True)
+    )
+    native_density = (
+        torch.sigmoid(cuda_scene.logit_opacity[:, None].detach().clone())
+        .requires_grad_(True)
+    )
+    native_rotation = (
+        torch.nn.functional.normalize(
+            cuda_scene.quaternion_orientation.detach().clone(), dim=1
+        ).requires_grad_(True)
+    )
+    native_scale = (
+        torch.exp(cuda_scene.log_scales.detach().clone()).requires_grad_(True)
+    )
+    native_radiance = (
+        cuda_scene.feature[:, :1, :]
+        .reshape(cuda_scene.feature.shape[0], -1)
+        .detach()
+        .clone()
+        .requires_grad_(True)
+    )
+    reference_position = native_position.detach().clone().requires_grad_(True)
+    reference_density = native_density.detach().clone().requires_grad_(True)
+    reference_rotation = native_rotation.detach().clone().requires_grad_(True)
+    reference_scale = native_scale.detach().clone().requires_grad_(True)
+    reference_radiance = native_radiance.detach().clone().requires_grad_(True)
+
+    native_particle_density = pack_particle_density(
+        native_position,
+        native_density,
+        native_rotation,
+        native_scale,
+    )
+    native = trace(
+        state_token,
+        ray_to_world,
+        ray_ori,
+        ray_dir,
+        native_particle_density,
+        native_radiance,
+        sph_degree=cuda_scene.sh_degree,
+        min_transmittance=0.001,
+    )
+    (
+        reference_radiance_out,
+        reference_density_out,
+        reference_depth_out,
+        reference_normals_out,
+        reference_hitcounts_out,
+        reference_visibility_out,
+        reference_weights_out,
+    ) = upstream_tracer._Autograd.apply(
+        upstream_fake_tracer,
+        0,
+        ray_to_world,
+        ray_ori,
+        ray_dir,
+        reference_position,
+        reference_rotation,
+        reference_scale,
+        reference_density,
+        reference_radiance,
+        0,
+        cuda_scene.sh_degree,
+        0.001,
+    )
+
+    torch.testing.assert_close(native.radiance, reference_radiance_out)
+    torch.testing.assert_close(native.density, reference_density_out.squeeze(-1))
+    torch.testing.assert_close(native.depth, reference_depth_out.squeeze(-1))
+    torch.testing.assert_close(
+        native.normals,
+        torch.nn.functional.normalize(reference_normals_out, dim=3),
+    )
+    torch.testing.assert_close(
+        native.hitcounts,
+        reference_hitcounts_out.squeeze(-1),
+    )
+    torch.testing.assert_close(native.visibility, reference_visibility_out)
+    torch.testing.assert_close(native.weights, reference_weights_out)
+
+    native_loss = (
+        native.radiance.sum()
+        + native.density.sum()
+        + native.depth.sum()
+        + native.normals.sum()
+    )
+    reference_loss = (
+        reference_radiance_out.sum()
+        + reference_density_out.sum()
+        + reference_depth_out.sum()
+        + reference_normals_out.sum()
+    )
+    native_loss.backward()
+    reference_loss.backward()
+    destroy_acc(state_token)
+
+    for native_grad, reference_grad in (
+        (native_position.grad, reference_position.grad),
+        (native_density.grad, reference_density.grad),
+        (native_rotation.grad, reference_rotation.grad),
+        (native_scale.grad, reference_scale.grad),
+        (native_radiance.grad, reference_radiance.grad),
+    ):
+        assert native_grad is not None
+        assert reference_grad is not None
+        torch.testing.assert_close(native_grad, reference_grad)
 
 
 @pytest.mark.cuda

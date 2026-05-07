@@ -300,9 +300,10 @@ def _mark_max_sample_rate(
         view_distance = ((voxel_centers - camera.position) * camera.look_at).sum(
             dim=-1
         )
-        visible_indices = torch.where(
-            (preprocess_result.n_duplicates > 0) & (view_distance > near_plane)
-        )[0]
+        visible_mask = preprocess_result.n_duplicates > 0
+        if near_plane > 0.0:
+            visible_mask &= view_distance > near_plane
+        visible_indices = torch.where(visible_mask)[0]
         if visible_indices.numel() == 0:
             continue
         sample_interval = (
@@ -398,7 +399,7 @@ def _outside_octpaths(
         can_subdivide = octree_levels.reshape(-1) < max_level
         needed_parent_count = min(
             int(octree_paths.shape[0]),
-            round((minimum_voxels - int(octree_paths.shape[0])) / 7),
+            round((minimum_voxels - int(octree_paths.shape[0])) // 7),
         )
         if needed_parent_count <= 0 or int(can_subdivide.sum()) == 0:
             break
@@ -451,7 +452,7 @@ def initialize_svraster_paper_scene(
     bound_mode: SceneBoundMode = "default",
     bound_scale: float = 1.0,
     forward_distance_scale: float = 1.0,
-    near_plane: float = 0.02,
+    near_plane: float = -1.0,
     filter_zero_visibility: bool = True,
 ) -> InitializedModel:
     """Initialize SVRaster's foreground grid and background shell from cameras."""
@@ -497,15 +498,8 @@ def initialize_svraster_paper_scene(
         near_plane=near_plane,
         device=target_device,
     )
-    octree_layout = torch.cat(
-        [
-            torch.cat([inside_paths, inside_levels], dim=1),
-            torch.cat([outside_paths, outside_levels], dim=1),
-        ],
-        dim=0,
-    ).unique(dim=0, sorted=True)
-    octree_paths = octree_layout[:, :1]
-    octree_levels = octree_layout[:, 1:]
+    octree_paths = torch.cat([outside_paths, inside_paths], dim=0).contiguous()
+    octree_levels = torch.cat([outside_levels, inside_levels], dim=0).contiguous()
     _grid_points_key, voxel_keys = svraster_build_grid_points_link(
         octree_paths,
         octree_levels,

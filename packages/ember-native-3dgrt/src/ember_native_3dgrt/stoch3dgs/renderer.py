@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn.functional as torch_f
@@ -60,7 +61,10 @@ class Stoch3DGSNativeRenderOptions(RenderOptions):
     min_transmittance: float = 0.001
     enable_normals: bool = False
     enable_hitcounts: bool = True
-    max_consecutive_bvh_update: int = 1
+    max_consecutive_bvh_update: int = 15
+    ray_principal_point_mode: Literal["image_center", "intrinsics"] = (
+        "image_center"
+    )
 
 
 def _flatten_sh_features(scene: GaussianScene3D) -> Tensor:
@@ -110,7 +114,11 @@ def _validate_inputs(scene: GaussianScene3D, camera: CameraState) -> None:
         )
 
 
-def _build_batch(camera: CameraState) -> tuple[Tensor, Tensor]:
+def _build_batch(
+    camera: CameraState,
+    *,
+    principal_point_mode: Literal["image_center", "intrinsics"],
+) -> tuple[Tensor, Tensor]:
     """Construct batched ray origins and directions from the camera intrinsics."""
     intrinsics = camera.get_intrinsics()
     num_cams = int(camera.cam_to_world.shape[0])
@@ -127,8 +135,27 @@ def _build_batch(camera: CameraState) -> tuple[Tensor, Tensor]:
 
     fx = intrinsics[:, 0, 0].view(num_cams, 1, 1)
     fy = intrinsics[:, 1, 1].view(num_cams, 1, 1)
-    cx = intrinsics[:, 0, 2].view(num_cams, 1, 1)
-    cy = intrinsics[:, 1, 2].view(num_cams, 1, 1)
+    if principal_point_mode == "image_center":
+        cx = torch.full(
+            (num_cams, 1, 1),
+            width * 0.5,
+            device=device,
+            dtype=dtype,
+        )
+        cy = torch.full(
+            (num_cams, 1, 1),
+            height * 0.5,
+            device=device,
+            dtype=dtype,
+        )
+    elif principal_point_mode == "intrinsics":
+        cx = intrinsics[:, 0, 2].view(num_cams, 1, 1)
+        cy = intrinsics[:, 1, 2].view(num_cams, 1, 1)
+    else:
+        raise ValueError(
+            "Unsupported Stoch3DGS ray principal point mode "
+            f"{principal_point_mode!r}."
+        )
 
     dirs = torch.stack(
         (
@@ -241,6 +268,7 @@ def render_stoch3dgs_native(
             enable_normals=True,
             enable_hitcounts=options.enable_hitcounts,
             max_consecutive_bvh_update=options.max_consecutive_bvh_update,
+            ray_principal_point_mode=options.ray_principal_point_mode,
         )
     state_config = _state_config(scene, options)
     state_token, created = _get_state_token(
@@ -254,7 +282,10 @@ def render_stoch3dgs_native(
         torch.exp(scene.log_scales).contiguous(),
     )
     particle_radiance = _flatten_sh_features(scene)
-    ray_ori, ray_dir = _build_batch(camera)
+    ray_ori, ray_dir = _build_batch(
+        camera,
+        principal_point_mode=options.ray_principal_point_mode,
+    )
     ray_to_world = camera.cam_to_world.contiguous()
     if created:
         state_token = build_acc(state_token, particle_density)

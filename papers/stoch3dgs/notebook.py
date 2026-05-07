@@ -28,6 +28,7 @@ with app.setup:
         Schedule,
     )
     from ember_core.training import (
+        LossResult,
         TrainingProfilerConfig,
         TrainingResult,
         TrainState,
@@ -236,6 +237,9 @@ class Stoch3DGSRenderConfig(Stoch3DGSConfigBase):
     enable_normals: bool = False
     enable_hitcounts: bool = True
     max_consecutive_bvh_update: int = Field(default=15, ge=1)
+    ray_principal_point_mode: Literal["image_center", "intrinsics"] = (
+        "image_center"
+    )
     background_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
     return_alpha: bool = True
     return_depth: bool = True
@@ -266,6 +270,7 @@ class Stoch3DGSRenderConfig(Stoch3DGSConfigBase):
                 "enable_normals": self.enable_normals,
                 "enable_hitcounts": self.enable_hitcounts,
                 "max_consecutive_bvh_update": self.max_consecutive_bvh_update,
+                "ray_principal_point_mode": self.ray_principal_point_mode,
                 "background_color": list(self.background_color),
             },
         )
@@ -783,7 +788,7 @@ def stoch3dgs_rgb_l1_ssim_loss(
     lambda_opacity_regularization: float = 0.0,
     lambda_scale_regularization: float = 0.0,
     ssim_backend: str = "cuda",
-) -> ember.LossResult:
+) -> LossResult:
     """Upstream Stoch3DGS RGB reconstruction loss."""
     del weights
     prediction = render_output.render
@@ -823,7 +828,7 @@ def stoch3dgs_rgb_l1_ssim_loss(
         metrics["scale_regularization"] = float(
             scale_regularization.detach().item()
         )
-    return ember.LossResult(loss=loss, metrics=metrics)
+    return LossResult(loss=loss, metrics=metrics)
 
 
 @app.cell(hide_code=True)
@@ -1024,11 +1029,13 @@ class Stoch3DGSActiveSHHook:
 
     def before_step(self, state: TrainState) -> None:
         """Set active SH degree for the next render."""
-        if state.step < self.sh_start_step:
+        if state.step <= self.sh_start_step:
             active = 0
         else:
             active = (
-                1 + (state.step - self.sh_start_step) // self.sh_step_interval
+                1
+                + (state.step - self.sh_start_step - 1)
+                // self.sh_step_interval
             )
         state.model.metadata["active_sh_degree"] = int(
             min(self.max_sh_degree, active)

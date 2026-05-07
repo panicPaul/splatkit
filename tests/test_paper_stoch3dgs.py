@@ -66,6 +66,7 @@ def test_stoch3dgs_resolved_training_config_uses_native_defaults() -> None:
         "enable_normals": False,
         "enable_hitcounts": True,
         "max_consecutive_bvh_update": 15,
+        "ray_principal_point_mode": "image_center",
         "background_color": [0.0, 0.0, 0.0],
     }
     assert (
@@ -203,6 +204,35 @@ def test_stoch3dgs_step_schedule_matches_upstream_strict_start() -> None:
     assert module.stoch3dgs_step_includes(500, 500, 15000, 100) is False
     assert module.stoch3dgs_step_includes(600, 500, 15000, 100) is True
     assert module.stoch3dgs_step_includes(15000, 500, 15000, 100) is False
+
+
+def test_stoch3dgs_active_sh_hook_updates_after_scheduled_step() -> None:
+    module = load_stoch3dgs_config_module()
+    hook = module.Stoch3DGSActiveSHHook(
+        max_sh_degree=3,
+        sh_start_step=1000,
+        sh_step_interval=1000,
+    )
+    state = SimpleNamespace(model=SimpleNamespace(metadata={}), step=999)
+
+    hook.before_step(state)
+    assert state.model.metadata["active_sh_degree"] == 0
+
+    state.step = 1000
+    hook.before_step(state)
+    assert state.model.metadata["active_sh_degree"] == 0
+
+    state.step = 1001
+    hook.before_step(state)
+    assert state.model.metadata["active_sh_degree"] == 1
+
+    state.step = 2000
+    hook.before_step(state)
+    assert state.model.metadata["active_sh_degree"] == 1
+
+    state.step = 2001
+    hook.before_step(state)
+    assert state.model.metadata["active_sh_degree"] == 2
 
 
 def test_stoch3dgs_densification_prunes_buffers() -> None:

@@ -121,14 +121,10 @@ renderCUDA(
     const uint2 range = {range_raw.x, tile_last[tile_id]};
     if (range.y > range_raw.y)
     {
-        // TODO: remove sanity check.
-        printf("range.y > range_raw.y !???");
         __trap();
     }
     if (range.x > range.y)
     {
-        // TODO: remove sanity check.
-        printf("range.x > range.y !???");
         __trap();
     }
 

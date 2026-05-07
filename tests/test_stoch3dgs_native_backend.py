@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -14,6 +15,13 @@ from ember_native_3dgrt.stoch3dgs import (
 from ember_native_3dgrt.stoch3dgs import renderer as stoch3dgs_native_renderer
 
 register()
+
+
+def test_stoch3dgs_native_options_match_paper_defaults() -> None:
+    options = Stoch3DGSNativeRenderOptions()
+
+    assert options.max_consecutive_bvh_update == 15
+    assert options.ray_principal_point_mode == "image_center"
 
 
 class _FakeOptixTracer:
@@ -193,6 +201,56 @@ def test_render_stoch3dgs_native_rejects_2d_projections(
             cpu_camera,
             return_2d_projections=True,
         )
+
+
+def test_stoch3dgs_native_rays_default_to_upstream_image_center(
+    cpu_camera,
+) -> None:
+    intrinsics = torch.tensor(
+        [[[2.0, 0.0, 1.0], [0.0, 4.0, 0.25], [0.0, 0.0, 1.0]]],
+        dtype=torch.float32,
+    )
+    camera = replace(
+        cpu_camera,
+        width=torch.tensor([4], dtype=torch.int64),
+        height=torch.tensor([2], dtype=torch.int64),
+        intrinsics=intrinsics,
+    )
+
+    _origins, image_center_dirs = stoch3dgs_native_renderer._build_batch(
+        camera,
+        principal_point_mode="image_center",
+    )
+    _origins, intrinsics_dirs = stoch3dgs_native_renderer._build_batch(
+        camera,
+        principal_point_mode="intrinsics",
+    )
+
+    image_center_ratio = (
+        image_center_dirs[0, 0, 0, :2] / image_center_dirs[0, 0, 0, 2]
+    )
+    intrinsics_ratio = (
+        intrinsics_dirs[0, 0, 0, :2] / intrinsics_dirs[0, 0, 0, 2]
+    )
+    torch.testing.assert_close(
+        image_center_ratio,
+        torch.tensor([-0.75, -0.125]),
+    )
+    torch.testing.assert_close(
+        intrinsics_ratio,
+        torch.tensor([-0.25, 0.0625]),
+    )
+
+
+def test_stoch3dgs_native_flattens_sh_like_upstream_features(cpu_scene) -> None:
+    feature = torch.arange(2 * 4 * 3, dtype=torch.float32).reshape(2, 4, 3)
+    scene = replace(cpu_scene, feature=feature, sh_degree=1)
+
+    flattened = stoch3dgs_native_renderer._flatten_sh_features(scene)
+
+    expected = torch.cat((feature[:, 0, :], feature[:, 1:, :].reshape(2, -1)), dim=1)
+    torch.testing.assert_close(flattened, expected)
+    assert flattened.is_contiguous()
 
 
 @pytest.mark.backend

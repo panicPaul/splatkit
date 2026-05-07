@@ -118,8 +118,6 @@ __global__ void preprocessCUDA(
     int tiles_touched = (1 + tile_max.y - tile_min.y) * (1 + tile_max.x - tile_min.x);
     if (tiles_touched <= 0)
     {
-        // TODO: remove sanity check.
-        printf("tiles_touched <= 0 !???");
         __trap();
     }
 

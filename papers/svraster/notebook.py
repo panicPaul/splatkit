@@ -15,6 +15,7 @@ with app.setup:
     import ember_native_svraster
     import marimo as mo
     import torch
+    from ember_core.training import LossResult
     from jaxtyping import Float, Int
     from marimo_config_gui import (
         ConfigPreset,
@@ -654,7 +655,7 @@ def svraster_rgb_loss(
     lambda_distortion: float = 0.1,
     distortion_start_step: int = 10000,
     weights: dict[str, float] | None = None,
-) -> ember.LossResult:
+) -> LossResult:
     """Compute the SVRaster RGB loss terms available through current APIs."""
     del (
         lambda_ssim,
@@ -684,7 +685,7 @@ def svraster_rgb_loss(
         metrics["transmittance_loss"] = float(
             transmittance_loss.detach().item()
         )
-    return ember.LossResult(
+    return LossResult(
         loss=loss,
         metrics=metrics,
     )
