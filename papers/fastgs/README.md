@@ -41,12 +41,14 @@ Default JSON configs:
 - `garden_base`
 - `garden_big`
 - `garden_debug_val`
+- `mipsplatting-big`
 
 Stored at:
 
 - `papers/fastgs/defaults/garden_base.json`
 - `papers/fastgs/defaults/garden_big.json`
 - `papers/fastgs/defaults/garden_debug_val.json`
+- `papers/fastgs/defaults/mipsplatting-big.json`
 
 Backend choices:
 

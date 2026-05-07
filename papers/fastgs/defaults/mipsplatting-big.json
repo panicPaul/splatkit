@@ -1,5 +1,5 @@
 {
-  "preset": "garden_big",
+  "preset": "mipsplatting-big",
   "scene": {
     "path": "dataset/mipnerf360/garden",
     "image_root": null,
@@ -93,12 +93,12 @@
       }
     },
     "checkpoint": {
-      "output_dir": "checkpoints/papers/fastgs/garden_big/faster_gs.fastgs",
+      "output_dir": "checkpoints/papers/fastgs/mipsplatting-big/faster_gs.fastgs",
       "export_ply": true
     },
     "mip_splatting": {
-      "enabled": false,
-      "screen_filter_enabled": false,
+      "enabled": true,
+      "screen_filter_enabled": true,
       "three_dimensional_filter": {
         "recompute_schedule": {
           "start_iteration": 15000,

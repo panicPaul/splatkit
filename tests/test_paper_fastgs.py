@@ -69,12 +69,13 @@ def test_fastgs_resolved_training_config_defaults_to_native_backend() -> None:
     )
     assert (
         training_config.densification.builders[0].target
-        == "papers.fastgs.notebook.FastGSVanillaDensification"
+        == "papers.fastgs.notebook.FastGSDensification"
     )
     assert (
         training_config.densification.builders[-1].target
         == "papers.fastgs.notebook.FastGSFinalCleanup"
     )
+    assert config_has_no_mip_splatting_3d_filter(training_config)
     assert (
         training_config.checkpoint.output_dir
         == REPO_ROOT / "checkpoints/papers/fastgs/garden_base/faster_gs.fastgs"
@@ -101,12 +102,73 @@ def test_fastgs_garden_big_preset_uses_native_upstream_settings() -> None:
     assert experiment_config.training.loss.lambda_opacity_regularization == 0.0
     assert experiment_config.training.loss.lambda_scale_regularization == 0.0
 
-    vanilla = experiment_config.training.densification.vanilla
-    assert vanilla.refine_every == 100
-    assert vanilla.loss_thresh == 0.06
-    assert vanilla.grad_abs_threshold == 0.0003
-    assert vanilla.dense_fraction == 0.001
-    assert vanilla.metric_map_backend == "eager"
+    fastgs = experiment_config.training.densification.fastgs
+    assert fastgs.refine_every == 100
+    assert fastgs.loss_thresh == 0.06
+    assert fastgs.grad_abs_threshold == 0.0003
+    assert fastgs.dense_fraction == 0.001
+    assert fastgs.metric_map_backend == "eager"
+
+
+def config_has_no_mip_splatting_3d_filter(training_config) -> bool:
+    return all(
+        builder.target
+        != "ember_splatting_training.GaussianMipSplatting3DFilter"
+        for builder in training_config.densification.builders
+    )
+
+
+@pytest.mark.parametrize(
+    "preset_name",
+    ["garden_base", "garden_big", "garden_debug_val"],
+)
+def test_fastgs_default_presets_disable_full_mip_splatting(
+    preset_name: str,
+) -> None:
+    module = load_fastgs_config_module()
+    experiment_config = load_fastgs_preset(module, preset_name)
+
+    training_config = module.resolve_training_config(experiment_config)
+
+    assert experiment_config.training.mip_splatting.enabled is False
+    assert (
+        experiment_config.training.mip_splatting.screen_filter_enabled is False
+    )
+    assert (
+        training_config.render.backend_options["mip_splatting_screen_filter"]
+        is False
+    )
+    assert config_has_no_mip_splatting_3d_filter(training_config)
+
+
+def test_fastgs_mipsplatting_big_preset_enables_full_mip_splatting() -> None:
+    module = load_fastgs_config_module()
+    experiment_config = load_fastgs_preset(module, "mipsplatting-big")
+
+    training_config = module.resolve_training_config(experiment_config)
+
+    assert experiment_config.preset == "mipsplatting-big"
+    assert experiment_config.training.render.backend == "faster_gs.fastgs"
+    assert experiment_config.training.mip_splatting.enabled is True
+    assert (
+        experiment_config.training.mip_splatting.screen_filter_enabled is True
+    )
+    assert experiment_config.training.densification.mode == "fastgs"
+    assert training_config.render.backend_options["mip_splatting_screen_filter"]
+    assert (
+        training_config.densification.builders[0].target
+        == "papers.fastgs.notebook.FastGSDensification"
+    )
+    assert any(
+        builder.target
+        == "ember_splatting_training.GaussianMipSplatting3DFilter"
+        for builder in training_config.densification.builders
+    )
+    assert (
+        training_config.checkpoint.output_dir
+        == REPO_ROOT
+        / "checkpoints/papers/fastgs/mipsplatting-big/faster_gs.fastgs"
+    )
 
 
 def test_fastgs_script_loader_applies_preset_then_cli_overrides() -> None:
@@ -145,6 +207,7 @@ def test_fastgs_user_config_does_not_expose_runtime_kwargs() -> None:
     assert '"kwargs"' not in serialized
     assert '"context_kwargs"' not in serialized
     assert "proper_antialiasing" not in serialized
+    assert "mip_splatting_screen_filter" not in serialized
 
 
 def test_fastgs_script_loader_replays_json_config(tmp_path: Path) -> None:
@@ -281,7 +344,7 @@ def test_compiled_fastgs_l1_metric_map_matches_eager() -> None:
 
 def test_fastgs_densification_accumulators_follow_clone_and_split() -> None:
     module = load_fastgs_config_module()
-    densification = module.FastGSVanillaDensification()
+    densification = module.FastGSDensification()
     densification.clone_grad_sum = torch.arange(4, dtype=torch.float32)
     densification.split_grad_sum = torch.arange(10, 14, dtype=torch.float32)
     densification.visible_count = torch.ones(4)
@@ -301,7 +364,7 @@ def test_fastgs_densification_accumulators_follow_clone_and_split() -> None:
 
 def test_fastgs_grown_accumulators_match_fused_clone_split_order() -> None:
     module = load_fastgs_config_module()
-    densification = module.FastGSVanillaDensification()
+    densification = module.FastGSDensification()
     value = torch.arange(20, 24, dtype=torch.float32)
     clone_mask = torch.tensor([True, False, True, False])
     split_mask = torch.tensor([False, True, False, False])
@@ -321,7 +384,7 @@ def test_fastgs_grown_accumulators_match_fused_clone_split_order() -> None:
 
 def test_fastgs_refinement_pruning_pads_scores_after_growth() -> None:
     module = load_fastgs_config_module()
-    densification = module.FastGSVanillaDensification()
+    densification = module.FastGSDensification()
     prune_mask = torch.ones(6, dtype=torch.bool)
     pruning_score = torch.tensor([0.1, 0.2, 0.3, 0.4])
 
@@ -339,7 +402,7 @@ def test_fastgs_pruning_score_uses_photometric_probe_loss(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = load_fastgs_config_module()
-    densification = module.FastGSVanillaDensification()
+    densification = module.FastGSDensification()
     photometric_values = iter(
         (
             torch.tensor(2.0),
