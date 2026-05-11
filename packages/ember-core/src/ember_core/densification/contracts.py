@@ -9,6 +9,8 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 from jaxtyping import Float
 from torch import Tensor
 
+from ember_core.core.keys import SceneFamilyKey
+
 T = TypeVar("T")
 
 
@@ -76,6 +78,15 @@ class DensificationRenderRequirements:
 
 
 @dataclass(frozen=True)
+class DensificationBindContext:
+    """Runtime resources available while binding a densification method."""
+
+    state: Any
+    optimizers: Sequence[Any]
+    family_ops: Any | None = None
+
+
+@dataclass(frozen=True)
 class DensificationContext:
     """Context passed to densification lifecycle stages."""
 
@@ -105,6 +116,16 @@ class DensificationSignals:
     global_: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class GaussianFastGSDensificationSignals:
+    """Per-Gaussian FastGS-style densification statistics from a backend."""
+
+    visible_count: Float[Tensor, " num_splats"]
+    clone_grad_sum: Float[Tensor, " num_splats"]
+    split_grad_sum: Float[Tensor, " num_splats"]
+    max_screen_radii: Float[Tensor, " num_splats"]
+
+
 @runtime_checkable
 class GaussianMetricAttribution(Protocol):
     """Backend-provided attribution from probe metrics to Gaussians."""
@@ -118,6 +139,20 @@ class GaussianMetricAttribution(Protocol):
         options: Any | None = None,
     ) -> Float[Tensor, " num_splats"]:
         """Attribute a probe metric map to per-Gaussian weights."""
+
+
+@runtime_checkable
+class GaussianFastGSSignalProvider(Protocol):
+    """Backend-provided FastGS-style signal extraction from render outputs."""
+
+    def prepare_fastgs_signals(self, context: DensificationContext) -> None:
+        """Prepare render-output tensors before backward."""
+
+    def collect_fastgs_signals(
+        self,
+        context: DensificationContext,
+    ) -> GaussianFastGSDensificationSignals | None:
+        """Collect per-Gaussian FastGS-style statistics after backward."""
 
 
 @runtime_checkable
@@ -144,7 +179,10 @@ class DensificationRuntime(Protocol):
 
 
 class DensificationCollector(Protocol):
-    """Protocol for signal collectors."""
+    """Protocol for signal collectors.
+
+    Lifecycle hooks are dispatched with gradient recording disabled.
+    """
 
     def get_render_requirements(
         self,
@@ -202,9 +240,12 @@ class DensificationPass(DensificationCollector, Protocol):
 
 
 class DensificationMethod(Protocol):
-    """Protocol for top-level densification methods."""
+    """Protocol for top-level densification methods.
 
-    expected_scene_families: tuple[str, ...]
+    Lifecycle hooks are dispatched with gradient recording disabled.
+    """
+
+    expected_scene_families: tuple[str | SceneFamilyKey, ...]
 
     def get_render_requirements(
         self,
@@ -314,9 +355,9 @@ class BaseDensificationComponent:
 
 
 class BaseDensificationMethod:
-    """Convenience base class with no-op lifecycle hooks for full methods."""
+    """Convenience base class with no-op lifecycle hooks."""
 
-    expected_scene_families: tuple[str, ...] = ()
+    expected_scene_families: tuple[str | SceneFamilyKey, ...] = ()
 
     def get_render_requirements(
         self,
@@ -332,6 +373,10 @@ class BaseDensificationMethod:
         family_ops: Any,
     ) -> None:
         del state, optimizers, family_ops
+
+    def bind_context(self, context: DensificationBindContext) -> None:
+        """Bind stateful resources through an extensible context."""
+        self.bind(context.state, context.optimizers, context.family_ops)
 
     def before_training(
         self,
@@ -401,6 +446,7 @@ class BaseDensificationMethod:
 __all__ = [
     "BaseDensificationComponent",
     "BaseDensificationMethod",
+    "DensificationBindContext",
     "DensificationCollector",
     "DensificationContext",
     "DensificationMethod",
@@ -408,6 +454,8 @@ __all__ = [
     "DensificationRenderRequirements",
     "DensificationRuntime",
     "DensificationSignals",
+    "GaussianFastGSDensificationSignals",
+    "GaussianFastGSSignalProvider",
     "GaussianMetricAttribution",
     "Schedule",
 ]

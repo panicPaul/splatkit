@@ -45,12 +45,25 @@ class TrainingStepProfile:
             elapsed_ms = (time.perf_counter() - start) * 1000.0
             self.phases_ms[name] = self.phases_ms.get(name, 0.0) + elapsed_ms
 
-    def metrics(self, state: TrainState) -> dict[str, float]:
+    def metrics(
+        self,
+        state: TrainState,
+        *,
+        step_seconds: float | None = None,
+    ) -> dict[str, float]:
         """Return flat metric values for this profile."""
         values = {
             f"time_{name}_ms": elapsed
             for name, elapsed in self.phases_ms.items()
         }
+        profiled_total_ms = float(sum(self.phases_ms.values()))
+        values["time_profiled_phases_total_ms"] = profiled_total_ms
+        if step_seconds is not None:
+            step_wall_ms = float(step_seconds) * 1000.0
+            values["time_step_wall_ms"] = step_wall_ms
+            values["time_profiled_unaccounted_ms"] = (
+                step_wall_ms - profiled_total_ms
+            )
         primitive_count = _primitive_count(state)
         if primitive_count is not None:
             values["primitives"] = float(primitive_count)
@@ -117,7 +130,15 @@ class TrainingProfiler:
         """Merge and optionally emit one profile record."""
         if profile is None:
             return
-        profile_metrics = profile.metrics(state)
+        step_seconds = metrics.get("step_seconds")
+        profile_metrics = profile.metrics(
+            state,
+            step_seconds=(
+                float(step_seconds)
+                if isinstance(step_seconds, int | float)
+                else None
+            ),
+        )
         metrics.update(profile_metrics)
         if (state.step % self.config.log_every) != 0 and not _has_refinement(
             metrics

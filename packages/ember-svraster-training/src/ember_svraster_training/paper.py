@@ -83,11 +83,8 @@ def _training_cameras(
     *,
     device: torch.device,
 ) -> tuple[_PaperCamera, ...]:
-    cameras = (
-        frame_dataset.prepared_cameras()
-        if frame_dataset is not None
-        else (scene_record.resolve_camera_sensor().camera,)
-    )
+    del frame_dataset
+    cameras = (scene_record.resolve_camera_sensor().camera,)
     if not cameras:
         raise ValueError("SVRaster paper initialization requires cameras.")
     return _as_paper_cameras(cameras, device=device)
@@ -128,7 +125,7 @@ def _camera_median_scene_bound(
     cameras: Sequence[_PaperCamera],
 ) -> tuple[Float[Tensor, " 3"], Float[Tensor, " 1"]]:
     camera_positions = _camera_positions(cameras)
-    scene_center = camera_positions.median(dim=0).values
+    scene_center = camera_positions.mean(dim=0)
     inside_extent = (
         2.0
         * (camera_positions - scene_center).norm(dim=-1).median().clamp_min(1e-6)
@@ -157,16 +154,9 @@ def _paper_scene_bound(
     resolved_mode = mode
     if resolved_mode == "default":
         look_at = _camera_look_at(cameras)
-        positions = _camera_positions(cameras)
         dot_products = (look_at[:, None, :] * look_at[None, :, :]).sum(dim=-1)
-        displacement = positions[:, None, :] - positions[None, :, :]
-        faces_same_direction = bool((dot_products.median() > 0.0).item())
-        looks_toward_scene = bool(
-            ((displacement * look_at[:, None, :]).sum(dim=-1).median() < 0.0).item()
-        )
-        resolved_mode = (
-            "forward" if faces_same_direction and looks_toward_scene else "camera_median"
-        )
+        is_forward_facing = bool((dot_products.min() > 0.0).item())
+        resolved_mode = "forward" if is_forward_facing else "camera_median"
     if resolved_mode == "forward":
         scene_center, inside_extent = _forward_scene_bound(
             cameras,

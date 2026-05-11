@@ -66,7 +66,7 @@ __global__ void projection_ut_3dgs_fused_kernel(
     scalar_t *__restrict__ means2d,      // [B, C, N, 2]
     scalar_t *__restrict__ depths,       // [B, C, N]
     scalar_t *__restrict__ conics,       // [B, C, N, 3]
-    scalar_t *__restrict__ compensations // [B, C, N] optional
+    scalar_t *__restrict__ mip_splatting_screen_filter_compensations // [B, C, N] optional
 ) {
     // parallelize over B * C * N.
     uint32_t idx = cg::this_grid().thread_rank();
@@ -177,8 +177,8 @@ __global__ void projection_ut_3dgs_fused_kernel(
         return;
     }
 
-    float compensation;
-    float det = add_blur(eps2d, covar2d, compensation);
+    float mip_splatting_screen_filter_compensation;
+    float det = apply_mip_splatting_screen_filter(eps2d, covar2d, mip_splatting_screen_filter_compensation);
     if (det <= 0.f) {
         radii[idx * 2] = 0;
         radii[idx * 2 + 1] = 0;
@@ -191,7 +191,7 @@ __global__ void projection_ut_3dgs_fused_kernel(
     float extend = 3.33f;
     if (opacities != nullptr) {
         float opacity = opacities[bid * N + gid];
-        opacity *= compensation;
+        opacity *= mip_splatting_screen_filter_compensation;
         if (opacity < ALPHA_THRESHOLD) {
             radii[idx * 2] = 0;
             radii[idx * 2 + 1] = 0;
@@ -234,8 +234,8 @@ __global__ void projection_ut_3dgs_fused_kernel(
     conics[idx * 3] = covar2d_inv[0][0];
     conics[idx * 3 + 1] = covar2d_inv[0][1];
     conics[idx * 3 + 2] = covar2d_inv[1][1];
-    if (compensations != nullptr) {
-        compensations[idx] = compensation;
+    if (mip_splatting_screen_filter_compensations != nullptr) {
+        mip_splatting_screen_filter_compensations[idx] = mip_splatting_screen_filter_compensation;
     }
 }
 
@@ -267,7 +267,7 @@ void launch_projection_ut_3dgs_fused_kernel(
     at::Tensor means2d,                    // [..., C, N, 2]
     at::Tensor depths,                     // [..., C, N]
     at::Tensor conics,                     // [..., C, N, 3]
-    at::optional<at::Tensor> compensations // [..., C, N] optional
+    at::optional<at::Tensor> mip_splatting_screen_filter_compensations // [..., C, N] optional
 ) {
     uint32_t N = means.size(-2);          // number of gaussians
     uint32_t B = means.numel() / (N * 3); // number of batches
@@ -322,8 +322,8 @@ void launch_projection_ut_3dgs_fused_kernel(
             means2d.data_ptr<float>(),
             depths.data_ptr<float>(),
             conics.data_ptr<float>(),
-            compensations.has_value()
-                ? compensations.value().data_ptr<float>()
+            mip_splatting_screen_filter_compensations.has_value()
+                ? mip_splatting_screen_filter_compensations.value().data_ptr<float>()
                 : nullptr
         );
 }

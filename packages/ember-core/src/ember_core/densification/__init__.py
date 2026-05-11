@@ -8,6 +8,7 @@ from ember_core.densification.collectors import (
 from ember_core.densification.contracts import (
     BaseDensificationComponent,
     BaseDensificationMethod,
+    DensificationBindContext,
     DensificationCollector,
     DensificationContext,
     DensificationLifecycleContext,
@@ -16,6 +17,8 @@ from ember_core.densification.contracts import (
     DensificationRenderRequirements,
     DensificationRuntime,
     DensificationSignals,
+    GaussianFastGSDensificationSignals,
+    GaussianFastGSSignalProvider,
     GaussianMetricAttribution,
     Schedule,
 )
@@ -26,6 +29,7 @@ from ember_core.densification.families import (
     build_family_ops,
     copy_field,
     custom_field,
+    register_family_ops,
     zero_field,
 )
 from ember_core.densification.methods import (
@@ -62,6 +66,7 @@ __all__ = [
     "BaseDensificationComponent",
     "BaseDensificationMethod",
     "ComposedDensificationMethod",
+    "DensificationBindContext",
     "DensificationCollector",
     "DensificationContext",
     "DensificationLifecycleContext",
@@ -75,6 +80,8 @@ __all__ = [
     "FieldBehavior",
     "GaussianClonePass",
     "GaussianFamilyOps",
+    "GaussianFastGSDensificationSignals",
+    "GaussianFastGSSignalProvider",
     "GaussianJitterPass",
     "GaussianMetricAttribution",
     "GaussianOpacityDecayPass",
@@ -99,5 +106,6 @@ __all__ = [
     "make_context",
     "make_lifecycle_context",
     "merge_densification_requirements",
+    "register_family_ops",
     "zero_field",
 ]

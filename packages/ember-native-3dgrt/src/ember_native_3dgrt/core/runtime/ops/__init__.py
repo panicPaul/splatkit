@@ -13,6 +13,7 @@ from ember_native_3dgrt.core.runtime.ops.render import (
 from ember_native_3dgrt.core.runtime.ops.trace import (
     trace_bwd_op,
     trace_fwd_op,
+    trace_metric_weights_op,
     trace_op,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "render_op",
     "trace_bwd_op",
     "trace_fwd_op",
+    "trace_metric_weights_op",
     "trace_op",
     "update_acc_op",
 ]

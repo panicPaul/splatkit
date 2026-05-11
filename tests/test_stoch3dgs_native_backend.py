@@ -244,7 +244,7 @@ def test_stoch3dgs_native_rays_default_to_upstream_image_center(
 
 def test_stoch3dgs_native_flattens_sh_like_upstream_features(cpu_scene) -> None:
     feature = torch.arange(2 * 4 * 3, dtype=torch.float32).reshape(2, 4, 3)
-    scene = replace(cpu_scene, feature=feature, sh_degree=1)
+    scene = cpu_scene.with_fields(feature=feature, sh_degree=1)
 
     flattened = stoch3dgs_native_renderer._flatten_sh_features(scene)
 

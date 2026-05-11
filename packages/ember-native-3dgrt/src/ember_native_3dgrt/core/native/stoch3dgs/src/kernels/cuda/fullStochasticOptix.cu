@@ -180,7 +180,10 @@ extern "C" __global__ void __raygen__rg() {
 #endif
             max_distance = fmaxf(max_distance, depth);
 
-            atomicAdd(&params.particleWeight[particleId], 1.0 / float(payload_size));
+            const uint32_t metricIdx = idx.y * (params.frameBounds.x + 1) + idx.x;
+            if (params.metricMap == nullptr || params.metricMap[metricIdx] != 0) {
+                atomicAdd(&params.particleWeight[particleId], 1.0 / float(payload_size));
+            }
         }
     }
 

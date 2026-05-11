@@ -8,9 +8,12 @@ closely related methods.
 The primary goal is fast feedback loops without giving up reproducibility,
 testability, strong typing, and clear contracts.
 
-The primary authoring experience should be a paper notebook: if a new paper
-does not require new CUDA or low-level runtime code, a researcher should be able
-to implement it clearly in a single self-contained `marimo` Python notebook.
+The primary research surface should be a paper notebook: experiments should be
+easy to read, replay, configure, and explain from a `marimo` notebook. This does
+not mean every implementation detail belongs in the notebook. Code that is
+low-level, reusable, private, test-heavy, or structurally clearer as package
+code should live behind typed Ember or extension interfaces and be imported by
+the notebook.
 
 This document is a working constitution for both new and existing code. The
 repository is pre-alpha, so improving the architecture is more important than
@@ -118,27 +121,35 @@ without opting into the more opinionated research stack.
   13.0, while keeping heavier toolchain requirements out of the minimal core
   path.
 
-## Notebook-First Workflow
+## Notebook-Centered Workflow
 
 `marimo` notebooks are first-class research artifacts.
 
 - A paper implementation should usually start as a notebook.
 - A paper that does not need new CUDA or low-level runtime changes should be
-  implementable as one self-contained Python `marimo` notebook.
+  possible to explore as one self-contained Python `marimo` notebook when that
+  remains the clearest shape.
 - A notebook should also be runnable as a normal Python script.
 - Some implementations may remain notebook-only.
-- Code should be promoted from notebooks into package code only when the
-  abstraction proves reusable.
+- Code should move out of notebooks when package or private extension code makes
+  the implementation clearer, easier to test, reusable, or possible to keep
+  private.
 - Notebook-local extension should be the normal path for paper-specific config,
   losses, initialization, densification, training hooks, backend-option
-  builders, and postprocessing.
+  builders, and postprocessing when those pieces are small and readable.
+- Private scene families, scene subclasses, trainers, densifiers, backend
+  wrappers, kernels, and other extension implementations should be first-class
+  package-level integrations rather than being forced into public Ember or into
+  large notebooks.
 - The package code should make notebook-local extensions concise and typed
   without requiring authors to understand internal training/runtime plumbing.
 
 A typical paper implementation in this repository should be:
 
-- one marimo notebook
+- one marimo notebook as the experiment and explanation surface
 - JSON configs for experiment hyperparameters
+- optional package or private extension code when the implementation is clearer
+  outside the notebook
 - an optional new backend when required
 
 Paper notebooks are allowed to duplicate code while an idea is still proving

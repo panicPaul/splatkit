@@ -5,6 +5,7 @@ from ember_native_nht.threedgut.core.runtime.ops.project import project
 from ember_native_nht.threedgut.core.runtime.ops.rasterize import (
     rasterize_depth,
     rasterize_features,
+    rasterize_gaussian_indices,
 )
 from ember_native_nht.threedgut.core.runtime.ops.render import render
 from ember_native_nht.threedgut.core.runtime.types import (
@@ -25,5 +26,6 @@ __all__ = [
     "project",
     "rasterize_depth",
     "rasterize_features",
+    "rasterize_gaussian_indices",
     "render",
 ]

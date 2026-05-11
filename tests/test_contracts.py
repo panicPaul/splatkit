@@ -58,6 +58,8 @@ def test_gaussian_scene_to_moves_all_tensors(
     cpu_scene: GaussianScene3D,
 ) -> None:
     moved = cpu_scene.to(torch.device("cpu"))
+    assert moved is cpu_scene
+    assert isinstance(moved, torch.nn.Module)
     assert moved.center_position.device.type == "cpu"
     assert moved.log_scales.device.type == "cpu"
     assert moved.quaternion_orientation.device.type == "cpu"
@@ -65,10 +67,62 @@ def test_gaussian_scene_to_moves_all_tensors(
     assert moved.feature.device.type == "cpu"
 
 
+def test_gaussian_scene_to_keeps_trainable_tensors_leaf() -> None:
+    base = torch.ones((3, 3), dtype=torch.float32, requires_grad=True)
+    opacity_base = torch.ones((3,), dtype=torch.float32, requires_grad=True)
+    feature_base = torch.ones((3, 4), dtype=torch.float32, requires_grad=True)
+    scene = GaussianScene3D(
+        center_position=base * 1.0,
+        log_scales=base * 2.0,
+        quaternion_orientation=torch.cat(
+            [base[:, :1], torch.zeros((3, 3), dtype=torch.float32)],
+            dim=1,
+        ),
+        logit_opacity=opacity_base * 3.0,
+        feature=feature_base * 4.0,
+        sh_degree=0,
+    )
+
+    moved = scene.to(torch.device("cpu"))
+
+    for value in (
+        moved.center_position,
+        moved.log_scales,
+        moved.quaternion_orientation,
+        moved.logit_opacity,
+        moved.feature,
+    ):
+        assert value.is_leaf
+        assert value.requires_grad
+
+
+def test_gaussian_scene_detached_copy_does_not_alias(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    copied = cpu_scene.detached_copy()
+    assert copied is not cpu_scene
+    assert isinstance(copied.center_position, torch.nn.Parameter)
+    assert copied.center_position is not cpu_scene.center_position
+    assert torch.equal(copied.center_position, cpu_scene.center_position)
+
+
+def test_gaussian_scene_with_fields_preserves_autograd(
+    cpu_scene: GaussianScene3D,
+) -> None:
+    feature = cpu_scene.feature * 2.0
+    variant = cpu_scene.with_fields(feature=feature)
+    assert variant is not cpu_scene
+    assert variant.center_position is cpu_scene.center_position
+    assert variant.feature is feature
+    assert not isinstance(variant.feature, torch.nn.Parameter)
+
+
 def test_sparse_voxel_scene_to_moves_all_tensors(
     cpu_sparse_voxel_scene: SparseVoxelScene,
 ) -> None:
     moved = cpu_sparse_voxel_scene.to(torch.device("cpu"))
+    assert moved is cpu_sparse_voxel_scene
+    assert isinstance(moved, torch.nn.Module)
     assert moved.scene_center.device.type == "cpu"
     assert moved.scene_extent.device.type == "cpu"
     assert moved.octpath.device.type == "cpu"
@@ -86,13 +140,13 @@ def test_camera_state_construction_validates_tensor_shape() -> None:
 
 
 def test_gaussian_scene_construction_validates_feature_shape() -> None:
-    with pytest.raises(BeartypeCallHintParamViolation):
+    with pytest.raises(ValueError):
         GaussianScene3D(
             center_position=torch.zeros((3, 3), dtype=torch.float32),
             log_scales=torch.zeros((3, 3), dtype=torch.float32),
             quaternion_orientation=torch.zeros((3, 3), dtype=torch.float32),
             logit_opacity=torch.zeros((3,), dtype=torch.float32),
-            feature=torch.zeros((3, 16), dtype=torch.float32),
+            feature=torch.zeros((3, 16, 3, 1), dtype=torch.float32),
             sh_degree=0,
         )
 

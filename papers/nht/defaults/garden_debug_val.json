@@ -1,13 +1,16 @@
 {
   "preset": "garden_debug_val",
   "scene": {
-    "path": "dataset/mipnerf360/garden"
+    "path": "/home/schlack/Documents/3DGS_scenes/360/garden",
+    "image_root": "/home/schlack/Documents/3DGS_scenes/360/garden/images"
   },
   "data": {
     "image_scale_factor": 0.25,
     "split_target": "train",
     "split_every_n": 8,
-    "materialization_stage": "none"
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8
   },
   "training": {
     "runtime": {
@@ -34,6 +37,20 @@
     },
     "render": {
       "backend": "nht.3dgut"
+    },
+    "mip_splatting": {
+      "enabled": false,
+      "screen_filter_enabled": true,
+      "three_dimensional_filter": {
+        "recompute_schedule": {
+          "start_iteration": 15000,
+          "end_iteration": 29899,
+          "frequency": 100
+        },
+        "near_plane": 0.2,
+        "filter_variance": 0.2,
+        "clipping_tolerance": 0.15
+      }
     },
     "optimization": {
       "feature_lr": 0.015,

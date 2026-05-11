@@ -48,7 +48,7 @@ def render(
     image_width: int,
     image_height: int,
     tile_size: int = 16,
-    rasterize_mode: Literal["classic", "antialiased"] = "classic",
+    mip_splatting_screen_filter: bool = False,
     render_mode: Literal["RGB", "RGB+D", "RGB+ED"] = "RGB+ED",
     near_plane: float = 0.01,
     far_plane: float = 1.0e10,
@@ -73,7 +73,6 @@ def render(
         raise ValueError(f"Unsupported NHT camera model: {camera_model!r}.")
 
     num_cameras = int(world_to_camera_matrices.shape[0])
-    calculate_compensations = rasterize_mode == "antialiased"
     projection = project(
         center_positions=center_positions,
         quaternions=quaternions,
@@ -87,13 +86,19 @@ def render(
         near_plane=near_plane,
         far_plane=far_plane,
         radius_clip=radius_clip,
-        calculate_compensations=calculate_compensations,
+        mip_splatting_screen_filter=mip_splatting_screen_filter,
         camera_model=camera_model,
     )
 
     tiled_opacities = _broadcast_opacities(opacities, num_cameras=num_cameras)
-    if calculate_compensations and projection.compensations is not None:
-        tiled_opacities = tiled_opacities * projection.compensations
+    if (
+        mip_splatting_screen_filter
+        and projection.mip_splatting_screen_filter_compensations is not None
+    ):
+        tiled_opacities = (
+            tiled_opacities
+            * projection.mip_splatting_screen_filter_compensations
+        )
 
     intersections = intersect(
         projected_means=projection.projected_means,

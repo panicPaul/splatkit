@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -474,16 +473,16 @@ def test_runtime_backward_matches_optional_reference_adapter(
     tanfovx = (width * 0.5) / focal_x
     tanfovy = (height * 0.5) / focal_y
 
-    native_scene = replace(
-        cuda_sparse_voxel_scene,
+    native_scene = cuda_sparse_voxel_scene.detached_copy()
+    native_scene.replace_fields_(
         geo_grid_pts=cuda_sparse_voxel_scene.geo_grid_pts.detach()
         .clone()
         .requires_grad_(True),
         sh0=cuda_sparse_voxel_scene.sh0.detach().clone().requires_grad_(True),
         shs=cuda_sparse_voxel_scene.shs.detach().clone().requires_grad_(True),
     )
-    adapter_scene = replace(
-        cuda_sparse_voxel_scene,
+    adapter_scene = cuda_sparse_voxel_scene.detached_copy()
+    adapter_scene.replace_fields_(
         geo_grid_pts=cuda_sparse_voxel_scene.geo_grid_pts.detach()
         .clone()
         .requires_grad_(True),

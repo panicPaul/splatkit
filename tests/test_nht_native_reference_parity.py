@@ -183,7 +183,7 @@ def project_inputs(inputs):
         "near_plane": inputs["near_plane"],
         "far_plane": inputs["far_plane"],
         "radius_clip": inputs["radius_clip"],
-        "calculate_compensations": False,
+        "mip_splatting_screen_filter": False,
         "camera_model": inputs["camera_model"],
     }
 
@@ -279,7 +279,7 @@ def test_nht_projection_and_intersection_match_upstream() -> None:
 
             native_projection_result = native_projection(inputs)
             reference_projection_result = reference_projection(inputs)
-            reference_radii, reference_projected_means, reference_depths, reference_conics, reference_compensations = reference_projection_result
+            reference_radii, reference_projected_means, reference_depths, reference_conics, reference_mip_splatting_screen_filter_compensations = reference_projection_result
             assert torch.max(torch.abs(native_projection_result.radii - reference_radii)) <= 1
             visible_projection_mask = torch.logical_or(
                 native_projection_result.radii > 0,
@@ -303,7 +303,7 @@ def test_nht_projection_and_intersection_match_upstream() -> None:
                 rtol=1e-4,
                 atol=5e-4,
             )
-            assert native_projection_result.compensations is reference_compensations
+            assert native_projection_result.mip_splatting_screen_filter_compensations is reference_mip_splatting_screen_filter_compensations
 
             native_intersection_result = native_intersections_from_reference_projection(
                 inputs,

@@ -75,7 +75,7 @@ void launch_projection_ewa_3dgs_fused_fwd_kernel(
     at::Tensor means2d,                    // [..., C, N, 2]
     at::Tensor depths,                     // [..., C, N]
     at::Tensor conics,                     // [..., C, N, 3]
-    at::optional<at::Tensor> compensations // [..., C, N] optional
+    at::optional<at::Tensor> mip_splatting_screen_filter_compensations // [..., C, N] optional
 );
 void launch_projection_ewa_3dgs_fused_bwd_kernel(
     // inputs
@@ -93,12 +93,12 @@ void launch_projection_ewa_3dgs_fused_bwd_kernel(
     // fwd outputs
     const at::Tensor radii,                       // [..., C, N, 2]
     const at::Tensor conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> mip_splatting_screen_filter_compensations, // [..., C, N] optional
     // grad outputs
     const at::Tensor v_means2d,                     // [..., C, N, 2]
     const at::Tensor v_depths,                      // [..., C, N]
     const at::Tensor v_conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> v_compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> v_mip_splatting_screen_filter_compensations, // [..., C, N] optional
     const bool viewmats_requires_grad,
     // outputs
     at::Tensor v_means,   // [..., N, 3]
@@ -136,7 +136,7 @@ void launch_projection_ewa_3dgs_packed_fwd_kernel(
     at::optional<at::Tensor> means2d,      // [nnz, 2]
     at::optional<at::Tensor> depths,       // [nnz]
     at::optional<at::Tensor> conics,       // [nnz, 3]
-    at::optional<at::Tensor> compensations // [nnz] optional
+    at::optional<at::Tensor> mip_splatting_screen_filter_compensations // [nnz] optional
 );
 void launch_projection_ewa_3dgs_packed_bwd_kernel(
     // fwd inputs
@@ -155,12 +155,12 @@ void launch_projection_ewa_3dgs_packed_bwd_kernel(
     const at::Tensor camera_ids,                  // [nnz]
     const at::Tensor gaussian_ids,                // [nnz]
     const at::Tensor conics,                      // [nnz, 3]
-    const at::optional<at::Tensor> compensations, // [nnz] optional
+    const at::optional<at::Tensor> mip_splatting_screen_filter_compensations, // [nnz] optional
     // grad outputs
     const at::Tensor v_means2d,                     // [nnz, 2]
     const at::Tensor v_depths,                      // [nnz]
     const at::Tensor v_conics,                      // [nnz, 3]
-    const at::optional<at::Tensor> v_compensations, // [nnz] optional
+    const at::optional<at::Tensor> v_mip_splatting_screen_filter_compensations, // [nnz] optional
     const bool sparse_grad,
     // grad inputs
     at::Tensor v_means,                 // [..., N, 3] or [nnz, 3]
@@ -295,7 +295,7 @@ void launch_projection_ut_3dgs_fused_kernel(
     at::Tensor means2d,                    // [C, N, 2]
     at::Tensor depths,                     // [C, N]
     at::Tensor conics,                     // [C, N, 3]
-    at::optional<at::Tensor> compensations // [C, N] optional
+    at::optional<at::Tensor> mip_splatting_screen_filter_compensations // [C, N] optional
 );
 
 } // namespace gsplat

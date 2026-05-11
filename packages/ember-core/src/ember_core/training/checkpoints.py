@@ -322,7 +322,7 @@ def _cpu_parameter(parameter: nn.Parameter) -> nn.Parameter:
 
 
 def _cpu_scene(scene: Scene) -> Scene:
-    return scene.to(torch.device("cpu"))
+    return scene.detached_copy(torch.device("cpu"))
 
 
 def _load_scene_from_payload(
@@ -377,7 +377,7 @@ def save_checkpoint_dir(
                 "PLY export is only supported for GaussianScene3D checkpoints."
             )
         save_gaussian_ply(
-            state.model.scene.to(torch.device("cpu")),
+            state.model.scene.detached_copy(torch.device("cpu")),
             checkpoint_dir / "scene.ply",
         )
         scene_payload = None

@@ -31,7 +31,7 @@ def project(
     near_plane: float,
     far_plane: float,
     radius_clip: float,
-    calculate_compensations: bool,
+    mip_splatting_screen_filter: bool,
     camera_model: CameraModelName,
 ) -> ProjectionResult:
     """Run the 3DGUT unscented-transform projection stage."""
@@ -49,7 +49,7 @@ def project(
         near_plane,
         far_plane,
         radius_clip,
-        calculate_compensations,
+        mip_splatting_screen_filter,
         camera_model_type(camera_model),
         default_unscented_transform_parameters(),
         global_shutter_type(),

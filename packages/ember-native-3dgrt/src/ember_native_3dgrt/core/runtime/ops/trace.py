@@ -41,6 +41,65 @@ def trace_fwd_op(
     )
 
 
+@torch.library.custom_op("core::trace_metric_weights", mutates_args=())
+def trace_metric_weights_op(
+    state_token: Tensor,
+    ray_to_world: Tensor,
+    ray_ori: Tensor,
+    ray_dir: Tensor,
+    particle_density: Tensor,
+    particle_radiance: Tensor,
+    metric_map: Tensor,
+    render_opts: int,
+    sph_degree: int,
+    min_transmittance: float,
+) -> Tensor:
+    """Low-level native metric-gated particle weight op."""
+    return tracer_wrapper(state_token).trace_metric_weights(
+        0,
+        ray_to_world,
+        ray_ori,
+        ray_dir,
+        particle_density,
+        particle_radiance,
+        metric_map,
+        render_opts,
+        sph_degree,
+        min_transmittance,
+    )
+
+
+@trace_metric_weights_op.register_fake
+def _trace_metric_weights_fake(
+    state_token: Tensor,
+    ray_to_world: Tensor,
+    ray_ori: Tensor,
+    ray_dir: Tensor,
+    particle_density: Tensor,
+    particle_radiance: Tensor,
+    metric_map: Tensor,
+    render_opts: int,
+    sph_degree: int,
+    min_transmittance: float,
+) -> Tensor:
+    del (
+        state_token,
+        ray_to_world,
+        ray_ori,
+        ray_dir,
+        particle_radiance,
+        metric_map,
+        render_opts,
+        sph_degree,
+        min_transmittance,
+    )
+    return torch.empty(
+        (particle_density.shape[0], 1),
+        device=particle_density.device,
+        dtype=particle_density.dtype,
+    )
+
+
 @trace_fwd_op.register_fake
 def _trace_fwd_fake(
     state_token: Tensor,
@@ -293,5 +352,6 @@ trace_op = register_trace_family(
 __all__ = [
     "trace_bwd_op",
     "trace_fwd_op",
+    "trace_metric_weights_op",
     "trace_op",
 ]

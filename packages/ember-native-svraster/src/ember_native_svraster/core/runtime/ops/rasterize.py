@@ -242,7 +242,7 @@ def _rasterize_backward(
         voxel_lengths,
         voxel_geometries,
         voxel_colors,
-        _subdivision_priority,
+        subdivision_priority,
         geometry_buffer,
         binning_buffer,
         image_buffer,
@@ -287,6 +287,34 @@ def _rasterize_backward(
             ctx.debug,
         )
     )
+    if grad_geos.shape != voxel_geometries.shape:
+        if grad_geos.numel() != 0 or voxel_geometries.numel() != 0:
+            raise RuntimeError(
+                "SVRaster rasterize backward returned geo gradients with "
+                f"shape {tuple(grad_geos.shape)}, expected "
+                f"{tuple(voxel_geometries.shape)}."
+            )
+        grad_geos = torch.zeros_like(voxel_geometries)
+    if grad_rgbs.shape != voxel_colors.shape:
+        if grad_rgbs.numel() != 0 or voxel_colors.numel() != 0:
+            raise RuntimeError(
+                "SVRaster rasterize backward returned RGB gradients with "
+                f"shape {tuple(grad_rgbs.shape)}, expected "
+                f"{tuple(voxel_colors.shape)}."
+            )
+        grad_rgbs = torch.zeros_like(voxel_colors)
+    if grad_subdivision_priority.shape != subdivision_priority.shape:
+        if (
+            grad_subdivision_priority.numel() != 0
+            or subdivision_priority.numel() != 0
+        ):
+            raise RuntimeError(
+                "SVRaster rasterize backward returned subdivision-priority "
+                f"gradients with shape "
+                f"{tuple(grad_subdivision_priority.shape)}, expected "
+                f"{tuple(subdivision_priority.shape)}."
+            )
+        grad_subdivision_priority = torch.zeros_like(subdivision_priority)
     return (
         None,
         None,

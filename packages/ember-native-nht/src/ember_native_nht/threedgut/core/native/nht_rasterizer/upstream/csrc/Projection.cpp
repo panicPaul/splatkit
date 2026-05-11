@@ -142,7 +142,7 @@ projection_ewa_3dgs_fused_fwd(
     const float near_plane,
     const float far_plane,
     const float radius_clip,
-    const bool calc_compensations,
+    const bool mip_splatting_screen_filter,
     const CameraModelType camera_model
 ) {
     DEVICE_GUARD(means);
@@ -174,12 +174,12 @@ projection_ewa_3dgs_fused_fwd(
     at::DimVector conics_shape(batch_dims);
     conics_shape.append({C, N, 3});
     at::Tensor conics = at::empty(conics_shape, opt);
-    at::Tensor compensations;
-    if (calc_compensations) {
+    at::Tensor mip_splatting_screen_filter_compensations;
+    if (mip_splatting_screen_filter) {
         // we dont want NaN to appear in this tensor, so we zero intialize it
-        at::DimVector compensations_shape(batch_dims);
-        compensations_shape.append({C, N});
-        compensations = at::zeros(compensations_shape, opt);
+        at::DimVector mip_splatting_screen_filter_compensations_shape(batch_dims);
+        mip_splatting_screen_filter_compensations_shape.append({C, N});
+        mip_splatting_screen_filter_compensations = at::zeros(mip_splatting_screen_filter_compensations_shape, opt);
     }
 
     launch_projection_ewa_3dgs_fused_fwd_kernel(
@@ -203,10 +203,10 @@ projection_ewa_3dgs_fused_fwd(
         means2d,
         depths,
         conics,
-        calc_compensations ? at::optional<at::Tensor>(compensations)
+        mip_splatting_screen_filter ? at::optional<at::Tensor>(mip_splatting_screen_filter_compensations)
                            : c10::nullopt
     );
-    return std::make_tuple(radii, means2d, depths, conics, compensations);
+    return std::make_tuple(radii, means2d, depths, conics, mip_splatting_screen_filter_compensations);
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -225,12 +225,12 @@ projection_ewa_3dgs_fused_bwd(
     // fwd outputs
     const at::Tensor radii,                       // [..., C, N, 2]
     const at::Tensor conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> mip_splatting_screen_filter_compensations, // [..., C, N] optional
     // grad outputs
     const at::Tensor v_means2d,                     // [..., C, N, 2]
     const at::Tensor v_depths,                      // [..., C, N]
     const at::Tensor v_conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> v_compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> v_mip_splatting_screen_filter_compensations, // [..., C, N] optional
     const bool viewmats_requires_grad
 ) {
     DEVICE_GUARD(means);
@@ -249,12 +249,12 @@ projection_ewa_3dgs_fused_bwd(
     CHECK_INPUT(v_means2d);
     CHECK_INPUT(v_depths);
     CHECK_INPUT(v_conics);
-    if (compensations.has_value()) {
-        CHECK_INPUT(compensations.value());
+    if (mip_splatting_screen_filter_compensations.has_value()) {
+        CHECK_INPUT(mip_splatting_screen_filter_compensations.value());
     }
-    if (v_compensations.has_value()) {
-        CHECK_INPUT(v_compensations.value());
-        assert(compensations.has_value());
+    if (v_mip_splatting_screen_filter_compensations.has_value()) {
+        CHECK_INPUT(v_mip_splatting_screen_filter_compensations.value());
+        assert(mip_splatting_screen_filter_compensations.has_value());
     }
 
     at::Tensor v_means = at::zeros_like(means);
@@ -284,11 +284,11 @@ projection_ewa_3dgs_fused_bwd(
         camera_model,
         radii,
         conics,
-        compensations,
+        mip_splatting_screen_filter_compensations,
         v_means2d,
         v_depths,
         v_conics,
-        v_compensations,
+        v_mip_splatting_screen_filter_compensations,
         viewmats_requires_grad,
         // outputs
         v_means,
@@ -325,7 +325,7 @@ projection_ewa_3dgs_packed_fwd(
     const float near_plane,
     const float far_plane,
     const float radius_clip,
-    const bool calc_compensations,
+    const bool mip_splatting_screen_filter,
     const CameraModelType camera_model
 ) {
     DEVICE_GUARD(means);
@@ -382,8 +382,8 @@ projection_ewa_3dgs_packed_fwd(
             c10::nullopt, // means2d
             c10::nullopt, // depths
             c10::nullopt, // conics
-            // pass in as an indicator on whether compensation will be applied or not.
-            calc_compensations ? at::optional<at::Tensor>(at::empty({1}, opt))
+            // pass in as an indicator on whether mip_splatting_screen_filter_compensation will be applied or not.
+            mip_splatting_screen_filter ? at::optional<at::Tensor>(at::empty({1}, opt))
                                : c10::nullopt
         );
         block_accum = at::cumsum(block_cnts, 0, at::kInt);
@@ -401,10 +401,10 @@ projection_ewa_3dgs_packed_fwd(
     at::Tensor means2d = at::empty({nnz, 2}, opt);
     at::Tensor depths = at::empty({nnz}, opt);
     at::Tensor conics = at::empty({nnz, 3}, opt);
-    at::Tensor compensations;
-    if (calc_compensations) {
+    at::Tensor mip_splatting_screen_filter_compensations;
+    if (mip_splatting_screen_filter) {
         // we dont want NaN to appear in this tensor, so we zero intialize it
-        compensations = at::zeros({nnz}, opt);
+        mip_splatting_screen_filter_compensations = at::zeros({nnz}, opt);
     }
 
     if (nnz) {
@@ -435,7 +435,7 @@ projection_ewa_3dgs_packed_fwd(
             means2d,
             depths,
             conics,
-            calc_compensations ? at::optional<at::Tensor>(compensations)
+            mip_splatting_screen_filter ? at::optional<at::Tensor>(mip_splatting_screen_filter_compensations)
                                : c10::nullopt
         );
     } else {
@@ -451,7 +451,7 @@ projection_ewa_3dgs_packed_fwd(
         means2d,
         depths,
         conics,
-        compensations
+        mip_splatting_screen_filter_compensations
     );
 }
 
@@ -473,12 +473,12 @@ projection_ewa_3dgs_packed_bwd(
     const at::Tensor camera_ids,                    // [nnz]
     const at::Tensor gaussian_ids,                  // [nnz]
     const at::Tensor conics,                        // [nnz, 3]
-    const at::optional<at::Tensor> compensations,   // [nnz] optional
+    const at::optional<at::Tensor> mip_splatting_screen_filter_compensations,   // [nnz] optional
     // grad outputs
     const at::Tensor v_means2d,                     // [nnz, 2]
     const at::Tensor v_depths,                      // [nnz]
     const at::Tensor v_conics,                      // [nnz, 3]
-    const at::optional<at::Tensor> v_compensations, // [nnz] optional
+    const at::optional<at::Tensor> v_mip_splatting_screen_filter_compensations, // [nnz] optional
     const bool viewmats_requires_grad,
     const bool sparse_grad
 ) {
@@ -500,12 +500,12 @@ projection_ewa_3dgs_packed_bwd(
     CHECK_INPUT(v_means2d);
     CHECK_INPUT(v_depths);
     CHECK_INPUT(v_conics);
-    if (compensations.has_value()) {
-        CHECK_INPUT(compensations.value());
+    if (mip_splatting_screen_filter_compensations.has_value()) {
+        CHECK_INPUT(mip_splatting_screen_filter_compensations.value());
     }
-    if (v_compensations.has_value()) {
-        CHECK_INPUT(v_compensations.value());
-        assert(compensations.has_value());
+    if (v_mip_splatting_screen_filter_compensations.has_value()) {
+        CHECK_INPUT(v_mip_splatting_screen_filter_compensations.value());
+        assert(mip_splatting_screen_filter_compensations.has_value());
     }
 
     auto opt = means.options();
@@ -549,12 +549,12 @@ projection_ewa_3dgs_packed_bwd(
         camera_ids,
         gaussian_ids,
         conics,
-        compensations,
+        mip_splatting_screen_filter_compensations,
         // grad outputs
         v_means2d,
         v_depths,
         v_conics,
-        v_compensations,
+        v_mip_splatting_screen_filter_compensations,
         sparse_grad,
         // outputs
         v_means,
@@ -952,7 +952,7 @@ projection_ut_3dgs_fused(
     const float near_plane,
     const float far_plane,
     const float radius_clip,
-    const bool calc_compensations,
+    const bool mip_splatting_screen_filter,
     const CameraModelType camera_model,
     // uncented transform
     const UnscentedTransformParameters ut_params,
@@ -1005,12 +1005,12 @@ projection_ut_3dgs_fused(
     conics_shape.append({C, N, 3});
     at::Tensor conics = at::empty(conics_shape, opt);
 
-    at::Tensor compensations;
-    if (calc_compensations) {
+    at::Tensor mip_splatting_screen_filter_compensations;
+    if (mip_splatting_screen_filter) {
         // we dont want NaN to appear in this tensor, so we zero intialize it
-        at::DimVector compensations_shape(batch_dims);
-        compensations_shape.append({C, N});
-        compensations = at::zeros(compensations_shape, opt);
+        at::DimVector mip_splatting_screen_filter_compensations_shape(batch_dims);
+        mip_splatting_screen_filter_compensations_shape.append({C, N});
+        mip_splatting_screen_filter_compensations = at::zeros(mip_splatting_screen_filter_compensations_shape, opt);
     }
 
     launch_projection_ut_3dgs_fused_kernel(
@@ -1041,10 +1041,10 @@ projection_ut_3dgs_fused(
         means2d,
         depths,
         conics,
-        calc_compensations ? at::optional<at::Tensor>(compensations)
+        mip_splatting_screen_filter ? at::optional<at::Tensor>(mip_splatting_screen_filter_compensations)
                            : at::nullopt
     );
-    return std::make_tuple(radii, means2d, depths, conics, compensations);
+    return std::make_tuple(radii, means2d, depths, conics, mip_splatting_screen_filter_compensations);
 }
 
 #endif

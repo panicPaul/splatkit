@@ -58,7 +58,7 @@ __global__ void projection_ewa_3dgs_fused_fwd_kernel(
     scalar_t *__restrict__ means2d,      // [B, C, N, 2]
     scalar_t *__restrict__ depths,       // [B, C, N]
     scalar_t *__restrict__ conics,       // [B, C, N, 3]
-    scalar_t *__restrict__ compensations // [B, C, N] optional
+    scalar_t *__restrict__ mip_splatting_screen_filter_compensations // [B, C, N] optional
 ) {
     // parallelize over B * C * N.
     uint32_t idx = cg::this_grid().thread_rank();
@@ -172,8 +172,8 @@ __global__ void projection_ewa_3dgs_fused_fwd_kernel(
         break;
     }
 
-    float compensation;
-    float det = add_blur(eps2d, covar2d, compensation);
+    float mip_splatting_screen_filter_compensation;
+    float det = apply_mip_splatting_screen_filter(eps2d, covar2d, mip_splatting_screen_filter_compensation);
     if (det <= 0.f) {
         radii[idx * 2] = 0;
         radii[idx * 2 + 1] = 0;
@@ -186,9 +186,9 @@ __global__ void projection_ewa_3dgs_fused_fwd_kernel(
     float extend = 3.33f;
     if (opacities != nullptr) {
         float opacity = opacities[bid * N + gid];
-        if (compensations != nullptr) {
-            // we assume compensation term will be applied later on.
-            opacity *= compensation;
+        if (mip_splatting_screen_filter_compensations != nullptr) {
+            // we assume mip_splatting_screen_filter_compensation term will be applied later on.
+            opacity *= mip_splatting_screen_filter_compensation;
         }
         if (opacity < ALPHA_THRESHOLD) {
             radii[idx * 2] = 0;
@@ -228,8 +228,8 @@ __global__ void projection_ewa_3dgs_fused_fwd_kernel(
     conics[idx * 3] = covar2d_inv[0][0];
     conics[idx * 3 + 1] = covar2d_inv[0][1];
     conics[idx * 3 + 2] = covar2d_inv[1][1];
-    if (compensations != nullptr) {
-        compensations[idx] = compensation;
+    if (mip_splatting_screen_filter_compensations != nullptr) {
+        mip_splatting_screen_filter_compensations[idx] = mip_splatting_screen_filter_compensation;
     }
 }
 
@@ -254,7 +254,7 @@ void launch_projection_ewa_3dgs_fused_fwd_kernel(
     at::Tensor means2d,                    // [..., C, N, 2]
     at::Tensor depths,                     // [..., C, N]
     at::Tensor conics,                     // [..., C, N, 3]
-    at::optional<at::Tensor> compensations // [..., C, N] optional
+    at::optional<at::Tensor> mip_splatting_screen_filter_compensations // [..., C, N] optional
 ) {
     uint32_t N = means.size(-2);    // number of gaussians
     uint32_t C = viewmats.size(-3); // number of cameras
@@ -304,8 +304,8 @@ void launch_projection_ewa_3dgs_fused_fwd_kernel(
                     means2d.data_ptr<scalar_t>(),
                     depths.data_ptr<scalar_t>(),
                     conics.data_ptr<scalar_t>(),
-                    compensations.has_value()
-                        ? compensations.value().data_ptr<scalar_t>()
+                    mip_splatting_screen_filter_compensations.has_value()
+                        ? mip_splatting_screen_filter_compensations.value().data_ptr<scalar_t>()
                         : nullptr
                 );
         }
@@ -331,12 +331,12 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
     // fwd outputs
     const int32_t *__restrict__ radii,          // [B, C, N, 2]
     const scalar_t *__restrict__ conics,        // [B, C, N, 3]
-    const scalar_t *__restrict__ compensations, // [B, C, N] optional
+    const scalar_t *__restrict__ mip_splatting_screen_filter_compensations, // [B, C, N] optional
     // grad outputs
     const scalar_t *__restrict__ v_means2d,       // [B, C, N, 2]
     const scalar_t *__restrict__ v_depths,        // [B, C, N]
     const scalar_t *__restrict__ v_conics,        // [B, C, N, 3]
-    const scalar_t *__restrict__ v_compensations, // [B, C, N] optional
+    const scalar_t *__restrict__ v_mip_splatting_screen_filter_compensations, // [B, C, N] optional
     // grad inputs
     scalar_t *__restrict__ v_means,   // [B, N, 3]
     scalar_t *__restrict__ v_covars,  // [B, N, 6] optional
@@ -371,12 +371,12 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
     mat2 v_covar2d(0.f);
     inverse_vjp(covar2d_inv, v_covar2d_inv, v_covar2d);
 
-    if (v_compensations != nullptr) {
-        // vjp: compensation term
-        const float compensation = compensations[idx];
-        const float v_compensation = v_compensations[idx];
-        add_blur_vjp(
-            eps2d, covar2d_inv, compensation, v_compensation, v_covar2d
+    if (v_mip_splatting_screen_filter_compensations != nullptr) {
+        // vjp: mip_splatting_screen_filter_compensation term
+        const float mip_splatting_screen_filter_compensation = mip_splatting_screen_filter_compensations[idx];
+        const float v_mip_splatting_screen_filter_compensation = v_mip_splatting_screen_filter_compensations[idx];
+        apply_mip_splatting_screen_filter_vjp(
+            eps2d, covar2d_inv, mip_splatting_screen_filter_compensation, v_mip_splatting_screen_filter_compensation, v_covar2d
         );
     }
 
@@ -568,12 +568,12 @@ void launch_projection_ewa_3dgs_fused_bwd_kernel(
     // fwd outputs
     const at::Tensor radii,                       // [..., C, N, 2]
     const at::Tensor conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> mip_splatting_screen_filter_compensations, // [..., C, N] optional
     // grad outputs
     const at::Tensor v_means2d,                     // [..., C, N, 2]
     const at::Tensor v_depths,                      // [..., C, N]
     const at::Tensor v_conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> v_compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> v_mip_splatting_screen_filter_compensations, // [..., C, N] optional
     const bool viewmats_requires_grad,
     // outputs
     at::Tensor v_means,   // [..., N, 3]
@@ -623,14 +623,14 @@ void launch_projection_ewa_3dgs_fused_bwd_kernel(
                     camera_model,
                     radii.data_ptr<int32_t>(),
                     conics.data_ptr<scalar_t>(),
-                    compensations.has_value()
-                        ? compensations.value().data_ptr<scalar_t>()
+                    mip_splatting_screen_filter_compensations.has_value()
+                        ? mip_splatting_screen_filter_compensations.value().data_ptr<scalar_t>()
                         : nullptr,
                     v_means2d.data_ptr<scalar_t>(),
                     v_depths.data_ptr<scalar_t>(),
                     v_conics.data_ptr<scalar_t>(),
-                    v_compensations.has_value()
-                        ? v_compensations.value().data_ptr<scalar_t>()
+                    v_mip_splatting_screen_filter_compensations.has_value()
+                        ? v_mip_splatting_screen_filter_compensations.value().data_ptr<scalar_t>()
                         : nullptr,
                     v_means.data_ptr<scalar_t>(),
                     covars.has_value() ? v_covars.data_ptr<scalar_t>()

@@ -1,0 +1,80 @@
+{
+  "preset": "garden_stoch_fast_gs",
+  "scene": {
+    "path": "/home/schlack/Documents/3DGS_scenes/360/garden",
+    "image_root": "/home/schlack/Documents/3DGS_scenes/360/garden/images",
+    "undistort_output_dir": null,
+    "align_horizon": true
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 0.25,
+    "cache_resized_images": true,
+    "resized_image_cache_root": null,
+    "max_resized_image_caches": 4,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 0,
+      "max_steps": 30000
+    },
+    "render": {
+      "backend": "3dgrt.stoch_fast_gs",
+      "particle_kernel_degree": 4,
+      "particle_kernel_density_clamping": true,
+      "particle_kernel_min_response": 0.0113,
+      "particle_kernel_min_alpha": 0.00392156862745098,
+      "particle_kernel_max_alpha": 0.99,
+      "primitive_type": "instances",
+      "min_transmittance": 0.001,
+      "enable_normals": false,
+      "enable_hitcounts": true,
+      "max_consecutive_bvh_update": 15,
+      "ray_principal_point_mode": "image_center",
+      "background_color": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "return_alpha": true,
+      "return_depth": true,
+      "training_backend_options": {
+        "max_sh_degree": 3,
+        "sh_start_step": 1000,
+        "sh_step_interval": 1000
+      }
+    },
+    "densification": {
+      "refine_every": 500,
+      "start_iter": 500,
+      "stop_iter": 15000,
+      "loss_thresh": 0.06,
+      "grad_threshold": 0.0002,
+      "grad_abs_threshold": 0.0008,
+      "dense_fraction": 0.001,
+      "prune_opacity_threshold": 0.005,
+      "opacity_reset_every": 3000,
+      "extra_opacity_reset_iter": null,
+      "max_reset_opacity": 0.8,
+      "scheduled_reset_opacity": 0.01,
+      "probe_view_count": 10,
+      "importance_threshold": 5.0,
+      "final_prune_start_iter": 15000,
+      "final_prune_stop_iter": 30000,
+      "final_prune_every": 3000,
+      "final_prune_opacity_threshold": 0.1
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/stoch_fast_gs/garden_stoch_fast_gs/3dgrt.stoch_fast_gs",
+      "export_ply": true
+    }
+  }
+}

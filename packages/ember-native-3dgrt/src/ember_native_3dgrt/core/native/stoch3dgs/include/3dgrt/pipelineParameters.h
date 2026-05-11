@@ -31,6 +31,7 @@ struct PipelineParameters {
     const void* particleExtendedData;       ///< pipeline specific particle data
     int32_t* particleVisibility;       ///< pipeline specific particle data
     float* particleWeight;               ///< pipeline specific particle data
+    const int32_t* metricMap;            ///< optional flattened metric mask
 
     PackedTensorAccessor32<float, 4> rayRadiance;    ///< output integrated ray radiance
     PackedTensorAccessor32<float, 4> rayDensity;     ///< output integrated ray density

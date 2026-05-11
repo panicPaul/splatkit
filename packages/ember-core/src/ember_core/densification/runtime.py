@@ -6,8 +6,11 @@ from collections.abc import Sequence
 from importlib import import_module
 from typing import Any
 
+import torch
+
 from ember_core.densification.contracts import (
     BaseDensificationMethod,
+    DensificationBindContext,
     DensificationContext,
     DensificationLifecycleContext,
     DensificationMethod,
@@ -15,6 +18,14 @@ from ember_core.densification.contracts import (
     DensificationRuntime,
 )
 from ember_core.densification.families import build_family_ops
+
+
+def call_densification_hook(hook: Any | None, *args: Any, **kwargs: Any) -> Any:
+    """Invoke a densification hook with gradient recording disabled."""
+    if hook is None:
+        return None
+    with torch.no_grad():
+        return hook(*args, **kwargs)
 
 
 class DensificationMethodSequence(BaseDensificationMethod):
@@ -45,27 +56,38 @@ class DensificationMethodSequence(BaseDensificationMethod):
         for method in self.methods:
             method.bind(state, optimizers, family_ops)
 
+    def bind_context(self, context: DensificationBindContext) -> None:
+        for method in self.methods:
+            bind_context = getattr(method, "bind_context", None)
+            if callable(bind_context):
+                bind_context(context)
+            else:
+                method.bind(
+                    context.state,
+                    context.optimizers,
+                    context.family_ops,
+                )
+
     def before_training(self, context: DensificationLifecycleContext) -> None:
         for method in self.methods:
-            method.before_training(context)
+            call_densification_hook(method.before_training, context)
 
     def pre_backward(self, context: DensificationContext) -> None:
         for method in self.methods:
-            method.pre_backward(context)
+            call_densification_hook(method.pre_backward, context)
 
     def post_backward(self, context: DensificationContext) -> None:
         for method in self.methods:
-            method.post_backward(context)
+            call_densification_hook(method.post_backward, context)
 
     def pre_optimizer_step(self, context: DensificationContext) -> None:
         for method in self.methods:
             pre_optimizer_step = getattr(method, "pre_optimizer_step", None)
-            if pre_optimizer_step is not None:
-                pre_optimizer_step(context)
+            call_densification_hook(pre_optimizer_step, context)
 
     def post_optimizer_step(self, context: DensificationContext) -> None:
         for method in self.methods:
-            method.post_optimizer_step(context)
+            call_densification_hook(method.post_optimizer_step, context)
 
     def after_step(
         self,
@@ -73,11 +95,11 @@ class DensificationMethodSequence(BaseDensificationMethod):
         metrics: dict[str, float],
     ) -> None:
         for method in self.methods:
-            method.after_step(context, metrics)
+            call_densification_hook(method.after_step, context, metrics)
 
     def after_training(self, context: DensificationLifecycleContext) -> None:
         for method in self.methods:
-            method.after_training(context)
+            call_densification_hook(method.after_training, context)
 
 
 def _resolve_target(target: str) -> Any:
@@ -136,7 +158,20 @@ def bind_densification(
     """Bind family ops and mutable training state to a densification method."""
     if method is None:
         return None
-    method.bind(state, optimizers, build_family_ops(state, optimizers))
+    family_ops = build_family_ops(state, optimizers, required=False)
+    bind_context = getattr(method, "bind_context", None)
+    if callable(bind_context):
+        bind_context(
+            DensificationBindContext(
+                state=state,
+                optimizers=optimizers,
+                family_ops=family_ops,
+            )
+        )
+    else:
+        if family_ops is None:
+            family_ops = build_family_ops(state, optimizers, required=True)
+        method.bind(state, optimizers, family_ops)
     return method
 
 
@@ -207,6 +242,7 @@ __all__ = [
     "DensificationMethodSequence",
     "bind_densification",
     "build_densification",
+    "call_densification_hook",
     "make_context",
     "make_lifecycle_context",
     "merge_densification_requirements",

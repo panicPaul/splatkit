@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -28,8 +27,8 @@ register_fastergs()
 
 
 def _clone_scene_with_grad(scene):
-    return replace(
-        scene,
+    cloned = scene.detached_copy()
+    cloned.replace_fields_(
         center_position=scene.center_position.detach()
         .clone()
         .requires_grad_(True),
@@ -40,6 +39,7 @@ def _clone_scene_with_grad(scene):
         logit_opacity=scene.logit_opacity.detach().clone().requires_grad_(True),
         feature=scene.feature.detach().clone().requires_grad_(True),
     )
+    return cloned
 
 
 @pytest.mark.backend
@@ -79,8 +79,7 @@ def test_render_faster_gs_native_direct_rgb_allows_feature_gradients(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    rgb_scene = replace(
-        cuda_scene,
+    rgb_scene = cuda_scene.with_fields(
         feature=torch.tensor(
             [
                 [0.9, 0.2, 0.2],

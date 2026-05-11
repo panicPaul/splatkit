@@ -49,6 +49,13 @@ with app.setup:
     NOTEBOOK_PATH = Path(__file__).resolve()
     NOTEBOOK_DIR = NOTEBOOK_PATH.parent
     REPO_ROOT = NOTEBOOK_DIR.parents[1]
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from papers.fastgs._densification import (
+        FastGSDensification,
+        compiled_fastgs_l1_metric_map,
+    )
+
     DEFAULTS_DIR = NOTEBOOK_DIR / "defaults"
     DEFAULT_CHECKPOINT_ROOT = REPO_ROOT / "checkpoints" / "papers" / "fastgs"
     FastGSBackendName = Literal["adapter.fastgs", "faster_gs.fastgs"]
@@ -1026,31 +1033,6 @@ def fastgs_l1_metric_map(
     return (normalized_l1 > loss_thresh).to(torch.int32)
 
 
-@app.cell
-def _(_cell_42_COMPILED_FASTGS_L1_METRIC_MAP):
-    def compiled_fastgs_l1_metric_map(
-        predicted: Tensor,
-        target: Tensor,
-        loss_thresh: float,
-    ) -> Tensor:
-        """Build FastGS' metric map through a cached compiled tensor helper."""
-        global _COMPILED_FASTGS_L1_METRIC_MAP
-        if _COMPILED_FASTGS_L1_METRIC_MAP is None:
-            _COMPILED_FASTGS_L1_METRIC_MAP = torch.compile(
-                fastgs_l1_metric_map,
-                mode="reduce-overhead",
-                fullgraph=True,
-            )
-        mark_step_begin = getattr(
-            torch.compiler, "cudagraph_mark_step_begin", None
-        )
-        if callable(mark_step_begin):
-            mark_step_begin()
-        return _COMPILED_FASTGS_L1_METRIC_MAP(predicted, target, loss_thresh)
-
-    return (compiled_fastgs_l1_metric_map,)
-
-
 @app.function
 def rgb_l1_ssim_loss(
     state: TrainState,
@@ -1484,8 +1466,8 @@ class HasFastGSDensificationInfo(Protocol):
 
 
 @app.cell
-def _(compiled_fastgs_l1_metric_map):
-    class FastGSDensification(BaseDensificationMethod):
+def _():
+    class _FastGSDensificationCellLocal(BaseDensificationMethod):
         """Notebook-local FastGS adaptive density control."""
 
         expected_scene_families = ("gaussian",)

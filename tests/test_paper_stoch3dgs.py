@@ -132,10 +132,38 @@ def test_stoch3dgs_script_loader_applies_preset_then_cli_overrides() -> None:
     assert loaded.preset == "garden_stoch"
     assert loaded.training.runtime.max_steps == 5
     assert loaded.training.render.min_transmittance == 0.002
+    assert loaded.data.materialization_stage == "prepared"
+    assert loaded.data.materialization_mode == "eager"
+    assert loaded.data.materialization_num_workers == 8
 
     training_config = module.resolve_training_config(loaded)
     assert training_config.runtime.max_steps == 5
     assert training_config.render.backend_options["min_transmittance"] == 0.002
+
+
+def test_stoch3dgs_mip_splatting_adds_only_3d_filter() -> None:
+    module = load_stoch3dgs_config_module()
+    experiment_config = load_stoch3dgs_preset(module, "garden_stoch")
+    experiment_config.training.mip_splatting.enabled = True
+
+    training_config = module.resolve_training_config(experiment_config)
+
+    assert [
+        builder.target for builder in training_config.densification.builders
+    ] == [
+        "papers.stoch3dgs.notebook.Stoch3DGSDensification",
+        "ember_splatting_training.GaussianMipSplatting3DFilter",
+        "papers.stoch3dgs.notebook.Stoch3DGSFinalCleanup",
+    ]
+    filter_builder = training_config.densification.builders[1]
+    assert filter_builder.kwargs["near_plane"] == 0.2
+    assert filter_builder.kwargs["filter_variance"] == 0.2
+    assert (
+        filter_builder.kwargs["recompute_schedule"]["start_iteration"] == 15_000
+    )
+    assert (
+        filter_builder.kwargs["recompute_schedule"]["end_iteration"] == 29_899
+    )
 
 
 def test_stoch3dgs_user_config_does_not_expose_runtime_kwargs() -> None:
@@ -160,6 +188,36 @@ def test_stoch3dgs_script_loader_replays_json_config(tmp_path: Path) -> None:
 
     assert isinstance(loaded, module.Stoch3DGSExperimentConfig)
     assert loaded == config
+
+
+def test_stoch3dgs_scene_loader_uses_current_colmap_config() -> None:
+    module = load_stoch3dgs_config_module()
+    config = load_stoch3dgs_preset(module, "garden_stoch")
+    config.data.cache_resized_images = False
+
+    scene_config = module.build_scene_load_config(config)
+
+    assert isinstance(scene_config, ember.ColmapSceneConfig)
+    assert scene_config.path == config.scene.path
+    assert isinstance(
+        scene_config.source_pipes[0], ember.HorizonAlignPipeConfig
+    )
+
+
+def test_stoch3dgs_prepared_frame_dataset_config_uses_current_split_config() -> (
+    None
+):
+    module = load_stoch3dgs_config_module()
+    config = load_stoch3dgs_preset(module, "garden_stoch")
+
+    dataset_config = module.build_prepared_frame_dataset_config(config)
+
+    assert isinstance(dataset_config, ember.PreparedFrameDatasetConfig)
+    assert dataset_config.split is not None
+    assert dataset_config.split.target == config.data.split_target
+    assert dataset_config.split.every_n == config.data.split_every_n
+    assert dataset_config.image_preparation is not None
+    assert dataset_config.image_preparation.resize_width_scale is None
 
 
 def test_stoch3dgs_active_sh_scene_masks_inactive_coefficients() -> None:

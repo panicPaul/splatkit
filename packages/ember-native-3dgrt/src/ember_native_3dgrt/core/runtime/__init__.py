@@ -8,6 +8,7 @@ from ember_native_3dgrt.core.runtime.ops import (
     build_acc_op,
     destroy_acc_op,
     render_op,
+    trace_metric_weights_op,
     trace_op,
     update_acc_op,
 )
@@ -79,6 +80,34 @@ def trace(
     )
 
 
+def trace_metric_weights(
+    state_token: Tensor,
+    ray_to_world: Tensor,
+    ray_ori: Tensor,
+    ray_dir: Tensor,
+    particle_density: Tensor,
+    particle_radiance: Tensor,
+    metric_map: Tensor,
+    *,
+    render_opts: int = 0,
+    sph_degree: int,
+    min_transmittance: float,
+) -> Tensor:
+    """Run metric-map-gated Stoch3DGS particle weight accumulation."""
+    return trace_metric_weights_op(
+        state_token,
+        ray_to_world,
+        ray_ori,
+        ray_dir,
+        particle_density,
+        particle_radiance,
+        metric_map,
+        render_opts,
+        sph_degree,
+        min_transmittance,
+    )
+
+
 def render(
     state_token: Tensor,
     ray_to_world: Tensor,
@@ -120,5 +149,6 @@ __all__ = [
     "pack_particle_density",
     "render",
     "trace",
+    "trace_metric_weights",
     "update_acc",
 ]

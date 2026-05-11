@@ -29,6 +29,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     py::class_<OptixTracer>(m, "VendoredOptixTracer", py::module_local())
         .def(py::init<const std::string&, const std::string&, const std::string&, const std::string&, const std::string&, float, float, bool, int, bool, bool>())
         .def("trace", &OptixTracer::trace)
+        .def("trace_metric_weights", &OptixTracer::traceMetricWeights)
         .def("trace_bwd", &OptixTracer::traceBwd)
         .def("build_bvh", &OptixTracer::buildBVH);
 }

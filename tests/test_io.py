@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -37,8 +36,8 @@ def test_svraster_checkpoint_roundtrip(
     cpu_sparse_voxel_scene: SparseVoxelScene,
 ) -> None:
     run_dir = tmp_path / "scene"
-    scene = replace(
-        cpu_sparse_voxel_scene,
+    scene = cpu_sparse_voxel_scene.detached_copy()
+    scene.replace_fields_(
         subdivision_priority=torch.ones_like(cpu_sparse_voxel_scene.octpath).to(
             torch.float32
         ),

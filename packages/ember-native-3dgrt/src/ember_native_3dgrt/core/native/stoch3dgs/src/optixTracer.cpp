@@ -888,6 +888,7 @@ OptixTracer::trace(uint32_t frameNumber,
     paramsHost.particleExtendedData = reinterpret_cast<const void*>(_state->gPipelineParticleData);
     paramsHost.particleVisibility   = getPtr<int32_t>(particleVisibility);
     paramsHost.particleWeight       = getPtr<float>(particleWeight);
+    paramsHost.metricMap            = nullptr;
 
     paramsHost.rayRadiance    = packed_accessor32<float, 4>(rayRad);
     paramsHost.rayDensity     = packed_accessor32<float, 4>(rayDns);
@@ -909,6 +910,75 @@ OptixTracer::trace(uint32_t frameNumber,
     CUDA_CHECK_LAST();
 
     return std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(rayRad, rayDns, rayHit, rayNrm, rayHitsCount, particleVisibility, particleWeight, raySampleCache);
+}
+
+torch::Tensor
+OptixTracer::traceMetricWeights(uint32_t frameNumber,
+                                torch::Tensor rayToWorld,
+                                torch::Tensor rayOri,
+                                torch::Tensor rayDir,
+                                torch::Tensor particleDensity,
+                                torch::Tensor particleRadiance,
+                                torch::Tensor metricMap,
+                                uint32_t renderOpts,
+                                int sphDegree,
+                                float minTransmittance) {
+
+    const torch::TensorOptions opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
+    torch::Tensor rayRad            = torch::empty({rayOri.size(0), rayOri.size(1), rayOri.size(2), 3}, opts);
+    torch::Tensor rayDns            = torch::empty({rayOri.size(0), rayOri.size(1), rayOri.size(2), 1}, opts);
+    torch::Tensor rayHit            = torch::empty({rayOri.size(0), rayOri.size(1), rayOri.size(2), 2}, opts);
+    torch::Tensor rayNrm            = torch::empty({rayOri.size(0), rayOri.size(1), rayOri.size(2), 3}, opts);
+    torch::Tensor rayHitsCount      = torch::zeros({rayOri.size(0), rayOri.size(1), rayOri.size(2), 1}, opts);
+    torch::Tensor raySampleCache    = torch::zeros({rayOri.size(0), rayOri.size(1), rayOri.size(2), 16}, opts);
+    torch::Tensor particleVisibility = torch::zeros({particleDensity.size(0), 1}, opts);
+    torch::Tensor particleWeight     = torch::zeros({particleDensity.size(0), 1}, opts);
+
+    PipelineParameters paramsHost;
+    paramsHost.handle = _state->gasHandle;
+    paramsHost.aabb   = _state->gasAABB;
+
+    paramsHost.frameBounds.x = rayOri.size(2) - 1;
+    paramsHost.frameBounds.y = rayOri.size(1) - 1;
+    paramsHost.frameNumber   = frameNumber;
+    paramsHost.gPrimNumTri   = _state->gPrimNumTri;
+
+    paramsHost.minTransmittance       = minTransmittance;
+    paramsHost.hitMinGaussianResponse = _state->particleKernelMinResponse;
+    paramsHost.alphaMinThreshold      = 1.0f / 255.0f;
+    paramsHost.sphDegree              = sphDegree;
+
+    std::memcpy(&paramsHost.rayToWorld[0].x, rayToWorld.cpu().data_ptr<float>(), 3 * sizeof(float4));
+    paramsHost.rayOrigin    = packed_accessor32<float, 4>(rayOri);
+    paramsHost.rayDirection = packed_accessor32<float, 4>(rayDir);
+
+    paramsHost.particleDensity      = getPtr<const ParticleDensity>(particleDensity);
+    paramsHost.particleRadiance     = getPtr<const float>(particleRadiance);
+    paramsHost.particleExtendedData = reinterpret_cast<const void*>(_state->gPipelineParticleData);
+    paramsHost.particleVisibility   = getPtr<int32_t>(particleVisibility);
+    paramsHost.particleWeight       = getPtr<float>(particleWeight);
+    paramsHost.metricMap            = getPtr<const int32_t>(metricMap);
+
+    paramsHost.rayRadiance    = packed_accessor32<float, 4>(rayRad);
+    paramsHost.rayDensity     = packed_accessor32<float, 4>(rayDns);
+    paramsHost.rayHitDistance = packed_accessor32<float, 4>(rayHit);
+    paramsHost.rayNormal      = packed_accessor32<float, 4>(rayNrm);
+    paramsHost.rayHitsCount   = packed_accessor32<float, 4>(rayHitsCount);
+    paramsHost.raySampleCache = packed_accessor32<float, 4>(raySampleCache);
+
+    cudaStream_t cudaStream = at::cuda::getCurrentCUDAStream();
+    reallocateParamsDevice(sizeof(paramsHost), cudaStream);
+
+    CUDA_CHECK(cudaMemcpyAsync(
+        reinterpret_cast<void*>(_state->paramsDevice), &paramsHost, sizeof(paramsHost), cudaMemcpyHostToDevice, cudaStream));
+
+    OPTIX_CHECK(optixLaunch(_state->pipelineTracingFwd, cudaStream, _state->paramsDevice,
+                            sizeof(PipelineParameters), &_state->sbtTracingFwd, rayRad.size(2),
+                            rayRad.size(1), rayRad.size(0)));
+
+    CUDA_CHECK_LAST();
+
+    return particleWeight;
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>

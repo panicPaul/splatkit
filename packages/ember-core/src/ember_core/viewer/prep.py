@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 from collections.abc import Callable, Hashable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 import torch
@@ -104,8 +104,7 @@ def filter_gaussian_scene(
 ) -> GaussianScene:
     """Return a filtered Gaussian scene without mutating ``scene``."""
     mask = keep_mask.to(device=scene.center_position.device, dtype=torch.bool)
-    return replace(
-        scene,
+    return scene.with_fields(
         center_position=scene.center_position[mask],
         log_scales=scene.log_scales[mask],
         quaternion_orientation=scene.quaternion_orientation[mask],
@@ -122,8 +121,7 @@ def replace_gaussian_features(
     sh_degree: int | None = None,
 ) -> GaussianScene:
     """Return a Gaussian scene with replaced features and shared geometry."""
-    return replace(
-        scene,
+    return scene.with_fields(
         feature=feature,
         sh_degree=scene.sh_degree if sh_degree is None else sh_degree,
     )

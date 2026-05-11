@@ -3,10 +3,57 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+import torch
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from ember_core.core.backend_refs import BackendRef
+from ember_core.core.enums import (
+    BuiltinOptimizerKind,
+    DeviceKind,
+    ParameterScope,
+)
+from ember_core.core.keys import BackendId, OptimizerRef, serialized_id
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, torch.Tensor) or isinstance(right, torch.Tensor):
+        if not isinstance(left, torch.Tensor) or not isinstance(
+            right, torch.Tensor
+        ):
+            return False
+        return bool(torch.equal(left, right))
+    return left == right
+
+
+def _dataclass_mapping(value: Any) -> dict[str, Any]:
+    return {field.name: getattr(value, field.name) for field in fields(value)}
+
+
+def _options_mapping(value: Any) -> dict[str, Any]:
+    if hasattr(value, "model_dump"):
+        return dict(value.model_dump(mode="python"))
+    if is_dataclass(value) and not isinstance(value, type):
+        return _dataclass_mapping(value)
+    raise TypeError(
+        "RenderPipelineSpec.options must be a dataclass or Pydantic model."
+    )
+
+
+def _option_updates(value: Any, default: Any | None) -> dict[str, Any]:
+    options = _options_mapping(value)
+    if default is None:
+        return options
+    defaults = _options_mapping(default)
+    return {
+        name: option_value
+        for name, option_value in options.items()
+        if name not in defaults
+        or not _values_equal(option_value, defaults[name])
+    }
 
 
 class TrainingConfigBase(BaseModel):
@@ -48,6 +95,15 @@ class RuntimeConfig(TrainingConfigBase):
     device: str = "cpu"
     seed: int = 0
     max_steps: int = Field(default=1, ge=1)
+
+    @field_validator("device", mode="before")
+    @classmethod
+    def _serialize_device(cls, value: Any) -> str:
+        if isinstance(value, DeviceKind):
+            return value.value
+        if isinstance(value, torch.device):
+            return str(value)
+        return value
 
 
 class TrainingProfilerConfig(TrainingConfigBase):
@@ -102,6 +158,7 @@ class RenderPipelineSpec(TrainingConfigBase):
 
     backend: str
     backend_options: dict[str, Any] = Field(default_factory=dict)
+    options: Any | None = Field(default=None, exclude=True, repr=False)
     feature_fn: CallableSpec | None = None
     postprocess_fn: CallableSpec | None = None
     training_backend_options_builder: CallableSpec | None = None
@@ -111,6 +168,47 @@ class RenderPipelineSpec(TrainingConfigBase):
     return_normals: bool = False
     return_2d_projections: bool = False
     return_projective_intersection_transforms: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_typed_authoring(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        values = dict(data)
+        backend = values.get("backend")
+        backend_ref = backend if isinstance(backend, BackendRef) else None
+        if isinstance(backend, BackendRef):
+            values["backend"] = backend.serialized
+        elif isinstance(backend, BackendId):
+            values["backend"] = backend.serialized
+
+        options = values.get("options")
+        if options is not None:
+            backend_options = values.get("backend_options")
+            if backend_options:
+                raise ValueError(
+                    "Use either typed RenderPipelineSpec.options or "
+                    "serialized backend_options, not both."
+                )
+            default_options = (
+                backend_ref.options_type()
+                if backend_ref is not None
+                else None
+            )
+            values["backend_options"] = _option_updates(
+                options,
+                default_options,
+            )
+        return values
+
+    @field_validator("backend", mode="before")
+    @classmethod
+    def _serialize_backend(cls, value: Any) -> str:
+        if isinstance(value, BackendRef):
+            return value.serialized
+        if isinstance(value, BackendId):
+            return value.serialized
+        return value
 
 
 class TensorSliceSpec(TrainingConfigBase):
@@ -141,6 +239,13 @@ class ParameterTargetSpec(TrainingConfigBase):
     name: str
     view: TensorViewSpec | None = None
 
+    @field_validator("scope", mode="before")
+    @classmethod
+    def _serialize_scope(cls, value: Any) -> str:
+        if isinstance(value, ParameterScope):
+            return value.value
+        return value
+
 
 class ParameterGroupConfig(TrainingConfigBase):
     """Optimization settings for one parameter target."""
@@ -153,6 +258,15 @@ class ParameterGroupConfig(TrainingConfigBase):
     momentum: float = Field(default=0.0, ge=0.0)
     optimizer_kwargs: dict[str, Any] = Field(default_factory=dict)
     scheduler: CallableSpec | None = None
+
+    @field_validator("optimizer", mode="before")
+    @classmethod
+    def _serialize_optimizer(cls, value: Any) -> str:
+        if isinstance(value, BuiltinOptimizerKind):
+            return value.value
+        if isinstance(value, OptimizerRef):
+            return serialized_id(value)
+        return value
 
     @model_validator(mode="after")
     def _validate_target(self) -> ParameterGroupConfig:

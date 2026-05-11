@@ -14,9 +14,9 @@
     "max_resized_image_caches": 4,
     "split_target": "val",
     "split_every_n": 8,
-    "materialization_stage": "none",
-    "materialization_mode": "lazy",
-    "materialization_num_workers": 0,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
     "normalize_images": true,
     "interpolation": "bicubic"
   },

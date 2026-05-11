@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +13,8 @@ from ember_core.core.contracts import (
     RenderOptions,
     RenderOutput,
 )
+from ember_core.core.families import GAUSSIAN
+from ember_core.core.products import SCREEN_SPACE_DENSIFICATION_SIGNALS
 from ember_core.core.registry import BACKEND_REGISTRY, register_backend
 from ember_core.densification.contracts import DensificationContext, Schedule
 from ember_core.densification.families import GaussianFamilyOps
@@ -46,6 +47,7 @@ from ember_native_faster_gs.gaussian_pop.renderer import (
     GaussianPopNativeRenderOptions,
 )
 from ember_splatting_training.fastergs import (
+    GaussianFastGS,
     GaussianMipSplatting3DFilter,
     active_sh_bases_for_step,
     fastergs_training_backend_options,
@@ -55,6 +57,7 @@ from ember_splatting_training.recipes import (
     Gaussian3DGSOptimizationRecipe,
     gaussian_3dgs_optimization_config,
 )
+from ember_splatting_training.stages import GAUSSIAN_ACCUMULATE_SCREEN_STATS
 from ember_splatting_training.training_viewer import (
     TrainingViewerCancelled,
     TrainingViewerConfig,
@@ -62,7 +65,19 @@ from ember_splatting_training.training_viewer import (
     TrainingViewerHook,
     create_training_viewer,
 )
+from ember_splatting_training.typed_recipes import FastGSDensificationRecipe
 from torch.optim import Optimizer
+
+
+def test_fastgs_typed_recipe_builds_existing_method() -> None:
+    recipe = FastGSDensificationRecipe(importance_threshold=5.0)
+    method = recipe.build_method()
+
+    assert recipe.scene_family == GAUSSIAN
+    assert GAUSSIAN_ACCUMULATE_SCREEN_STATS in recipe.stages()
+    assert SCREEN_SPACE_DENSIFICATION_SIGNALS in recipe.products()
+    assert isinstance(method, GaussianFastGS)
+    assert method.importance_threshold == 5.0
 
 
 def test_fastergs_active_sh_schedule() -> None:
@@ -93,6 +108,116 @@ def test_fastergs_training_backend_options_use_state_step() -> None:
         "active_sh_bases": 9,
         "clamp_output": False,
     }
+
+
+def test_gaussian_fastgs_opacity_reset_defaults_match_paper_behavior() -> None:
+    method = GaussianFastGS()
+
+    assert method.extra_opacity_reset_iter is None
+    assert method.max_reset_opacity == 0.8
+    assert method.scheduled_reset_opacity == 0.01
+    assert method.should_reset_opacity(500) is False
+    assert method.should_reset_opacity(3_000) is True
+
+
+def test_gaussian_fastgs_refinement_prunes_sampled_candidates_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    method = GaussianFastGS(
+        camera_extent=1.0,
+        opacity_reset_every=3_000,
+        prune_opacity_threshold=0.005,
+        max_reset_opacity=0.8,
+    )
+    scene = GaussianScene3D(
+        center_position=torch.zeros((4, 3), dtype=torch.float32),
+        log_scales=torch.tensor(
+            [
+                [-3.0, -3.0, -3.0],
+                [-3.0, -3.0, -3.0],
+                [-1.6094, -1.6094, -1.6094],
+                [-3.0, -3.0, -3.0],
+            ],
+            dtype=torch.float32,
+        ),
+        quaternion_orientation=torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        ),
+        logit_opacity=torch.tensor(
+            [0.001, 0.5, 0.5, 0.5],
+            dtype=torch.float32,
+        ).logit(),
+        feature=torch.zeros((4, 1, 3), dtype=torch.float32),
+        sh_degree=0,
+    )
+    method.visible_count = torch.ones(4, dtype=torch.float32)
+    method.clone_grad_sum = torch.zeros(4, dtype=torch.float32)
+    method.split_grad_sum = torch.zeros(4, dtype=torch.float32)
+    method.max_screen_radii = torch.tensor(
+        [0.0, 0.0, 25.0, 0.0],
+        dtype=torch.float32,
+    )
+    sampled_mask = torch.tensor([True, False, False, False])
+    captured: dict[str, torch.Tensor] = {}
+
+    def sample_prune_mask(
+        prune_mask: torch.Tensor,
+        pruning_score: torch.Tensor,
+    ) -> torch.Tensor:
+        del pruning_score
+        captured["prune_candidate_mask"] = prune_mask.clone()
+        return sampled_mask.clone()
+
+    class _FamilyOps:
+        def __init__(self, scene: GaussianScene3D) -> None:
+            self.scene = scene
+
+        def clone_and_split(self, *_args: object, **kwargs: object) -> None:
+            prune_fn = kwargs["prune_fn"]
+            assert callable(prune_fn)
+            captured["keep_mask"] = prune_fn(self.scene)
+
+        def reset_opacity(self, max_opacity: float) -> None:
+            captured["max_reset_opacity"] = torch.tensor(max_opacity)
+
+    monkeypatch.setattr(method, "_sample_refinement_prune_mask", sample_prune_mask)
+    monkeypatch.setattr(
+        method,
+        "compute_fastgs_scores",
+        lambda _context, *, densify: (
+            torch.zeros(4, dtype=torch.float32),
+            torch.zeros(4, dtype=torch.float32),
+        ),
+    )
+    method.family_ops = _FamilyOps(scene)  # type: ignore[assignment]
+    context = SimpleNamespace(
+        state=SimpleNamespace(diagnostics={}),
+        runtime=None,
+    )
+
+    method.adaptive_density_control(context, scene, step=3_001)
+
+    torch.testing.assert_close(
+        captured["prune_candidate_mask"],
+        torch.tensor([True, False, True, False]),
+    )
+    torch.testing.assert_close(
+        captured["keep_mask"],
+        torch.tensor([False, True, True, False]),
+    )
+    assert float(captured["max_reset_opacity"].item()) == pytest.approx(0.8)
+    assert context.state.diagnostics["metrics"][
+        "refinement_fastgs_prune_candidate_count"
+    ] == 2.0
+    assert context.state.diagnostics["metrics"][
+        "refinement_fastgs_sampled_prune_count"
+    ] == 1.0
 
 
 def test_gaussian_mip_splatting_3d_filter_has_no_render_requirements() -> None:
@@ -310,24 +435,26 @@ def _state_for_scene(scene: GaussianScene3D) -> TrainState:
 
 def _trainable_scene(scene: GaussianScene3D) -> GaussianScene3D:
     updates = {}
-    for field_def in fields(scene):
-        value = getattr(scene, field_def.name)
+    for name in scene.parameter_field_names:
+        value = getattr(scene, name)
         if isinstance(value, torch.Tensor):
-            updates[field_def.name] = (
+            updates[name] = (
                 value.detach().clone().requires_grad_(value.is_floating_point())
             )
-    return replace(scene, **updates)
+    trainable_scene = scene.detached_copy()
+    trainable_scene.replace_fields_(**updates)
+    return trainable_scene
 
 
 def _assert_scene_tensors_equal(
     left: GaussianScene3D,
     right: GaussianScene3D,
 ) -> None:
-    for field_def in fields(left):
-        left_value = getattr(left, field_def.name)
-        right_value = getattr(right, field_def.name)
+    for name in left.field_names:
+        left_value = getattr(left, name)
+        right_value = getattr(right, name)
         if isinstance(left_value, torch.Tensor):
-            assert torch.equal(left_value, right_value), field_def.name
+            assert torch.equal(left_value, right_value), name
 
 
 def _logit_optimizer_binding(
@@ -404,8 +531,8 @@ def test_checkpoint_roundtrip_preserves_buffers(
 def test_gaussian_family_ops_copy_append_reorder_and_reset_state(
     cpu_scene: GaussianScene3D,
 ) -> None:
-    scene = replace(
-        cpu_scene,
+    scene = cpu_scene.detached_copy()
+    scene.replace_fields_(
         logit_opacity=cpu_scene.logit_opacity.detach()
         .clone()
         .requires_grad_(True),
@@ -456,8 +583,8 @@ def test_gaussian_family_ops_copy_append_reorder_and_reset_state(
 def test_gaussian_family_ops_updates_all_bindings_for_shared_scene_field(
     cpu_scene: GaussianScene3D,
 ) -> None:
-    scene = replace(
-        cpu_scene,
+    scene = cpu_scene.detached_copy()
+    scene.replace_fields_(
         feature=cpu_scene.feature.detach().clone().requires_grad_(True),
     )
     state = _state_for_scene(scene)
@@ -668,8 +795,8 @@ def test_gaussian_mcmc_appends_from_post_relocation_scene(
 ) -> None:
     from ember_splatting_training.densification import mcmc as mcmc_module
 
-    scene = replace(
-        _trainable_scene(cpu_scene),
+    scene = _trainable_scene(cpu_scene)
+    scene.replace_fields_(
         logit_opacity=torch.tensor([-20.0, 2.0, 1.0], requires_grad=True),
     )
     state = _state_for_scene(scene)
@@ -689,7 +816,7 @@ def test_gaussian_mcmc_appends_from_post_relocation_scene(
         n_samples_per_primitive: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         del n_samples_per_primitive
-        return old_opacities.clamp_min(0.8), old_scales
+        return old_opacities.clamp_min(0.8)[:, None], old_scales
 
     def fake_multinomial(
         weights: torch.Tensor,

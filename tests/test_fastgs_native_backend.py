@@ -16,6 +16,7 @@ from ember_adapter_backends.fastgs import (
 )
 from ember_core.core import BACKEND_REGISTRY, render, resolve_backend_trait
 from ember_core.densification import GaussianMetricAttribution
+from ember_native_faster_gs.backends import FASTER_GS_FASTGS
 from ember_native_faster_gs.faster_gs import (
     register as register_faster_gs,
 )
@@ -32,6 +33,14 @@ from ember_native_faster_gs.fastgs.runtime import preprocess
 register()
 register_faster_gs()
 register_adapter_fastgs()
+
+
+def test_fastgs_native_typed_backend_ref_builds_options() -> None:
+    options = FASTER_GS_FASTGS.options(compact_box_scale=0.7)
+
+    assert FASTER_GS_FASTGS.serialized == "faster_gs.fastgs"
+    assert isinstance(options, FastGSNativeRenderOptions)
+    assert options.compact_box_scale == 0.7
 
 
 def _expected_fastgs_radius_from_conic(
@@ -156,8 +165,7 @@ def test_fastgs_native_culls_subthreshold_opacity_compact_boxes(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    low_opacity_scene = replace(
-        cuda_scene,
+    low_opacity_scene = cuda_scene.with_fields(
         logit_opacity=torch.full_like(cuda_scene.logit_opacity, -20.0),
     )
 
@@ -180,8 +188,7 @@ def test_fastgs_native_direct_rgb_allows_feature_gradients(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    rgb_scene = replace(
-        cuda_scene,
+    rgb_scene = cuda_scene.with_fields(
         feature=torch.tensor(
             [
                 [0.9, 0.2, 0.2],
@@ -456,8 +463,7 @@ def test_fastgs_native_densification_info_allows_backward(
     cuda_scene,
     cuda_camera,
 ) -> None:
-    scene = replace(
-        cuda_scene,
+    scene = cuda_scene.with_fields(
         center_position=cuda_scene.center_position.detach().requires_grad_(),
         log_scales=cuda_scene.log_scales.detach().requires_grad_(),
         quaternion_orientation=(

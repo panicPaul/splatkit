@@ -1,0 +1,83 @@
+{
+  "preset": "garden_debug_val",
+  "scene": {
+    "path": "/home/schlack/Documents/3DGS_scenes/360/garden",
+    "image_root": "/home/schlack/Documents/3DGS_scenes/360/garden/images",
+    "undistort_output_dir": null,
+    "align_horizon": true
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 0.25,
+    "cache_resized_images": true,
+    "resized_image_cache_root": null,
+    "max_resized_image_caches": 2,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 0,
+      "max_steps": 10
+    },
+    "profiler": {
+      "enabled": false,
+      "log_every": 1,
+      "output_path": null
+    },
+    "batching": {
+      "batch_size": 1,
+      "shuffle": true,
+      "num_workers": 0,
+      "persistent_workers": false,
+      "pin_memory": true
+    },
+    "render": {
+      "backend": "3dgrt.stoch_fast_gs",
+      "particle_kernel_degree": 4,
+      "particle_kernel_density_clamping": true,
+      "particle_kernel_min_response": 0.0113,
+      "particle_kernel_min_alpha": 0.00392156862745098,
+      "particle_kernel_max_alpha": 0.99,
+      "primitive_type": "instances",
+      "min_transmittance": 0.001,
+      "enable_normals": false,
+      "enable_hitcounts": true,
+      "max_consecutive_bvh_update": 15,
+      "ray_principal_point_mode": "image_center",
+      "background_color": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "return_alpha": true,
+      "return_depth": true,
+      "training_backend_options": {
+        "max_sh_degree": 3,
+        "sh_start_step": 1000,
+        "sh_step_interval": 1000
+      }
+    },
+    "densification": {
+      "probe_view_count": 2
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/stoch_fast_gs/garden_debug_val/3dgrt.stoch_fast_gs",
+      "export_ply": false
+    },
+    "viewer": {
+      "enabled": true,
+      "update_every_steps": 1,
+      "min_update_seconds": 0.0,
+      "pause_on_interaction": true,
+      "pause_poll_seconds": 0.05,
+      "max_pause_seconds": null
+    }
+  }
+}

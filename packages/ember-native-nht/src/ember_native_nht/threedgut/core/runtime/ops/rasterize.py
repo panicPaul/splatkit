@@ -630,3 +630,33 @@ def rasterize_depth(
     if padding_channel_count > 0:
         rendered_depths = rendered_depths[..., :-padding_channel_count]
     return parse_depth_rasterization_outputs((rendered_depths, rendered_alphas))
+
+
+def rasterize_gaussian_indices(
+    *,
+    transmittances: Tensor,
+    projected_means: Tensor,
+    conics: Tensor,
+    opacities: Tensor,
+    image_width: int,
+    image_height: int,
+    tile_size: int,
+    tile_offsets: Tensor,
+    flattened_gaussian_ids: Tensor,
+    range_start: int = 0,
+    range_end: int = 2**31 - 1,
+) -> tuple[Tensor, Tensor]:
+    """Return Gaussian and pixel ids for native 3DGS pixel contributors."""
+    return backend().rasterize_to_indices_3dgs(
+        int(range_start),
+        int(range_end),
+        transmittances.contiguous(),
+        projected_means.contiguous(),
+        conics.contiguous(),
+        opacities.contiguous(),
+        int(image_width),
+        int(image_height),
+        int(tile_size),
+        tile_offsets.contiguous(),
+        flattened_gaussian_ids.contiguous(),
+    )

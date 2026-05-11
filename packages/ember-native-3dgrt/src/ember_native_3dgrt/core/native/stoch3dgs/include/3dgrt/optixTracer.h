@@ -151,6 +151,17 @@ public:
                   int sphDegree,
                   float minTransmittance);
 
+    virtual torch::Tensor traceMetricWeights(uint32_t frameNumber,
+                                             torch::Tensor rayToWorld,
+                                             torch::Tensor rayOri,
+                                             torch::Tensor rayDir,
+                                             torch::Tensor particleDensity,
+                                             torch::Tensor particleRadiance,
+                                             torch::Tensor metricMap,
+                                             uint32_t renderOpts,
+                                             int sphDegree,
+                                             float minTransmittance);
+
     std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
     virtual traceBwd(uint32_t frameNumber,
                      torch::Tensor rayToWorld,

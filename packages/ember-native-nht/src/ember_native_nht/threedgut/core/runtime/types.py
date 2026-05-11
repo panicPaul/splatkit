@@ -17,7 +17,9 @@ class ProjectionResult:
     projected_means: Float[Tensor, " num_cams num_splats 2"]
     primitive_depths: Float[Tensor, " num_cams num_splats"]
     conics: Float[Tensor, " num_cams num_splats 3"]
-    compensations: Float[Tensor, " num_cams num_splats"] | None
+    mip_splatting_screen_filter_compensations: (
+        Float[Tensor, " num_cams num_splats"] | None
+    )
 
     @classmethod
     def from_tensors(cls, *tensors: Tensor | None) -> Self:
@@ -31,7 +33,7 @@ class ProjectionResult:
             self.projected_means,
             self.primitive_depths,
             self.conics,
-            self.compensations,
+            self.mip_splatting_screen_filter_compensations,
         )
 
 

@@ -409,20 +409,20 @@ inverse_vjp(const mat2 Minv, const mat2 v_Minv, mat2 &v_M) {
 }
 
 inline __device__ float
-add_blur(const float eps2d, mat2 &covar, float &compensation) {
+apply_mip_splatting_screen_filter(const float eps2d, mat2 &covar, float &mip_splatting_screen_filter_compensation) {
     float det_orig = covar[0][0] * covar[1][1] - covar[0][1] * covar[1][0];
     covar[0][0] += eps2d;
     covar[1][1] += eps2d;
     float det_blur = covar[0][0] * covar[1][1] - covar[0][1] * covar[1][0];
-    compensation = sqrt(max(0.f, det_orig / det_blur));
+    mip_splatting_screen_filter_compensation = sqrt(max(0.f, det_orig / det_blur));
     return det_blur;
 }
 
-inline __device__ void add_blur_vjp(
+inline __device__ void apply_mip_splatting_screen_filter_vjp(
     const float eps2d,
     const mat2 conic_blur,
-    const float compensation,
-    const float v_compensation,
+    const float mip_splatting_screen_filter_compensation,
+    const float v_mip_splatting_screen_filter_compensation,
     mat2 &v_covar
 ) {
     // comp = sqrt(det(covar) / det(covar_blur))
@@ -443,8 +443,8 @@ inline __device__ void add_blur_vjp(
 
     float det_conic_blur = conic_blur[0][0] * conic_blur[1][1] -
                            conic_blur[0][1] * conic_blur[1][0];
-    float v_sqr_comp = v_compensation * 0.5 / (compensation + 1e-6);
-    float one_minus_sqr_comp = 1 - compensation * compensation;
+    float v_sqr_comp = v_mip_splatting_screen_filter_compensation * 0.5 / (mip_splatting_screen_filter_compensation + 1e-6);
+    float one_minus_sqr_comp = 1 - mip_splatting_screen_filter_compensation * mip_splatting_screen_filter_compensation;
     v_covar[0][0] += v_sqr_comp * (one_minus_sqr_comp * conic_blur[0][0] -
                                    eps2d * det_conic_blur);
     v_covar[0][1] += v_sqr_comp * (one_minus_sqr_comp * conic_blur[0][1]);

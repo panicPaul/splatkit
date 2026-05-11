@@ -234,9 +234,9 @@ def test_fastergs_script_loader_resolves_relative_paths_from_json_file(
                     "max_resized_image_caches": 4,
                     "split_target": "train",
                     "split_every_n": 8,
-                    "materialization_stage": "none",
-                    "materialization_mode": "lazy",
-                    "materialization_num_workers": 0,
+                    "materialization_stage": "prepared",
+                    "materialization_mode": "eager",
+                    "materialization_num_workers": 8,
                     "normalize_images": True,
                     "interpolation": "bicubic",
                 },
@@ -303,7 +303,9 @@ def test_fastergs_default_checkpoint_layout_is_mirrored_by_paper_and_backend(
     assert debug.data.image_scale_factor == 0.1
     assert debug.data.cache_resized_images is True
     assert debug.data.max_resized_image_caches == 4
-    assert debug.data.materialization_stage == "none"
+    assert debug.data.materialization_stage == "prepared"
+    assert debug.data.materialization_mode == "eager"
+    assert debug.data.materialization_num_workers == 8
     assert debug.training.runtime.max_steps == 3000
 
 

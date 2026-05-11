@@ -66,8 +66,13 @@ def test_nht_resolved_training_config_uses_native_backend() -> None:
     assert shader_spec.target == "papers.nht.notebook.NHTDeferredShader"
     assert shader_spec.kwargs["enable_view_encoding"] is True
     assert shader_spec.kwargs["view_encoding"] == "sh"
+    assert shader_spec.kwargs["jit_fusion"] is True
     assert training_config.render.backend_options["ray_dir_scale"] == 3.0
     assert training_config.render.backend_options["center_ray_mode"] is False
+    assert (
+        training_config.render.backend_options["mip_splatting_screen_filter"]
+        is False
+    )
     assert [
         group.target.scope + ":" + group.target.name
         for group in training_config.optimization.parameter_groups
@@ -152,6 +157,9 @@ def test_nht_script_loader_applies_preset_then_cli_overrides() -> None:
     assert loaded.training.runtime.max_steps == 5
     assert loaded.training.initialization.feature_dim == 12
     assert loaded.training.model.shader.feature_dim == 12
+    assert loaded.data.materialization_stage == "prepared"
+    assert loaded.data.materialization_mode == "eager"
+    assert loaded.data.materialization_num_workers == 8
 
 
 def test_nht_batch_scaled_optimizers_and_shader_ray_scale() -> None:
@@ -174,7 +182,101 @@ def test_nht_batch_scaled_optimizers_and_shader_ray_scale() -> None:
     assert groups[5].lr == pytest.approx(2.0e-3)
     assert groups[1].optimizer_kwargs["eps"] == pytest.approx(5e-16)
     assert groups[1].betas == pytest.approx((0.6, 0.996))
-    assert groups[2].optimizer_kwargs == {}
+
+
+def test_nht_mip_splatting_adds_screen_filter_and_3d_filter() -> None:
+    module = load_nht_config_module()
+    experiment_config = load_nht_preset(module, "garden_debug_val")
+    experiment_config.training.mip_splatting.enabled = True
+
+    training_config = module.resolve_training_config(experiment_config)
+
+    assert (
+        training_config.render.backend_options["mip_splatting_screen_filter"]
+        is True
+    )
+    assert training_config.densification is not None
+    assert [
+        builder.target for builder in training_config.densification.builders
+    ] == [
+        "papers.nht.notebook.build_nht_mcmc",
+        "ember_splatting_training.GaussianMipSplatting3DFilter",
+    ]
+    filter_builder = training_config.densification.builders[1]
+    assert filter_builder.kwargs["near_plane"] == 0.2
+    assert filter_builder.kwargs["filter_variance"] == 0.2
+    assert (
+        filter_builder.kwargs["recompute_schedule"]["start_iteration"] == 15_000
+    )
+    assert (
+        filter_builder.kwargs["recompute_schedule"]["end_iteration"] == 29_899
+    )
+
+
+def test_nht_mip_splatting_screen_filter_can_be_disabled() -> None:
+    module = load_nht_config_module()
+    experiment_config = load_nht_preset(module, "garden_debug_val")
+    experiment_config.training.mip_splatting.enabled = True
+    experiment_config.training.mip_splatting.screen_filter_enabled = False
+
+    training_config = module.resolve_training_config(experiment_config)
+
+    assert (
+        training_config.render.backend_options["mip_splatting_screen_filter"]
+        is False
+    )
+    assert training_config.densification is not None
+    assert (
+        training_config.densification.builders[1].target
+        == "ember_splatting_training.GaussianMipSplatting3DFilter"
+    )
+
+
+def test_nht_jit_compile_notice_shows_for_notebook_first_step() -> None:
+    module = load_nht_config_module()
+    config = load_nht_preset(module, "garden_debug_val")
+    snapshot = SimpleNamespace(
+        status="running",
+        step=0,
+        latest_metrics={},
+    )
+
+    should_show = module.nht_should_show_jit_compile_notice(
+        config,
+        snapshot,
+        is_script_mode=False,
+    )
+
+    assert should_show is True
+
+
+def test_nht_jit_compile_notice_skips_script_mode_and_disabled_jit() -> None:
+    module = load_nht_config_module()
+    config = load_nht_preset(module, "garden_debug_val")
+    snapshot = SimpleNamespace(
+        status="running",
+        step=0,
+        latest_metrics={},
+    )
+
+    assert (
+        module.nht_should_show_jit_compile_notice(
+            config,
+            snapshot,
+            is_script_mode=True,
+        )
+        is False
+    )
+
+    config.training.model.shader.jit_fusion = False
+    assert (
+        module.nht_should_show_jit_compile_notice(
+            config,
+            snapshot,
+            is_script_mode=False,
+        )
+        is False
+    )
 
 
 def test_nht_script_loader_replays_json_config(tmp_path: Path) -> None:
@@ -187,6 +289,34 @@ def test_nht_script_loader_replays_json_config(tmp_path: Path) -> None:
 
     assert isinstance(loaded, module.NHTExperimentConfig)
     assert loaded == config
+
+
+def test_nht_scene_loader_uses_current_colmap_config() -> None:
+    module = load_nht_config_module()
+    config = load_nht_preset(module, "garden_debug_val")
+    config.data.cache_resized_images = False
+
+    scene_config = module.nht_scene_load_config(config)
+
+    assert isinstance(scene_config, ember.ColmapSceneConfig)
+    assert scene_config.path == config.scene.path
+    assert isinstance(
+        scene_config.source_pipes[0], ember.HorizonAlignPipeConfig
+    )
+
+
+def test_nht_prepared_frame_dataset_config_uses_current_data_config() -> None:
+    module = load_nht_config_module()
+    config = load_nht_preset(module, "garden_debug_val")
+
+    dataset_config = module.nht_prepared_frame_dataset_config(config)
+
+    assert isinstance(dataset_config, ember.PreparedFrameDatasetConfig)
+    assert dataset_config.camera_sensor_id == config.data.camera_sensor_id
+    assert dataset_config.split is not None
+    assert dataset_config.split.target == config.data.split_target
+    assert dataset_config.image_preparation is not None
+    assert dataset_config.image_preparation.resize_width_scale is None
 
 
 def test_nht_deferred_shader_decodes_feature_render() -> None:
@@ -271,6 +401,15 @@ def test_nht_knn_initialization_uses_point_distances() -> None:
         torch.ones(4),
     )
     assert initialized.scene.feature.shape == (4, 8)
+    for value in (
+        initialized.scene.center_position,
+        initialized.scene.log_scales,
+        initialized.scene.quaternion_orientation,
+        initialized.scene.logit_opacity,
+        initialized.scene.feature,
+    ):
+        assert value.is_leaf
+        assert value.requires_grad
 
 
 def test_nht_mcmc_sanitizes_nan_opacity_logits(cpu_scene) -> None:

@@ -113,6 +113,28 @@ result = sk.run_training(dataset, config)
 checkpoint = sk.load_checkpoint_dir(result.checkpoint_dir)
 ```
 
+## Typed Authoring And Private Extensions
+Python code should prefer typed refs and exported constants, while JSON,
+checkpoints, and plugin discovery keep stable string identifiers.
+
+```python
+from ember_native_faster_gs.backends import FASTER_GS_FASTGS
+
+render = sk.RenderPipelineSpec(
+    backend=FASTER_GS_FASTGS,
+    options=FASTER_GS_FASTGS.options(compact_box_scale=0.5),
+)
+```
+
+External packages can define their own `SceneFamilyKey`, `ProductKey`,
+`StageKey`, `BufferKey`, and `BackendRef` constants without editing
+`ember-core`. Private primitive families should register family ops with
+`register_family_ops(...)` when they want to reuse Ember densification
+composition, or implement `bind_context(...)` on their densification method
+when they need direct access to optimizer bindings and private topology logic.
+Private training loops can reuse Ember setup through `prepare_training_loop(...)`
+or pass a `trainer=` object to `run_training(...)`.
+
 Research notebooks can keep their public surface cleaner by exposing one typed
 Pydantic config and materializing it into `TrainingConfig` only at runtime:
 

@@ -2,15 +2,16 @@
 
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.5"
 app = marimo.App(width="columns")
 
 with app.setup:
     import json
     import math
+    import shutil
     import sys
     from pathlib import Path
-    from typing import Literal
+    from typing import Any, Literal
 
     import ember_core as ember
     import ember_native_nht
@@ -46,8 +47,163 @@ def _():
     return
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Configuration
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(preset_selector):
+    preset_selector
+    return
+
+
+@app.cell(hide_code=True)
+def _(config_gui):
+    config_gui.stacked()
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Training controls
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_controls):
+    training_controls
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Training output
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_result_view):
+    training_result_view
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_viewer):
+    training_viewer
+    return
+
+
 @app.cell
 def _():
+    class NHTRenderConfig(NHTConfigBase):
+        """Typed native NHT render pipeline config."""
+
+        backend: NHTBackendName = "nht.3dgut"
+        ray_dir_scale: float | None = Field(default=None, gt=0.0)
+        center_ray_mode: bool = False
+
+        def build(
+            self,
+            context: ember.TrainingRunContext,
+            *,
+            shader: NHTShaderConfig,
+            mip_splatting_screen_filter: bool,
+        ) -> ember.RenderPipelineSpec:
+            """Build the runtime render pipeline spec."""
+            del context
+            ray_dir_scale = (
+                shader.ray_dir_scale()
+                if self.ray_dir_scale is None
+                else self.ray_dir_scale
+            )
+            return ember.RenderPipelineSpec(
+                backend=self.backend,
+                return_alpha=True,
+                return_depth=True,
+                feature_fn=ember.bound_callable(
+                    target="papers.nht.notebook.nht_feature_scene",
+                ),
+                postprocess_fn=ember.bound_callable(
+                    target="papers.nht.notebook.nht_decode_render",
+                ),
+                backend_options={
+                    "ray_dir_scale": ray_dir_scale,
+                    "center_ray_mode": self.center_ray_mode,
+                    "mip_splatting_screen_filter": mip_splatting_screen_filter,
+                },
+            )
+
+    return (NHTRenderConfig,)
+
+
+@app.cell
+def _():
+    class NHTMipSplatting3DFilterConfig(NHTConfigBase):
+        """Mip-Splatting 3D filter config."""
+
+        recompute_schedule: NHTScheduleConfig = Field(
+            default_factory=lambda: NHTScheduleConfig(
+                start_iteration=15_000,
+                end_iteration=29_899,
+                frequency=100,
+            )
+        )
+        near_plane: float | None = Field(default=0.2, gt=0.0)
+        filter_variance: float = Field(default=0.2, gt=0.0)
+        clipping_tolerance: float = Field(default=0.15, ge=0.0)
+
+        def build(
+            self, context: ember.TrainingRunContext
+        ) -> ember.CallableSpec:
+            """Build the runtime Mip-Splatting 3D filter spec."""
+            del context
+            return ember.bound_callable(
+                target="ember_splatting_training.GaussianMipSplatting3DFilter",
+                kwargs={
+                    "recompute_schedule": self.recompute_schedule.model_dump(
+                        mode="python"
+                    ),
+                    "near_plane": self.near_plane,
+                    "filter_variance": self.filter_variance,
+                    "clipping_tolerance": self.clipping_tolerance,
+                },
+            )
+
+    return (NHTMipSplatting3DFilterConfig,)
+
+
+@app.cell
+def _(NHTMipSplatting3DFilterConfig):
+    class NHTMipSplattingConfig(NHTConfigBase):
+        """Full Mip-Splatting controls for NHT."""
+
+        enabled: bool = False
+        screen_filter_enabled: bool = True
+        three_dimensional_filter: NHTMipSplatting3DFilterConfig = Field(
+            default_factory=NHTMipSplatting3DFilterConfig
+        )
+
+    return (NHTMipSplattingConfig,)
+
+
+@app.cell(column=2, hide_code=True)
+def _():
+    mo.md("""
+    # Configuration model
+    """)
+    return
+
+
+@app.cell
+def _(NHTExperimentConfig, nht_preset_catalog):
     nht_presets = nht_preset_catalog()
     config_gui = create_config_gui(
         NHTExperimentConfig,
@@ -69,18 +225,6 @@ def _(config_gui):
 def _(config_gui):
     current_config = config_gui.validated_config()
     return (current_config,)
-
-
-@app.cell(hide_code=True)
-def _(preset_selector):
-    preset_selector
-    return
-
-
-@app.cell(hide_code=True)
-def _(config_gui):
-    config_gui.stacked()
-    return
 
 
 @app.class_definition
@@ -111,9 +255,9 @@ class NHTDataConfig(NHTConfigBase):
     max_resized_image_caches: int = Field(default=4, ge=1)
     split_target: Literal["train", "val", "all"] = "train"
     split_every_n: int | None = Field(default=8, ge=1)
-    materialization_stage: Literal["none", "decoded", "prepared"] = "none"
-    materialization_mode: Literal["lazy", "eager"] = "lazy"
-    materialization_num_workers: int | None = 0
+    materialization_stage: Literal["none", "decoded", "prepared"] = "prepared"
+    materialization_mode: Literal["lazy", "eager"] = "eager"
+    materialization_num_workers: int | None = 8
     normalize_images: bool = True
     interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
 
@@ -153,6 +297,7 @@ class NHTShaderConfig(NHTConfigBase):
     view_encoding_degree: int = Field(default=3, ge=1)
     view_encoding_scale: float = Field(default=3.0, gt=0.0)
     view_encoding_frequencies: int = Field(default=4, ge=0)
+    jit_fusion: bool = True
 
     def ray_dir_scale(self) -> float:
         """Return the upstream ray scale implied by this shader config."""
@@ -177,44 +322,6 @@ class NHTModelConfig(NHTConfigBase):
     def build(self) -> ember.ModelSpec:
         """Build the runtime model spec."""
         return ember.ModelSpec(modules={"deferred_shader": self.shader.build()})
-
-
-@app.class_definition
-class NHTRenderConfig(NHTConfigBase):
-    """Typed native NHT render pipeline config."""
-
-    backend: NHTBackendName = "nht.3dgut"
-    ray_dir_scale: float | None = Field(default=None, gt=0.0)
-    center_ray_mode: bool = False
-
-    def build(
-        self,
-        context: ember.TrainingRunContext,
-        *,
-        shader: NHTShaderConfig,
-    ) -> ember.RenderPipelineSpec:
-        """Build the runtime render pipeline spec."""
-        del context
-        ray_dir_scale = (
-            shader.ray_dir_scale()
-            if self.ray_dir_scale is None
-            else self.ray_dir_scale
-        )
-        return ember.RenderPipelineSpec(
-            backend=self.backend,
-            return_alpha=True,
-            return_depth=True,
-            feature_fn=ember.bound_callable(
-                target="papers.nht.notebook.nht_feature_scene",
-            ),
-            postprocess_fn=ember.bound_callable(
-                target="papers.nht.notebook.nht_decode_render",
-            ),
-            backend_options={
-                "ray_dir_scale": ray_dir_scale,
-                "center_ray_mode": self.center_ray_mode,
-            },
-        )
 
 
 @app.class_definition
@@ -395,6 +502,15 @@ class NHTLossConfig(NHTConfigBase):
 
 
 @app.class_definition
+class NHTScheduleConfig(NHTConfigBase):
+    """Serializable step schedule config."""
+
+    start_iteration: int = Field(default=0, ge=0)
+    end_iteration: int = -1
+    frequency: int = Field(default=1, ge=1)
+
+
+@app.class_definition
 class NHTMCMCConfig(NHTConfigBase):
     """Typed NHT MCMC densification config."""
 
@@ -433,96 +549,129 @@ class NHTMCMCConfig(NHTConfigBase):
         )
 
 
-@app.class_definition
-class NHTTrainingConfig(NHTConfigBase):
-    """Typed user-facing NHT training config."""
+@app.cell
+def _(NHTMipSplattingConfig, NHTRenderConfig):
+    class NHTTrainingConfig(NHTConfigBase):
+        """Typed user-facing NHT training config."""
 
-    runtime: ember.RuntimeConfig = Field(default_factory=ember.RuntimeConfig)
-    profiler: TrainingProfilerConfig = Field(
-        default_factory=TrainingProfilerConfig
-    )
-    batching: ember.BatchingConfig = Field(default_factory=ember.BatchingConfig)
-    initialization: NHTInitializationConfig = Field(
-        default_factory=NHTInitializationConfig
-    )
-    model: NHTModelConfig = Field(default_factory=NHTModelConfig)
-    render: NHTRenderConfig = Field(default_factory=NHTRenderConfig)
-    optimization: NHTOptimizationConfig = Field(
-        default_factory=NHTOptimizationConfig
-    )
-    mcmc: NHTMCMCConfig = Field(default_factory=NHTMCMCConfig)
-    loss: NHTLossConfig = Field(default_factory=NHTLossConfig)
-    color_refine_steps: int = Field(default=3000, ge=0)
-    ema_enabled: bool = True
-    ema_decay: float = Field(default=0.95, ge=0.0, lt=1.0)
-    ema_start_step: int = Field(default=0, ge=0)
-    checkpoint: ember.CheckpointExportConfig = Field(
-        default_factory=ember.CheckpointExportConfig
-    )
-    viewer: ember_splatting.TrainingViewerConfig = Field(
-        default_factory=ember_splatting.TrainingViewerConfig
-    )
+        runtime: ember.RuntimeConfig = Field(
+            default_factory=ember.RuntimeConfig
+        )
+        profiler: TrainingProfilerConfig = Field(
+            default_factory=TrainingProfilerConfig
+        )
+        batching: ember.BatchingConfig = Field(
+            default_factory=ember.BatchingConfig
+        )
+        initialization: NHTInitializationConfig = Field(
+            default_factory=NHTInitializationConfig
+        )
+        model: NHTModelConfig = Field(default_factory=NHTModelConfig)
+        render: NHTRenderConfig = Field(default_factory=NHTRenderConfig)
+        mip_splatting: NHTMipSplattingConfig = Field(
+            default_factory=NHTMipSplattingConfig
+        )
+        optimization: NHTOptimizationConfig = Field(
+            default_factory=NHTOptimizationConfig
+        )
+        mcmc: NHTMCMCConfig = Field(default_factory=NHTMCMCConfig)
+        loss: NHTLossConfig = Field(default_factory=NHTLossConfig)
+        color_refine_steps: int = Field(default=3000, ge=0)
+        ema_enabled: bool = True
+        ema_decay: float = Field(default=0.95, ge=0.0, lt=1.0)
+        ema_start_step: int = Field(default=0, ge=0)
+        checkpoint: ember.CheckpointExportConfig = Field(
+            default_factory=ember.CheckpointExportConfig
+        )
+        viewer: ember_splatting.TrainingViewerConfig = Field(
+            default_factory=ember_splatting.TrainingViewerConfig
+        )
 
-    def to_training_config(
-        self,
-        frame_dataset: ember.PreparedFrameDataset | None = None,
-    ) -> ember.TrainingConfig:
-        """Materialize this typed config into Ember's runtime config."""
-        camera_extent = (
-            ember.compute_frame_camera_extent(frame_dataset)
-            if frame_dataset is not None
-            else 1.0
-        )
-        context = ember.TrainingRunContext(
-            frame_dataset=frame_dataset,
-            camera_extent=camera_extent,
-            max_steps=self.runtime.max_steps,
-            backend=self.render.backend,
-            device=torch.device(self.runtime.device),
-        )
-        color_refine_start = max(
-            self.runtime.max_steps - self.color_refine_steps,
-            0,
-        )
-        return ember.TrainingConfig(
-            runtime=self.runtime,
-            profiler=self.profiler,
-            batching=self.batching,
-            initialization=self.initialization.build(context),
-            model=self.model.build(),
-            render=self.render.build(context, shader=self.model.shader),
-            optimization=self.optimization.build(
-                context,
-                batch_size=self.batching.batch_size,
-            ),
-            densification=self.mcmc.build(context),
-            loss=self.loss.build(
-                context,
-                color_refine_start=color_refine_start,
-            ),
-            hooks=ember.hooks_config(
-                ember.bound_callable(
-                    target="papers.nht.notebook.NHTColorRefineAndEMAHook",
-                    kwargs={
-                        "color_refine_start": color_refine_start,
-                        "ema_enabled": self.ema_enabled,
-                        "ema_decay": self.ema_decay,
-                        "ema_start_step": self.ema_start_step,
-                    },
+        def to_training_config(
+            self,
+            frame_dataset: ember.PreparedFrameDataset | None = None,
+        ) -> ember.TrainingConfig:
+            """Materialize this typed config into Ember's runtime config."""
+            camera_extent = (
+                ember.compute_frame_camera_extent(frame_dataset)
+                if frame_dataset is not None
+                else 1.0
+            )
+            context = ember.TrainingRunContext(
+                frame_dataset=frame_dataset,
+                camera_extent=camera_extent,
+                max_steps=self.runtime.max_steps,
+                backend=self.render.backend,
+                device=torch.device(self.runtime.device),
+            )
+            color_refine_start = max(
+                self.runtime.max_steps - self.color_refine_steps,
+                0,
+            )
+            densification_builders = []
+            mcmc_config = self.mcmc.build(context)
+            if mcmc_config is not None:
+                densification_builders.extend(mcmc_config.builders)
+            if self.mip_splatting.enabled:
+                densification_builders.append(
+                    self.mip_splatting.three_dimensional_filter.build(context)
                 )
-            ),
-            checkpoint=self.checkpoint,
-        )
+            densification = (
+                ember.densification_config(*densification_builders)
+                if densification_builders
+                else None
+            )
+            return ember.TrainingConfig(
+                runtime=self.runtime,
+                profiler=self.profiler,
+                batching=self.batching,
+                initialization=self.initialization.build(context),
+                model=self.model.build(),
+                render=self.render.build(
+                    context,
+                    shader=self.model.shader,
+                    mip_splatting_screen_filter=(
+                        self.mip_splatting.enabled
+                        and self.mip_splatting.screen_filter_enabled
+                    ),
+                ),
+                optimization=self.optimization.build(
+                    context,
+                    batch_size=self.batching.batch_size,
+                ),
+                densification=densification,
+                loss=self.loss.build(
+                    context,
+                    color_refine_start=color_refine_start,
+                ),
+                hooks=ember.hooks_config(
+                    ember.bound_callable(
+                        target="papers.nht.notebook.NHTColorRefineAndEMAHook",
+                        kwargs={
+                            "color_refine_start": color_refine_start,
+                            "ema_enabled": self.ema_enabled,
+                            "ema_decay": self.ema_decay,
+                            "ema_start_step": self.ema_start_step,
+                        },
+                    )
+                ),
+                checkpoint=self.checkpoint,
+            )
+
+    return (NHTTrainingConfig,)
 
 
-@app.class_definition
-class NHTExperimentConfig(NHTConfigBase):
-    """Resolved experiment config."""
+@app.cell
+def _(NHTTrainingConfig):
+    class NHTExperimentConfig(NHTConfigBase):
+        """Resolved experiment config."""
 
-    preset: NHTDefaultName = "garden_nht"
-    scene: NHTSceneConfig = Field(default_factory=NHTSceneConfig)
-    data: NHTDataConfig = Field(default_factory=NHTDataConfig)
-    training: NHTTrainingConfig
+        preset: NHTDefaultName = "garden_nht"
+        scene: NHTSceneConfig = Field(default_factory=NHTSceneConfig)
+        data: NHTDataConfig = Field(default_factory=NHTDataConfig)
+        training: NHTTrainingConfig
+
+    return (NHTExperimentConfig,)
 
 
 @app.class_definition
@@ -560,6 +709,7 @@ class NHTDeferredShader(nn.Module):
         view_encoding_degree: int = 3,
         view_encoding_scale: float = 3.0,
         view_encoding_frequencies: int = 4,
+        jit_fusion: bool = False,
     ) -> None:
         super().__init__()
         if feature_dim % 4 != 0:
@@ -618,7 +768,9 @@ class NHTDeferredShader(nn.Module):
                 network_config=network_config,
             )
         if hasattr(tcnn, "supports_jit_fusion"):
-            self.network.jit_fusion = bool(tcnn.supports_jit_fusion())
+            self.network.jit_fusion = bool(
+                jit_fusion and tcnn.supports_jit_fusion()
+            )
         self.register_buffer(
             "_nht_ema_ready",
             torch.tensor(False, dtype=torch.bool),
@@ -790,27 +942,30 @@ class NHTGaussianMCMC(ember_splatting.GaussianMCMC):
         super()._append_new(scene)
 
 
-@app.function
-def nht_preset_catalog() -> ConfigPresetCatalog[NHTExperimentConfig]:
-    """Return the notebook's named JSON preset catalog."""
-    return ConfigPresetCatalog(
-        model_cls=NHTExperimentConfig,
-        presets={
-            "garden_nht": ConfigPreset(
-                name="garden_nht",
-                path=DEFAULTS_DIR / "garden_nht.json",
-                label="Garden NHT",
-                base_dir=REPO_ROOT,
-            ),
-            "garden_debug_val": ConfigPreset(
-                name="garden_debug_val",
-                path=DEFAULTS_DIR / "garden_debug_val.json",
-                label="Garden debug validation",
-                base_dir=REPO_ROOT,
-            ),
-        },
-        default="garden_nht",
-    )
+@app.cell
+def _(NHTExperimentConfig):
+    def nht_preset_catalog() -> ConfigPresetCatalog[NHTExperimentConfig]:
+        """Return the notebook's named JSON preset catalog."""
+        return ConfigPresetCatalog(
+            model_cls=NHTExperimentConfig,
+            presets={
+                "garden_nht": ConfigPreset(
+                    name="garden_nht",
+                    path=DEFAULTS_DIR / "garden_nht.json",
+                    label="Garden NHT",
+                    base_dir=REPO_ROOT,
+                ),
+                "garden_debug_val": ConfigPreset(
+                    name="garden_debug_val",
+                    path=DEFAULTS_DIR / "garden_debug_val.json",
+                    label="Garden debug validation",
+                    base_dir=REPO_ROOT,
+                ),
+            },
+            default="garden_nht",
+        )
+
+    return (nht_preset_catalog,)
 
 
 @app.function
@@ -842,11 +997,16 @@ def initialize_nht_model_from_scene_record(
     feature.uniform_(features_init_min, features_init_max)
     return ember.InitializedModel(
         scene=ember.GaussianScene3D(
-            center_position=centers.requires_grad_(True),
-            log_scales=log_scales.requires_grad_(True),
-            quaternion_orientation=quaternion_orientation.requires_grad_(True),
-            logit_opacity=torch.logit(opacity).requires_grad_(True),
-            feature=feature.requires_grad_(True),
+            center_position=centers.detach().clone().requires_grad_(True),
+            log_scales=log_scales.detach().clone().requires_grad_(True),
+            quaternion_orientation=quaternion_orientation.detach()
+            .clone()
+            .requires_grad_(True),
+            logit_opacity=torch.logit(opacity)
+            .detach()
+            .clone()
+            .requires_grad_(True),
+            feature=feature.detach().clone().requires_grad_(True),
             sh_degree=0,
         ),
         modules=dict(modules or {}),
@@ -960,10 +1120,12 @@ def nht_rgb_l1_dssim_loss(
     lambda_scale_regularization: float = 0.0,
     ssim_backend: str = "cuda",
     color_refine_start: int = 0,
+    weights: dict[str, float] | None = None,
 ) -> LossResult:
     """NHT RGB reconstruction loss with optional Gaussian regularizers."""
-    prediction = render_output.render
-    target = batch.images
+    del weights
+    prediction = render_output.render.to(torch.float32)
+    target = batch.images.to(torch.float32)
     if prediction.shape != target.shape:
         raise ValueError(
             "NHT reconstruction loss expects render and target images to "
@@ -1000,6 +1162,46 @@ def nht_rgb_l1_dssim_loss(
             "l1": float(l1_loss.detach().item()),
             "ssim_loss": float(ssim_loss.detach().item()),
         },
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Training setup
+    """)
+    return
+
+
+@app.cell
+def _():
+    prepare_button = mo.ui.run_button(
+        label="Prepare training viewer",
+        full_width=True,
+    )
+    train_button = mo.ui.run_button(
+        label="Start training",
+        full_width=True,
+    )
+    stop_button = mo.ui.run_button(
+        label="Stop training",
+        full_width=True,
+    )
+    training_status_refresh = mo.ui.refresh(
+        options=["1s"],
+        default_interval="1s",
+        label="Training status",
+    )
+    training_controls = mo.vstack(
+        [prepare_button, train_button, stop_button, training_status_refresh],
+        gap=0.5,
+    )
+    return (
+        prepare_button,
+        stop_button,
+        train_button,
+        training_controls,
+        training_status_refresh,
     )
 
 
@@ -1041,7 +1243,802 @@ def default_checkpoint_dir(
     return DEFAULT_CHECKPOINT_ROOT / preset / backend
 
 
+@app.cell
+def _(NHTExperimentConfig):
+    def resolve_training_config(
+        config: NHTExperimentConfig,
+        frame_dataset: ember.PreparedFrameDataset | None = None,
+    ) -> ember.TrainingConfig:
+        """Apply paper notebook runtime defaults to native Ember training config."""
+        checkpoint = config.training.checkpoint.model_copy(
+            update={
+                "output_dir": default_checkpoint_dir(
+                    config.preset,
+                    config.training.render.backend,
+                )
+            }
+        )
+        training = config.training.model_copy(update={"checkpoint": checkpoint})
+        return training.to_training_config(frame_dataset)
+
+    return (resolve_training_config,)
+
+
 @app.function
+def format_duration(seconds: float) -> str:
+    """Format a short ETA duration."""
+    total_seconds = max(0, round(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours:d}h {minutes:02d}m"
+    if minutes > 0:
+        return f"{minutes:d}m {seconds:02d}s"
+    return f"{seconds:d}s"
+
+
+@app.cell
+def _(NHTExperimentConfig):
+    def nht_should_show_jit_compile_notice(
+        config: NHTExperimentConfig,
+        snapshot: Any,
+        *,
+        is_script_mode: bool,
+    ) -> bool:
+        """Return whether the NHT notebook is likely waiting on first JIT compile."""
+        return (
+            not is_script_mode
+            and config.training.model.shader.jit_fusion
+            and snapshot.status == "running"
+            and snapshot.step == 0
+            and not snapshot.latest_metrics
+        )
+
+    return (nht_should_show_jit_compile_notice,)
+
+
+@app.cell
+def _(NHTExperimentConfig):
+    def resolved_nht_scene_path(config: NHTExperimentConfig) -> Path:
+        """Resolve the configured scene path without substituting sample scenes."""
+        return config.scene.path.expanduser()
+
+    return (resolved_nht_scene_path,)
+
+
+@app.cell
+def _(NHTExperimentConfig):
+    def nht_resized_cache_enabled(config: NHTExperimentConfig) -> bool:
+        """Return whether NHT should use a derived resized image cache."""
+        return (
+            config.data.cache_resized_images
+            and config.data.image_scale_factor != 1.0
+        )
+
+    return (nht_resized_cache_enabled,)
+
+
+@app.cell
+def _(NHTExperimentConfig, resolved_nht_scene_path):
+    def nht_source_image_root(config: NHTExperimentConfig) -> Path:
+        """Return the full-resolution source image root."""
+        if config.scene.image_root is not None:
+            return config.scene.image_root.expanduser()
+        return resolved_nht_scene_path(config) / "images"
+
+    return (nht_source_image_root,)
+
+
+@app.cell
+def _(NHTExperimentConfig, resolved_nht_scene_path):
+    def nht_resized_cache_parent(config: NHTExperimentConfig) -> Path:
+        """Return the reusable derived image cache parent for the scene."""
+        if config.data.resized_image_cache_root is not None:
+            return config.data.resized_image_cache_root.expanduser()
+        return (
+            resolved_nht_scene_path(config) / "ember_cache" / "resized_images"
+        )
+
+    return (nht_resized_cache_parent,)
+
+
+@app.cell
+def _(NHTExperimentConfig, nht_resized_cache_parent):
+    def nht_resized_cache_root(config: NHTExperimentConfig) -> Path:
+        """Return the derived resized image cache root for this config."""
+        scale_name = f"{config.data.image_scale_factor:.6f}".rstrip("0").rstrip(
+            "."
+        )
+        scale_name = scale_name.replace(".", "p")
+        return nht_resized_cache_parent(config) / (
+            f"scale_{scale_name}_{config.data.interpolation}"
+        )
+
+    return (nht_resized_cache_root,)
+
+
+@app.function
+def nht_pillow_resampling(interpolation: str) -> Any:
+    """Translate notebook interpolation names to Pillow resampling filters."""
+    from PIL import Image
+
+    if interpolation == "nearest":
+        return Image.Resampling.NEAREST
+    if interpolation == "bilinear":
+        return Image.Resampling.BILINEAR
+    if interpolation == "bicubic":
+        return Image.Resampling.BICUBIC
+    raise ValueError(f"Unsupported interpolation mode {interpolation!r}.")
+
+
+@app.function
+def enforce_nht_resized_cache_limit(
+    *,
+    cache_root: Path,
+    max_caches: int,
+) -> None:
+    """Keep only a bounded number of reusable resized image caches."""
+    parent = cache_root.parent
+    if not parent.exists():
+        return
+    cache_dirs = [
+        path
+        for path in parent.iterdir()
+        if path.is_dir() and path.name.startswith("scale_")
+    ]
+    overflow = len(cache_dirs) - max_caches
+    if overflow <= 0:
+        return
+    evictable = sorted(
+        (path for path in cache_dirs if path != cache_root),
+        key=lambda path: path.stat().st_mtime,
+    )
+    for stale_cache in evictable[:overflow]:
+        shutil.rmtree(stale_cache)
+
+
+@app.function
+def materialize_nht_resized_image_cache(
+    *,
+    source_root: Path,
+    cache_root: Path,
+    scale: float,
+    interpolation: str,
+    max_caches: int,
+) -> Path:
+    """Create/update a derived resized image cache from full-res images."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from PIL import Image
+    from tqdm.auto import tqdm
+
+    image_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    source_paths = sorted(
+        path
+        for path in source_root.rglob("*")
+        if path.is_file() and path.suffix.lower() in image_suffixes
+    )
+    if not source_paths:
+        raise ValueError(f"No source images found under {source_root}.")
+    resampling = nht_pillow_resampling(interpolation)
+    enforce_nht_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    def resize_one(source_path: Path) -> None:
+        relative_path = source_path.relative_to(source_root)
+        target_path = cache_root / relative_path
+        if (
+            target_path.exists()
+            and target_path.stat().st_mtime >= source_path.stat().st_mtime
+        ):
+            return
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(source_path) as image:
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            resized_size = (
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
+            )
+            resized = rgb.resize(resized_size, resampling)
+            save_kwargs = (
+                {"quality": 95}
+                if target_path.suffix.lower() in {".jpg", ".jpeg"}
+                else {}
+            )
+            resized.save(target_path, **save_kwargs)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(resize_one, path) for path in source_paths]
+        for future in tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Preparing resized image cache",
+        ):
+            future.result()
+    (cache_root / "cache_metadata.json").write_text(
+        json.dumps(
+            {
+                "source_root": str(source_root),
+                "scale": scale,
+                "interpolation": interpolation,
+                "num_images": len(source_paths),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    cache_root.touch()
+    enforce_nht_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    return cache_root
+
+
+@app.cell
+def _(
+    NHTExperimentConfig,
+    nht_resized_cache_enabled,
+    nht_resized_cache_root,
+    nht_source_image_root,
+    resolved_nht_scene_path,
+):
+    def nht_scene_load_config(
+        config: NHTExperimentConfig,
+    ) -> ember.ColmapSceneConfig:
+        """Build the configured scene-record loader."""
+        source_pipes = (
+            (ember.HorizonAlignPipeConfig(),)
+            if config.scene.align_horizon
+            else ()
+        )
+        scene_path = resolved_nht_scene_path(config)
+        image_root = (
+            materialize_nht_resized_image_cache(
+                source_root=nht_source_image_root(config),
+                cache_root=nht_resized_cache_root(config),
+                scale=config.data.image_scale_factor,
+                interpolation=config.data.interpolation,
+                max_caches=config.data.max_resized_image_caches,
+            )
+            if nht_resized_cache_enabled(config)
+            else (
+                config.scene.image_root.expanduser()
+                if config.scene.image_root is not None
+                else None
+            )
+        )
+        return ember.ColmapSceneConfig(
+            path=scene_path,
+            image_root=image_root,
+            undistort_output_dir=config.scene.undistort_output_dir,
+            source_pipes=source_pipes,
+        )
+
+    return (nht_scene_load_config,)
+
+
+@app.cell
+def _(NHTExperimentConfig, nht_scene_load_config):
+    def nht_load_scene_record(config: NHTExperimentConfig) -> ember.SceneRecord:
+        """Load the configured scene record."""
+        return ember.load_scene_record(
+            nht_scene_load_config(config),
+        )
+
+    return (nht_load_scene_record,)
+
+
+@app.cell
+def _(NHTExperimentConfig, nht_resized_cache_enabled):
+    def nht_prepared_frame_dataset_config(
+        config: NHTExperimentConfig,
+    ) -> ember.PreparedFrameDatasetConfig:
+        """Build the configured prepared-frame dataset options."""
+        return ember.PreparedFrameDatasetConfig(
+            camera_sensor_id=config.data.camera_sensor_id,
+            split=ember.SplitConfig(
+                target=config.data.split_target,
+                every_n=(
+                    None
+                    if config.data.split_target == "all"
+                    else config.data.split_every_n
+                ),
+                train_ratio=None,
+            ),
+            materialization=ember.MaterializationConfig(
+                stage=config.data.materialization_stage,
+                mode=config.data.materialization_mode,
+                num_workers=config.data.materialization_num_workers,
+            ),
+            image_preparation=ember.ImagePreparationConfig(
+                resize_width_scale=(
+                    None
+                    if nht_resized_cache_enabled(config)
+                    else config.data.image_scale_factor
+                ),
+                normalize=config.data.normalize_images,
+                interpolation=config.data.interpolation,
+            ),
+        )
+
+    return (nht_prepared_frame_dataset_config,)
+
+
+@app.cell
+def _(NHTExperimentConfig, nht_prepared_frame_dataset_config):
+    def nht_prepare_frame_dataset(
+        config: NHTExperimentConfig,
+        scene_record: ember.SceneRecord,
+    ) -> ember.PreparedFrameDataset:
+        """Prepare the configured frame dataset."""
+        return ember.prepare_frame_dataset(
+            scene_record,
+            config=nht_prepared_frame_dataset_config(config),
+        )
+
+    return (nht_prepare_frame_dataset,)
+
+
+@app.cell
+def _(NHTExperimentConfig, resolve_training_config):
+    def run_nht_training(
+        config: NHTExperimentConfig,
+        frame_dataset: ember.PreparedFrameDataset,
+        training_config: ember.TrainingConfig | None = None,
+    ) -> ember.TrainingResult:
+        """Run NHT training from a prepared frame dataset."""
+        resolved_training_config = training_config or resolve_training_config(
+            config,
+            frame_dataset,
+        )
+        return ember.run_training(frame_dataset, resolved_training_config)
+
+    return (run_nht_training,)
+
+
+@app.cell
+def _():
+    is_script_mode = mo.running_in_notebook() is False
+    return (is_script_mode,)
+
+
+@app.cell
+def _(current_config, is_script_mode, nht_load_scene_record, prepare_button):
+    should_prepare = is_script_mode or bool(prepare_button.value)
+    scene_record = (
+        nht_load_scene_record(current_config)
+        if should_prepare and current_config is not None
+        else None
+    )
+    return (scene_record,)
+
+
+@app.cell
+def _(current_config, nht_prepare_frame_dataset, scene_record):
+    frame_dataset = (
+        nht_prepare_frame_dataset(current_config, scene_record)
+        if scene_record is not None and current_config is not None
+        else None
+    )
+    return (frame_dataset,)
+
+
+@app.cell
+def _(current_config, frame_dataset, is_script_mode, resolve_training_config):
+    training_config = (
+        resolve_training_config(current_config, frame_dataset)
+        if current_config is not None and frame_dataset is not None
+        else None
+    )
+    viewer_config = (
+        current_config.training.viewer
+        if current_config is not None
+        else ember_splatting.TrainingViewerConfig()
+    )
+    resolved_training_config = training_config if is_script_mode else None
+    return resolved_training_config, training_config, viewer_config
+
+
+@app.cell
+def _(
+    current_config,
+    frame_dataset,
+    is_script_mode,
+    training_config,
+    viewer_config,
+):
+    training_viewer_handle = (
+        ember_splatting.create_training_viewer(
+            frame_dataset,
+            training_config,
+            config=viewer_config,
+            title="NHT training viewer",
+        )
+        if not is_script_mode
+        and current_config is not None
+        and frame_dataset is not None
+        and training_config is not None
+        else None
+    )
+    return (training_viewer_handle,)
+
+
+@app.cell
+def _(training_viewer_handle):
+    training_viewer = (
+        None
+        if training_viewer_handle is None
+        else training_viewer_handle.viewer
+    )
+    return (training_viewer,)
+
+
+@app.cell
+def _(
+    current_config,
+    frame_dataset,
+    is_script_mode,
+    run_nht_training,
+    train_button,
+    training_config,
+    training_viewer_handle,
+):
+    should_train = bool(train_button.value)
+    if (
+        is_script_mode
+        and current_config is not None
+        and frame_dataset is not None
+        and training_config is not None
+    ):
+        training_result = run_nht_training(
+            current_config,
+            frame_dataset,
+            training_config,
+        )
+    else:
+        training_result = None
+        if (
+            should_train
+            and frame_dataset is not None
+            and training_config is not None
+            and training_viewer_handle is not None
+        ):
+            training_viewer_handle.start_training(
+                frame_dataset,
+                training_config,
+            )
+    return (training_result,)
+
+
+@app.cell
+def _(stop_button, training_viewer_handle):
+    should_stop = bool(stop_button.value)
+    if should_stop and training_viewer_handle is not None:
+        training_viewer_handle.request_stop()
+    return
+
+
+@app.cell
+def _(
+    current_config,
+    is_script_mode,
+    nht_should_show_jit_compile_notice,
+    training_result,
+    training_status_refresh,
+    training_viewer_handle,
+):
+    _ = training_status_refresh.value
+    if training_result is not None:
+        training_result_view = mo.md(
+            f"Checkpoint: `{training_result.checkpoint_dir}`\n\n"
+            f"Steps: `{len(training_result.history)}`"
+        )
+    elif training_viewer_handle is None:
+        training_result_view = mo.md("Prepare the training viewer first.")
+    else:
+        snapshot = training_viewer_handle.snapshot()
+        if snapshot.status == "idle":
+            training_result_view = mo.md("Training has not started.")
+        elif nht_should_show_jit_compile_notice(
+            current_config,
+            snapshot,
+            is_script_mode=is_script_mode,
+        ):
+            training_result_view = mo.callout(
+                "NHT shader JIT compilation is likely running. The first "
+                "training step can take a while; progress and metrics will "
+                "appear after compilation finishes.",
+                kind="warn",
+            )
+        elif snapshot.status in {"running", "stopping"}:
+            step_text = (
+                f"{snapshot.step} / {snapshot.max_steps}"
+                if snapshot.max_steps is not None
+                else str(snapshot.step)
+            )
+            metric_parts = [
+                f"{name}={value:.6g}"
+                for name, value in sorted(snapshot.latest_metrics.items())
+            ]
+            if snapshot.primitive_count is not None:
+                metric_parts.append(f"primitives={snapshot.primitive_count:,}")
+            if snapshot.iterations_per_second is not None:
+                metric_parts.append(
+                    f"it/s={snapshot.iterations_per_second:.2f}"
+                )
+            metric_text = " | ".join(metric_parts)
+            status_text = (
+                "Stopping" if snapshot.status == "stopping" else "Training"
+            )
+            speed_text = (
+                f"{snapshot.iterations_per_second:.2f} it/s"
+                if snapshot.iterations_per_second is not None
+                else "-- it/s"
+            )
+            elapsed_text = (
+                f"elapsed {format_duration(snapshot.elapsed_seconds)}"
+                if snapshot.elapsed_seconds is not None
+                else "elapsed --"
+            )
+            eta_text = (
+                f"ETA {format_duration(snapshot.eta_seconds)}"
+                if snapshot.eta_seconds is not None
+                else "ETA --"
+            )
+            training_result_view = mo.md(
+                f"{status_text}: `{step_text}` {speed_text} "
+                f"{elapsed_text} {eta_text}"
+                + (f"\n\n{metric_text}" if metric_text else "")
+            )
+        elif snapshot.status == "cancelled":
+            training_result_view = mo.md(
+                f"Training cancelled at step `{snapshot.step}`."
+            )
+        elif snapshot.status == "failed":
+            training_result_view = mo.callout(
+                f"Training failed.\n\n```text\n{snapshot.error_text or ''}\n```",
+                kind="danger",
+            )
+        else:
+            assert snapshot.result is not None
+            training_result_view = mo.md(
+                f"Checkpoint: `{snapshot.result.checkpoint_dir}`\n\n"
+                f"Steps: `{len(snapshot.result.history)}`"
+            )
+    return (training_result_view,)
+
+
+@app.cell(hide_code=True)
+def _(resolved_training_config):
+    mo.ui.code_editor(
+        value=json.dumps(
+            resolved_training_config.model_dump(mode="json"), indent=2
+        ),
+        language="json",
+        disabled=True,
+    )
+    return
+
+
+class NHTRenderConfig(NHTConfigBase):
+    """Typed native NHT render pipeline config."""
+
+    backend: NHTBackendName = "nht.3dgut"
+    ray_dir_scale: float | None = Field(default=None, gt=0.0)
+    center_ray_mode: bool = False
+
+    def build(
+        self,
+        context: ember.TrainingRunContext,
+        *,
+        shader: NHTShaderConfig,
+        mip_splatting_screen_filter: bool,
+    ) -> ember.RenderPipelineSpec:
+        """Build the runtime render pipeline spec."""
+        del context
+        ray_dir_scale = (
+            shader.ray_dir_scale()
+            if self.ray_dir_scale is None
+            else self.ray_dir_scale
+        )
+        return ember.RenderPipelineSpec(
+            backend=self.backend,
+            return_alpha=True,
+            return_depth=True,
+            feature_fn=ember.bound_callable(
+                target="papers.nht.notebook.nht_feature_scene",
+            ),
+            postprocess_fn=ember.bound_callable(
+                target="papers.nht.notebook.nht_decode_render",
+            ),
+            backend_options={
+                "ray_dir_scale": ray_dir_scale,
+                "center_ray_mode": self.center_ray_mode,
+                "mip_splatting_screen_filter": mip_splatting_screen_filter,
+            },
+        )
+
+
+class NHTMipSplatting3DFilterConfig(NHTConfigBase):
+    """Mip-Splatting 3D filter config."""
+
+    recompute_schedule: NHTScheduleConfig = Field(
+        default_factory=lambda: NHTScheduleConfig(
+            start_iteration=15_000,
+            end_iteration=29_899,
+            frequency=100,
+        )
+    )
+    near_plane: float | None = Field(default=0.2, gt=0.0)
+    filter_variance: float = Field(default=0.2, gt=0.0)
+    clipping_tolerance: float = Field(default=0.15, ge=0.0)
+
+    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
+        """Build the runtime Mip-Splatting 3D filter spec."""
+        del context
+        return ember.bound_callable(
+            target="ember_splatting_training.GaussianMipSplatting3DFilter",
+            kwargs={
+                "recompute_schedule": self.recompute_schedule.model_dump(
+                    mode="python"
+                ),
+                "near_plane": self.near_plane,
+                "filter_variance": self.filter_variance,
+                "clipping_tolerance": self.clipping_tolerance,
+            },
+        )
+
+
+class NHTMipSplattingConfig(NHTConfigBase):
+    """Full Mip-Splatting controls for NHT."""
+
+    enabled: bool = False
+    screen_filter_enabled: bool = True
+    three_dimensional_filter: NHTMipSplatting3DFilterConfig = Field(
+        default_factory=NHTMipSplatting3DFilterConfig
+    )
+
+
+class NHTTrainingConfig(NHTConfigBase):
+    """Typed user-facing NHT training config."""
+
+    runtime: ember.RuntimeConfig = Field(default_factory=ember.RuntimeConfig)
+    profiler: TrainingProfilerConfig = Field(
+        default_factory=TrainingProfilerConfig
+    )
+    batching: ember.BatchingConfig = Field(default_factory=ember.BatchingConfig)
+    initialization: NHTInitializationConfig = Field(
+        default_factory=NHTInitializationConfig
+    )
+    model: NHTModelConfig = Field(default_factory=NHTModelConfig)
+    render: NHTRenderConfig = Field(default_factory=NHTRenderConfig)
+    mip_splatting: NHTMipSplattingConfig = Field(
+        default_factory=NHTMipSplattingConfig
+    )
+    optimization: NHTOptimizationConfig = Field(
+        default_factory=NHTOptimizationConfig
+    )
+    mcmc: NHTMCMCConfig = Field(default_factory=NHTMCMCConfig)
+    loss: NHTLossConfig = Field(default_factory=NHTLossConfig)
+    color_refine_steps: int = Field(default=3000, ge=0)
+    ema_enabled: bool = True
+    ema_decay: float = Field(default=0.95, ge=0.0, lt=1.0)
+    ema_start_step: int = Field(default=0, ge=0)
+    checkpoint: ember.CheckpointExportConfig = Field(
+        default_factory=ember.CheckpointExportConfig
+    )
+    viewer: ember_splatting.TrainingViewerConfig = Field(
+        default_factory=ember_splatting.TrainingViewerConfig
+    )
+
+    def to_training_config(
+        self,
+        frame_dataset: ember.PreparedFrameDataset | None = None,
+    ) -> ember.TrainingConfig:
+        """Materialize this typed config into Ember's runtime config."""
+        camera_extent = (
+            ember.compute_frame_camera_extent(frame_dataset)
+            if frame_dataset is not None
+            else 1.0
+        )
+        context = ember.TrainingRunContext(
+            frame_dataset=frame_dataset,
+            camera_extent=camera_extent,
+            max_steps=self.runtime.max_steps,
+            backend=self.render.backend,
+            device=torch.device(self.runtime.device),
+        )
+        color_refine_start = max(
+            self.runtime.max_steps - self.color_refine_steps,
+            0,
+        )
+        densification_builders = []
+        mcmc_config = self.mcmc.build(context)
+        if mcmc_config is not None:
+            densification_builders.extend(mcmc_config.builders)
+        if self.mip_splatting.enabled:
+            densification_builders.append(
+                self.mip_splatting.three_dimensional_filter.build(context)
+            )
+        densification = (
+            ember.densification_config(*densification_builders)
+            if densification_builders
+            else None
+        )
+        return ember.TrainingConfig(
+            runtime=self.runtime,
+            profiler=self.profiler,
+            batching=self.batching,
+            initialization=self.initialization.build(context),
+            model=self.model.build(),
+            render=self.render.build(
+                context,
+                shader=self.model.shader,
+                mip_splatting_screen_filter=(
+                    self.mip_splatting.enabled
+                    and self.mip_splatting.screen_filter_enabled
+                ),
+            ),
+            optimization=self.optimization.build(
+                context,
+                batch_size=self.batching.batch_size,
+            ),
+            densification=densification,
+            loss=self.loss.build(
+                context,
+                color_refine_start=color_refine_start,
+            ),
+            hooks=ember.hooks_config(
+                ember.bound_callable(
+                    target="papers.nht.notebook.NHTColorRefineAndEMAHook",
+                    kwargs={
+                        "color_refine_start": color_refine_start,
+                        "ema_enabled": self.ema_enabled,
+                        "ema_decay": self.ema_decay,
+                        "ema_start_step": self.ema_start_step,
+                    },
+                )
+            ),
+            checkpoint=self.checkpoint,
+        )
+
+
+class NHTExperimentConfig(NHTConfigBase):
+    """Resolved experiment config."""
+
+    preset: NHTDefaultName = "garden_nht"
+    scene: NHTSceneConfig = Field(default_factory=NHTSceneConfig)
+    data: NHTDataConfig = Field(default_factory=NHTDataConfig)
+    training: NHTTrainingConfig
+
+
+def nht_preset_catalog() -> ConfigPresetCatalog[NHTExperimentConfig]:
+    """Return the notebook's named JSON preset catalog."""
+    return ConfigPresetCatalog(
+        model_cls=NHTExperimentConfig,
+        presets={
+            "garden_nht": ConfigPreset(
+                name="garden_nht",
+                path=DEFAULTS_DIR / "garden_nht.json",
+                label="Garden NHT",
+                base_dir=REPO_ROOT,
+            ),
+            "garden_debug_val": ConfigPreset(
+                name="garden_debug_val",
+                path=DEFAULTS_DIR / "garden_debug_val.json",
+                label="Garden debug validation",
+                base_dir=REPO_ROOT,
+            ),
+        },
+        default="garden_nht",
+    )
+
+
 def resolve_training_config(
     config: NHTExperimentConfig,
     frame_dataset: ember.PreparedFrameDataset | None = None,
@@ -1059,73 +2056,119 @@ def resolve_training_config(
     return training.to_training_config(frame_dataset)
 
 
-@app.function
-def nht_load_scene_record(config: NHTExperimentConfig) -> ember.SceneRecord:
-    """Load the configured scene record."""
-    return ember.load_scene_record(
-        config.scene.path,
-        image_root=config.scene.image_root,
-        undistort_output_dir=config.scene.undistort_output_dir,
-        align_horizon=config.scene.align_horizon,
+def nht_should_show_jit_compile_notice(
+    config: NHTExperimentConfig,
+    snapshot: Any,
+    *,
+    is_script_mode: bool,
+) -> bool:
+    """Return whether the NHT notebook is likely waiting on first JIT compile."""
+    return (
+        not is_script_mode
+        and config.training.model.shader.jit_fusion
+        and snapshot.status == "running"
+        and snapshot.step == 0
+        and not snapshot.latest_metrics
     )
 
 
-@app.function
-def nht_prepare_frame_dataset(
+def resolved_nht_scene_path(config: NHTExperimentConfig) -> Path:
+    """Resolve the configured scene path without substituting sample scenes."""
+    return config.scene.path.expanduser()
+
+
+def nht_resized_cache_enabled(config: NHTExperimentConfig) -> bool:
+    """Return whether NHT should use a derived resized image cache."""
+    return (
+        config.data.cache_resized_images
+        and config.data.image_scale_factor != 1.0
+    )
+
+
+def nht_source_image_root(config: NHTExperimentConfig) -> Path:
+    """Return the full-resolution source image root."""
+    if config.scene.image_root is not None:
+        return config.scene.image_root.expanduser()
+    return resolved_nht_scene_path(config) / "images"
+
+
+def nht_resized_cache_parent(config: NHTExperimentConfig) -> Path:
+    """Return the reusable derived image cache parent for the scene."""
+    if config.data.resized_image_cache_root is not None:
+        return config.data.resized_image_cache_root.expanduser()
+    return resolved_nht_scene_path(config) / "ember_cache" / "resized_images"
+
+
+def nht_resized_cache_root(config: NHTExperimentConfig) -> Path:
+    """Return the derived resized image cache root for this config."""
+    scale_name = f"{config.data.image_scale_factor:.6f}".rstrip("0").rstrip(".")
+    scale_name = scale_name.replace(".", "p")
+    return nht_resized_cache_parent(config) / (
+        f"scale_{scale_name}_{config.data.interpolation}"
+    )
+
+
+def nht_scene_load_config(
     config: NHTExperimentConfig,
-    scene_record: ember.SceneRecord,
-) -> ember.PreparedFrameDataset:
-    """Prepare the configured frame dataset."""
-    return ember.prepare_frame_dataset(
-        scene_record,
+) -> ember.ColmapSceneConfig:
+    """Build the configured scene-record loader."""
+    source_pipes = (
+        (ember.HorizonAlignPipeConfig(),) if config.scene.align_horizon else ()
+    )
+    scene_path = resolved_nht_scene_path(config)
+    image_root = (
+        materialize_nht_resized_image_cache(
+            source_root=nht_source_image_root(config),
+            cache_root=nht_resized_cache_root(config),
+            scale=config.data.image_scale_factor,
+            interpolation=config.data.interpolation,
+            max_caches=config.data.max_resized_image_caches,
+        )
+        if nht_resized_cache_enabled(config)
+        else (
+            config.scene.image_root.expanduser()
+            if config.scene.image_root is not None
+            else None
+        )
+    )
+    return ember.ColmapSceneConfig(
+        path=scene_path,
+        image_root=image_root,
+        undistort_output_dir=config.scene.undistort_output_dir,
+        source_pipes=source_pipes,
+    )
+
+
+def nht_prepared_frame_dataset_config(
+    config: NHTExperimentConfig,
+) -> ember.PreparedFrameDatasetConfig:
+    """Build the configured prepared-frame dataset options."""
+    return ember.PreparedFrameDatasetConfig(
         camera_sensor_id=config.data.camera_sensor_id,
-        image_scale_factor=config.data.image_scale_factor,
-        cache_resized_images=config.data.cache_resized_images,
-        resized_image_cache_root=config.data.resized_image_cache_root,
-        max_resized_image_caches=config.data.max_resized_image_caches,
         split=ember.SplitConfig(
             target=config.data.split_target,
-            every_n=config.data.split_every_n,
+            every_n=(
+                None
+                if config.data.split_target == "all"
+                else config.data.split_every_n
+            ),
             train_ratio=None,
         ),
-        materialization_stage=config.data.materialization_stage,
-        materialization_mode=config.data.materialization_mode,
-        materialization_num_workers=config.data.materialization_num_workers,
-        normalize_images=config.data.normalize_images,
-        interpolation=config.data.interpolation,
-    )
-
-
-@app.function
-def run_nht_training(
-    config: NHTExperimentConfig,
-    frame_dataset: ember.PreparedFrameDataset,
-    training_config: ember.TrainingConfig | None = None,
-) -> ember.TrainingResult:
-    """Run NHT training from a prepared frame dataset."""
-    resolved_training_config = training_config or resolve_training_config(
-        config,
-        frame_dataset,
-    )
-    return ember.run_training(frame_dataset, resolved_training_config)
-
-
-@app.cell
-def _(current_config):
-    resolved_training_config = resolve_training_config(current_config)
-    return (resolved_training_config,)
-
-
-@app.cell(hide_code=True)
-def _(resolved_training_config):
-    mo.ui.code_editor(
-        value=json.dumps(
-            resolved_training_config.model_dump(mode="json"), indent=2
+        materialization=ember.MaterializationConfig(
+            stage=config.data.materialization_stage,
+            mode=config.data.materialization_mode,
+            num_workers=config.data.materialization_num_workers,
         ),
-        language="json",
-        disabled=True,
+        image_preparation=ember.ImagePreparationConfig(
+            resize_width_scale=(
+                None
+                if nht_resized_cache_enabled(config)
+                else config.data.image_scale_factor
+            ),
+            normalize=config.data.normalize_images,
+            interpolation=config.data.interpolation,
+        ),
     )
-    return
 
 
 if __name__ == "__main__":

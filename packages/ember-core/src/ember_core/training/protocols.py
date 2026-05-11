@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 import torch
@@ -65,6 +66,25 @@ class TrainingResult:
 
 
 @dataclass(frozen=True)
+class TrainingHookBindContext:
+    """Prepared runtime values available while binding training hooks."""
+
+    config: TrainingConfig
+    run_context: TrainingRunContext
+    frame_dataset: PreparedFrameDataset
+    checkpoint_dir: Path
+    state: TrainState
+    optimizers: Sequence[Any]
+    raw_render_fn: Any
+    render_fn: Any
+    render_fn_with_requirements: Any
+    loss_fn: Any
+    densification: Any | None = None
+    densification_runtime: Any | None = None
+    device: torch.device | None = None
+
+
+@dataclass(frozen=True)
 class LoadedCheckpoint:
     """Loaded inference-ready training artifact."""
 
@@ -76,6 +96,9 @@ class LoadedCheckpoint:
 
 class TrainingHook(Protocol):
     """Optional training loop hook."""
+
+    def bind(self, context: TrainingHookBindContext) -> None:
+        """Bind prepared training-loop resources."""
 
     def before_step(
         self,
@@ -122,6 +145,36 @@ RenderFn = Callable[[InitializedModel, CameraState], Any]
 LossFn = Callable[[TrainState, Any, Any], LossResult]
 
 
+@dataclass(frozen=True)
+class TrainingLoopComponents:
+    """Prepared inputs for a training runner."""
+
+    frame_dataset: PreparedFrameDataset
+    config: TrainingConfig
+    checkpoint_dir: Path
+    device: torch.device
+    run_context: TrainingRunContext
+    state: TrainState
+    dataloader: Any
+    raw_render_fn: RenderFn
+    render_fn: RenderFn
+    render_fn_with_requirements: Any
+    loss_fn: LossFn
+    hooks: Sequence[TrainingHook]
+    optimizers: Sequence[Any]
+    densification: Any | None
+    densification_runtime: Any | None
+    logger: Any
+    profiler: Any
+
+
+class TrainingRunner(Protocol):
+    """Custom training-loop runner."""
+
+    def run(self, components: TrainingLoopComponents) -> TrainingResult:
+        """Run training from prepared Ember components."""
+
+
 __all__ = [
     "LoadedCheckpoint",
     "LossFn",
@@ -130,6 +183,9 @@ __all__ = [
     "TrainState",
     "TrainingConfigSource",
     "TrainingHook",
+    "TrainingHookBindContext",
+    "TrainingLoopComponents",
     "TrainingResult",
     "TrainingRunContext",
+    "TrainingRunner",
 ]

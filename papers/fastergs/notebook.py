@@ -160,9 +160,9 @@ class FasterGSDataConfig(FasterGSConfigBase):
     max_resized_image_caches: int = Field(default=4, ge=1)
     split_target: Literal["train", "val", "all"] = "train"
     split_every_n: int | None = Field(default=8, ge=1)
-    materialization_stage: Literal["none", "decoded", "prepared"] = "none"
-    materialization_mode: Literal["lazy", "eager"] = "lazy"
-    materialization_num_workers: int | None = 0
+    materialization_stage: Literal["none", "decoded", "prepared"] = "prepared"
+    materialization_mode: Literal["lazy", "eager"] = "eager"
+    materialization_num_workers: int | None = 8
     normalize_images: bool = True
     interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
 

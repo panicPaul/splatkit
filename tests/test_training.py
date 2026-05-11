@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import replace
+import concurrent.futures
+from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
+from ember_core.core import (
+    BackendId,
+    BackendRef,
+    BuiltinOptimizerKind,
+    DeviceKind,
+    ParameterScope,
+    SceneFamilyKey,
+)
 from ember_core.core.contracts import (
     CameraState,
     GaussianScene3D,
@@ -27,6 +37,7 @@ from ember_core.data.contracts import (
     SceneRecord,
 )
 from ember_core.densification import (
+    DensificationBindContext,
     DensificationContext,
     DensificationLifecycleContext,
     DensificationRenderRequirements,
@@ -34,6 +45,7 @@ from ember_core.densification import (
     Schedule,
     Vanilla3DGS,
     compose_densification,
+    register_family_ops,
 )
 from ember_core.densification.runtime import (
     build_densification,
@@ -50,7 +62,10 @@ from ember_core.training import (
     LossResult,
     RuntimeContextRef,
     TrainingConfig,
+    TrainingHookBindContext,
     TrainingLoggingConfig,
+    TrainingLoopComponents,
+    TrainingResult,
     bound_callable,
     build_densification_for_context,
     build_inference_pipeline,
@@ -73,6 +88,7 @@ from ember_core.training import (
     materialize_optimization_config,
     materialize_training_config,
     optimization_config,
+    prepare_training_loop,
     resolve_backend_options,
     run_training,
     save_checkpoint_dir,
@@ -101,6 +117,7 @@ from ember_core.training.config import (
     TrainingProfilerConfig,
 )
 from ember_core.training.protocols import TrainState
+from ember_core.training.runtime import _warm_cuda_linalg
 from PIL import Image
 from torch import nn
 
@@ -237,7 +254,7 @@ def apply_color_mlp(
     lifted_dc = torch.sigmoid(color_mlp(base_dc) * temperature)
     feature = scene.feature.clone()
     feature[:, 0, :] = lifted_dc
-    return replace(scene, feature=feature)
+    return scene.with_fields(feature=feature)
 
 
 def one_render_postprocess(
@@ -430,6 +447,134 @@ class OptimizerOrderRecordingDensification(CloneFirstSplatDensification):
         )
 
 
+class GradModeRecordingDensification:
+    expected_scene_families = ("gaussian",)
+
+    def __init__(self) -> None:
+        self.grad_modes: dict[str, list[bool]] = {}
+
+    def _record(self, name: str, state: TrainState) -> None:
+        enabled = torch.is_grad_enabled()
+        self.grad_modes.setdefault(name, []).append(enabled)
+        metadata = state.model.metadata.setdefault(
+            "densification_grad_modes", {}
+        )
+        metadata.setdefault(name, []).append(enabled)
+
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        del state
+        return DensificationRenderRequirements()
+
+    def bind(
+        self,
+        state: TrainState,
+        optimizers: list[object],
+        family_ops: object,
+    ) -> None:
+        del state, optimizers, family_ops
+
+    def before_training(self, context: DensificationLifecycleContext) -> None:
+        self._record("before_training", context.state)
+
+    def pre_backward(self, context: DensificationContext) -> None:
+        self._record("pre_backward", context.state)
+
+    def post_backward(self, context: DensificationContext) -> None:
+        self._record("post_backward", context.state)
+
+    def pre_optimizer_step(self, context: DensificationContext) -> None:
+        self._record("pre_optimizer_step", context.state)
+
+    def post_optimizer_step(self, context: DensificationContext) -> None:
+        self._record("post_optimizer_step", context.state)
+
+    def after_step(
+        self,
+        context: DensificationContext,
+        metrics: dict[str, float],
+    ) -> None:
+        del metrics
+        self._record("after_step", context.state)
+
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        self._record("after_training", context.state)
+
+
+class GradModeRecordingComponent:
+    def __init__(self) -> None:
+        self.grad_modes: dict[str, list[bool]] = {}
+
+    def _record(self, name: str) -> None:
+        self.grad_modes.setdefault(name, []).append(torch.is_grad_enabled())
+
+    def get_render_requirements(
+        self,
+        state: object,
+    ) -> DensificationRenderRequirements:
+        del state
+        return DensificationRenderRequirements()
+
+    def bind(
+        self,
+        state: TrainState,
+        optimizers: list[object],
+        family_ops: object,
+    ) -> None:
+        del state, optimizers, family_ops
+
+    def before_training(self, context: DensificationLifecycleContext) -> None:
+        del context
+        self._record("before_training")
+
+    def pre_backward(
+        self,
+        context: DensificationContext,
+        signals: object,
+    ) -> None:
+        del context, signals
+        self._record("pre_backward")
+
+    def post_backward(
+        self,
+        context: DensificationContext,
+        signals: object,
+    ) -> None:
+        del context, signals
+        self._record("post_backward")
+
+    def pre_optimizer_step(
+        self,
+        context: DensificationContext,
+        signals: object,
+    ) -> None:
+        del context, signals
+        self._record("pre_optimizer_step")
+
+    def post_optimizer_step(
+        self,
+        context: DensificationContext,
+        signals: object,
+    ) -> None:
+        del context, signals
+        self._record("post_optimizer_step")
+
+    def after_step(
+        self,
+        context: DensificationContext,
+        signals: object,
+        metrics: dict[str, float],
+    ) -> None:
+        del context, signals, metrics
+        self._record("after_step")
+
+    def after_training(self, context: DensificationLifecycleContext) -> None:
+        del context
+        self._record("after_training")
+
+
 def build_sparse_voxel_model(
     scene_record: SceneRecord,
     *,
@@ -550,6 +695,150 @@ def build_config(output_dir: Path) -> TrainingConfig:
     )
 
 
+@dataclass(frozen=True)
+class _TypedRenderOptions:
+    compact_box_scale: float = 0.25
+    collect_stats: bool = False
+
+
+def test_typed_authoring_inputs_normalize_to_serialized_config() -> None:
+    backend = BackendRef(
+        id=BackendId("unit", "typed_backend"),
+        scene_type=GaussianScene3D,
+        options_type=_TypedRenderOptions,
+        output_type=RenderOutput,
+    )
+
+    render = RenderPipelineSpec(
+        backend=backend,
+        options=backend.options(compact_box_scale=0.5),
+        return_alpha=False,
+    )
+    target = ParameterTargetSpec(
+        scope=ParameterScope.SCENE,
+        name="feature",
+    )
+    group = ParameterGroupConfig(
+        target=target,
+        optimizer=BuiltinOptimizerKind.ADAM,
+        lr=0.1,
+    )
+    runtime = RuntimeConfig(device=torch.device("cuda:0"))
+    cuda_runtime = RuntimeConfig(device=DeviceKind.CUDA)
+
+    assert render.backend == "unit.typed_backend"
+    assert render.backend_options == {"compact_box_scale": 0.5}
+    assert "options" not in render.model_dump(mode="json")
+    assert target.scope == "scene"
+    assert group.optimizer == "adam"
+    assert runtime.device == "cuda:0"
+    assert cuda_runtime.device == "cuda"
+
+
+class _PrivateBindDensification:
+    def __init__(self) -> None:
+        self.bind_context_value: DensificationBindContext | None = None
+
+    def bind_context(self, context: DensificationBindContext) -> None:
+        self.bind_context_value = context
+
+
+def test_private_densifier_can_bind_without_registered_family_ops() -> None:
+    from ember_core.densification.runtime import bind_densification
+
+    method = _PrivateBindDensification()
+    state = SimpleNamespace(
+        model=SimpleNamespace(
+            scene=SimpleNamespace(
+                scene_family=SceneFamilyKey("private", "simplex_like")
+            )
+        )
+    )
+
+    bind_densification(method, state, [])
+
+    assert method.bind_context_value is not None
+    assert method.bind_context_value.family_ops is None
+
+
+def test_private_family_ops_can_be_registered() -> None:
+    family = SceneFamilyKey("test", "private_family_ops")
+    state = SimpleNamespace(
+        model=SimpleNamespace(scene=SimpleNamespace(scene_family=family))
+    )
+    expected_ops = object()
+
+    def build_ops(_state: object, _optimizers: list[object]) -> object:
+        return expected_ops
+
+    register_family_ops(family, build_ops)
+
+    from ember_core.densification.families import build_family_ops
+
+    assert build_family_ops(state, []) is expected_ops
+
+
+class _BindingHook:
+    def __init__(self) -> None:
+        self.context: TrainingHookBindContext | None = None
+
+    def bind(self, context: TrainingHookBindContext) -> None:
+        self.context = context
+
+
+class _CapturingRunner:
+    def __init__(self) -> None:
+        self.components: TrainingLoopComponents | None = None
+
+    def run(self, components: TrainingLoopComponents) -> TrainingResult:
+        self.components = components
+        if components.logger is not None:
+            components.logger.close()
+        return TrainingResult(
+            state=components.state,
+            history=[],
+            checkpoint_dir=str(components.checkpoint_dir),
+        )
+
+
+def test_run_training_can_delegate_to_private_trainer(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    hook = _BindingHook()
+    runner = _CapturingRunner()
+
+    result = run_training(
+        dataset,
+        config,
+        runtime_hooks=[hook],
+        trainer=runner,
+    )
+
+    assert runner.components is not None
+    assert hook.context is not None
+    assert hook.context.optimizers == runner.components.optimizers
+    assert hook.context.render_fn is runner.components.render_fn
+    assert result.history == []
+
+
+def test_prepare_training_loop_exposes_optimizer_bindings(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+
+    components = prepare_training_loop(dataset, config)
+
+    if components.logger is not None:
+        components.logger.close()
+    assert components.optimizers
+    assert components.optimizers[0].target_path == "scene.feature"
+
+
 def test_run_training_writes_checkpoint_directory(tmp_path: Path) -> None:
     register_test_backend()
     dataset = build_dataset(tmp_path)
@@ -621,6 +910,30 @@ def test_training_utilities_cover_common_notebook_loop_needs(
     set_torch_seed(123)
     sample_b = torch.rand(1)
     torch.testing.assert_close(sample_a, sample_b)
+
+
+@pytest.mark.cuda
+def test_cuda_linalg_warmup_allows_concurrent_first_inverses() -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for CUDA linalg warmup test.")
+    device = torch.device("cuda")
+
+    _warm_cuda_linalg(device)
+
+    def invert_probe(index: int) -> tuple[int, torch.Size]:
+        probe = torch.eye(4, device=device)[None].repeat(4, 1, 1)
+        inverted = torch.linalg.inv(probe)
+        torch.cuda.synchronize(device)
+        return index, inverted.shape
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [
+            executor.submit(invert_probe, index) for index in range(8)
+        ]
+        results = [future.result() for future in futures]
+
+    assert sorted(index for index, _shape in results) == list(range(8))
+    assert all(shape == torch.Size([4, 4, 4]) for _index, shape in results)
 
 
 def test_notebook_spec_helpers_accept_local_callables(tmp_path: Path) -> None:
@@ -948,6 +1261,9 @@ def test_run_training_profiler_records_phase_metrics(
 
     assert "time_render_ms" in result.history[-1]
     assert "time_backward_ms" in result.history[-1]
+    assert "time_step_wall_ms" in result.history[-1]
+    assert "time_profiled_phases_total_ms" in result.history[-1]
+    assert "time_profiled_unaccounted_ms" in result.history[-1]
     assert result.history[-1]["primitives"] == 1.0
     assert (tmp_path / "profile.jsonl").read_text().count("\n") == 3
     assert '"step": 3' in captured.out
@@ -1036,13 +1352,117 @@ def test_train_step_calls_densification_before_optimizer_step(
     )
 
 
+def test_train_step_runs_densification_hooks_without_grad(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    model = initialize_model(dataset.scene_record, config).to(
+        torch.device("cpu")
+    )
+    state = TrainState(
+        model=model,
+        step=0,
+        seed=config.runtime.seed,
+        device=torch.device("cpu"),
+    )
+    batch = next(iter(build_dataset_loader(dataset, config)))
+    render_fn = build_render_fn(config)
+    loss_fn = build_loss_fn(config)
+    optimizers = build_optimizer_set(state, config)
+    densification = GradModeRecordingDensification()
+    from ember_core.densification.runtime import bind_densification
+
+    bind_densification(densification, state, optimizers)
+
+    with torch.enable_grad():
+        train_step(
+            state,
+            batch,
+            render_fn=render_fn,
+            loss_fn=loss_fn,
+            optimizers=optimizers,
+            densification=densification,
+        )
+
+    assert densification.grad_modes == {
+        "pre_backward": [False],
+        "post_backward": [False],
+        "pre_optimizer_step": [False],
+        "post_optimizer_step": [False],
+        "after_step": [False],
+    }
+
+
+def test_run_training_runs_densification_lifecycle_without_grad(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.runtime.max_steps = 1
+    config.densification = DensificationConfig(
+        builders=[
+            CallableSpec(
+                target=f"{MODULE_NAME}.GradModeRecordingDensification"
+            )
+        ]
+    )
+
+    with torch.enable_grad():
+        result = run_training(dataset, config)
+
+    assert result.state.model.metadata["densification_grad_modes"] == {
+        "before_training": [False],
+        "pre_backward": [False],
+        "post_backward": [False],
+        "pre_optimizer_step": [False],
+        "post_optimizer_step": [False],
+        "after_step": [False],
+        "after_training": [False],
+    }
+
+
+def test_composed_densification_components_run_without_grad(
+    tmp_path: Path,
+) -> None:
+    register_test_backend()
+    dataset = build_dataset(tmp_path)
+    config = build_config(tmp_path / "run")
+    config.runtime.max_steps = 1
+    component = GradModeRecordingComponent()
+    config.densification = DensificationConfig(
+        methods=[
+            compose_densification(
+                family="gaussian",
+                collectors=[component],
+                name="GradModeRecordingComposed",
+            )
+        ]
+    )
+
+    with torch.enable_grad():
+        run_training(dataset, config)
+
+    assert component.grad_modes == {
+        "before_training": [False],
+        "pre_backward": [False],
+        "post_backward": [False],
+        "pre_optimizer_step": [False],
+        "post_optimizer_step": [False],
+        "after_step": [False],
+        "after_training": [False],
+    }
+
+
 def test_view_backed_optimizer_updates_only_selected_slice(
     cpu_scene: GaussianScene3D,
 ) -> None:
     feature = torch.ones_like(cpu_scene.feature).requires_grad_(True)
     state = TrainState(
         model=InitializedModel(
-            scene=replace(cpu_scene, feature=feature),
+            scene=cpu_scene.with_fields(feature=feature),
             modules={},
             parameters={},
         ),
@@ -1137,7 +1557,7 @@ def test_scheduler_steps_after_optimizer_step(
     feature = cpu_scene.feature.clone().requires_grad_(True)
     state = TrainState(
         model=InitializedModel(
-            scene=replace(cpu_scene, feature=feature),
+            scene=cpu_scene.with_fields(feature=feature),
             modules={},
             parameters={},
         ),

@@ -42,7 +42,7 @@ class NHT3DGUTRenderOptions(RenderOptions):
     near_plane: float = 0.01
     far_plane: float = 1.0e10
     radius_clip: float = 0.0
-    rasterize_mode: Literal["classic", "antialiased"] = "classic"
+    mip_splatting_screen_filter: bool = False
     camera_model: Literal["pinhole", "ortho", "fisheye", "ftheta"] = "pinhole"
     ray_dir_scale: float = 3.0
     center_ray_mode: bool = False
@@ -148,7 +148,7 @@ def _render_native_features(
         width=int(camera.width[0].item()),
         height=int(camera.height[0].item()),
         tile_size=options.tile_size,
-        rasterize_mode=options.rasterize_mode,
+        mip_splatting_screen_filter=options.mip_splatting_screen_filter,
         render_mode="RGB+ED",
         near_plane=options.near_plane,
         far_plane=options.far_plane,

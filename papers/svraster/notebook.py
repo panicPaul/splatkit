@@ -2,28 +2,27 @@
 
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.5"
 app = marimo.App(width="columns")
 
 with app.setup:
     import json
+    import shutil
     import sys
     from pathlib import Path
     from typing import Any, Literal
 
     import ember_core as ember
     import ember_native_svraster
+    import ember_splatting_training as ember_splatting
     import marimo as mo
-    import torch
-    from ember_core.training import LossResult
-    from jaxtyping import Float, Int
+    from ember_core.training import TrainingProfilerConfig, TrainingResult
     from marimo_config_gui import (
         ConfigPreset,
         ConfigPresetCatalog,
         create_config_gui,
     )
     from pydantic import BaseModel, Field
-    from torch import Tensor
 
     NOTEBOOK_PATH = Path(__file__).resolve()
     NOTEBOOK_DIR = NOTEBOOK_PATH.parent
@@ -49,8 +48,8 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(config_gui):
-    config_gui.stacked()
+def _(training_controls):
+    training_controls
     return
 
 
@@ -69,8 +68,40 @@ def _():
 
 @app.cell
 def _(config_gui):
+    preset_selector = config_gui.preset_selector(
+        label="SVRaster preset",
+    )
+    return (preset_selector,)
+
+
+@app.cell
+def _(config_gui):
     current_config = config_gui.validated_config()
     return (current_config,)
+
+
+@app.cell(hide_code=True)
+def _(preset_selector):
+    preset_selector
+    return
+
+
+@app.cell(hide_code=True)
+def _(config_gui):
+    config_gui.stacked()
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_result_view):
+    training_result_view
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_viewer):
+    training_viewer
+    return
 
 
 @app.cell(hide_code=True)
@@ -94,6 +125,7 @@ class SVRasterSceneConfig(SVRasterConfigBase):
 
     path: Path = Path("dataset/mipnerf360/garden")
     image_root: Path | None = None
+    undistort_output_dir: Path | None = None
     align_horizon: bool = True
 
 
@@ -103,13 +135,16 @@ class SVRasterDataConfig(SVRasterConfigBase):
 
     camera_sensor_id: str | None = None
     image_scale_factor: float = Field(default=0.25, gt=0.0)
+    cache_resized_images: bool = True
+    resized_image_cache_root: Path | None = None
+    max_resized_image_caches: int = Field(default=4, ge=1)
     split_target: Literal["train", "val", "all"] = "train"
     split_every_n: int | None = Field(default=8, ge=1)
     normalize_images: bool = True
     interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
-    materialization_stage: Literal["none", "decoded", "prepared"] = "none"
-    materialization_mode: Literal["lazy", "eager"] = "lazy"
-    materialization_num_workers: int | None = 0
+    materialization_stage: Literal["none", "decoded", "prepared"] = "prepared"
+    materialization_mode: Literal["lazy", "eager"] = "eager"
+    materialization_num_workers: int | None = 8
 
 
 @app.class_definition
@@ -212,7 +247,7 @@ class SVRasterLossConfig(SVRasterConfigBase):
     use_huber: bool = False
     huber_threshold: float = Field(default=0.03, gt=0.0)
     lambda_t_concentration: float = Field(default=0.0, ge=0.0)
-    lambda_t_inside: float = Field(default=0.0, ge=0.0)
+    lambda_t_inside: float = Field(default=0.01, ge=0.0)
     lambda_r_concentration: float = Field(default=0.01, ge=0.0)
     lambda_ascending: float = Field(default=0.0, ge=0.0)
     ascending_start_step: int = Field(default=0, ge=0)
@@ -299,16 +334,21 @@ class SVRasterTrainingConfig(SVRasterConfigBase):
             max_steps=20000,
         )
     )
+    profiler: TrainingProfilerConfig = Field(
+        default_factory=TrainingProfilerConfig
+    )
     batching: ember.BatchingConfig = Field(
         default_factory=lambda: ember.BatchingConfig(
-            batch_size=1, shuffle=False
+            batch_size=1,
+            shuffle=True,
+            num_workers=8,
+            persistent_workers=True,
+            pin_memory=True,
         )
     )
     checkpoint: ember.CheckpointExportConfig = Field(
         default_factory=lambda: ember.CheckpointExportConfig(
-            output_dir=(
-                DEFAULT_CHECKPOINT_ROOT / "garden_svraster" / "svraster.core"
-            ),
+            output_dir=Path("checkpoints/latest"),
             export_ply=False,
             overwrite=True,
         )
@@ -326,6 +366,9 @@ class SVRasterTrainingConfig(SVRasterConfigBase):
     )
     adaptive: SVRasterAdaptiveConfig = Field(
         default_factory=SVRasterAdaptiveConfig
+    )
+    viewer: ember_splatting.TrainingViewerConfig = Field(
+        default_factory=ember_splatting.TrainingViewerConfig
     )
 
 
@@ -349,6 +392,7 @@ class SVRasterExperimentConfig(SVRasterConfigBase):
         hooks = [*self.training.regularization.build_hooks()]
         return ember.TrainingConfig(
             runtime=self.training.runtime,
+            profiler=self.training.profiler,
             batching=self.training.batching,
             initialization=self.training.initialization.build(
                 None,
@@ -490,220 +534,19 @@ def svraster_max_subdivide_count(
 
 
 @app.function
-def svraster_rgb_to_sh_zero(
-    rgb: Float[Tensor, "... 3"],
-) -> Float[Tensor, "... 3"]:
-    """Convert RGB values to SVRaster SH-zero coefficients."""
-    return ember.svraster_rgb_to_sh_zero(rgb)
-
-
-@app.function
-def encode_octpath_from_ijk(
-    ijk: Int[Tensor, " num_voxels 3"],
-    octlevel: Int[Tensor, " num_voxels 1"],
-    *,
-    max_num_levels: int,
-) -> Int[Tensor, " num_voxels 1"]:
-    """Encode voxel integer coordinates into SVRaster octree paths."""
-    paths = torch.zeros(
-        (ijk.shape[0],),
-        dtype=torch.int64,
-        device=ijk.device,
+def resolve_checkpoint_output_dir(
+    config: SVRasterExperimentConfig,
+) -> Path:
+    """Resolve the output checkpoint directory for the current config."""
+    preset = config.preset or "garden_svraster"
+    output_dir = config.training.checkpoint.output_dir
+    default_dir = default_checkpoint_dir("garden_svraster", "svraster.core")
+    is_latest = output_dir == Path("checkpoints/latest") or (
+        output_dir.name == "latest" and output_dir.parent.name == "checkpoints"
     )
-    for level in range(1, max_num_levels + 1):
-        active = octlevel.reshape(-1).to(torch.int64) >= level
-        bit_shift = (octlevel.reshape(-1).to(torch.int64) - level).clamp_min(0)
-        subtree = (
-            (((ijk[:, 0] >> bit_shift) & 1) << 2)
-            | (((ijk[:, 1] >> bit_shift) & 1) << 1)
-            | ((ijk[:, 2] >> bit_shift) & 1)
-        )
-        paths |= torch.where(
-            active,
-            subtree << (3 * (max_num_levels - level)),
-            torch.zeros_like(subtree),
-        )
-    return paths.reshape(-1, 1)
-
-
-@app.function
-def initialize_svraster_model_from_scene_record(
-    scene_record: ember.SceneRecord,
-    *,
-    modules: dict[str, torch.nn.Module] | None = None,
-    parameters: dict[str, torch.nn.Parameter] | None = None,
-    buffers: dict[str, Tensor] | None = None,
-    metadata: dict[str, Any] | None = None,
-    initial_inside_level: int = 6,
-    outside_level: int = 5,
-    initial_outside_ratio: float = 2.0,
-    geometry_initial_value: float = -10.0,
-    sh0_initial_rgb: float = 0.5,
-    shs_initial_value: float = 0.0,
-    bound_scale: float = 1.0,
-    device: torch.device | None = None,
-) -> ember.InitializedModel:
-    """Initialize a sparse-voxel scene from SceneRecord geometry."""
-    del initial_outside_ratio
-    target_device = device or torch.device("cpu")
-    max_num_levels = 16
-    sh_degree = 3
-    point_cloud = scene_record.point_cloud
-    camera = scene_record.resolve_camera_sensor().camera
-    if point_cloud is not None and point_cloud.points.numel() > 0:
-        points = point_cloud.points.to(
-            device=target_device, dtype=torch.float32
-        )
-    else:
-        camera_to_world = camera.cam_to_world
-        points = camera_to_world[:, :3, 3].to(
-            device=target_device,
-            dtype=torch.float32,
-        )
-    scene_min = points.amin(dim=0)
-    scene_max = points.amax(dim=0)
-    scene_center = (scene_min + scene_max) * 0.5
-    inside_extent = (scene_max - scene_min).amax().clamp_min(1e-6) * bound_scale
-    scene_extent = inside_extent * float(2**outside_level)
-
-    level = min(initial_inside_level + outside_level, max_num_levels)
-    grid_resolution = 2**level
-    normalized = (points - (scene_center - 0.5 * scene_extent)) / scene_extent
-    ijk = (normalized.clamp(0.0, 1.0 - 1e-6) * grid_resolution).to(torch.int64)
-    octlevel = torch.full(
-        (ijk.shape[0], 1),
-        level,
-        dtype=torch.int64,
-        device=target_device,
-    )
-    unique_ijkl = torch.cat([ijk, octlevel], dim=1).unique(dim=0)
-    ijk = unique_ijkl[:, :3]
-    octlevel = unique_ijkl[:, 3:].to(torch.int64)
-    octpath = encode_octpath_from_ijk(
-        ijk,
-        octlevel,
-        max_num_levels=max_num_levels,
-    )
-    _grid_points_key, voxel_keys = ember.svraster_build_grid_points_link(
-        octpath,
-        octlevel,
-        backend_name=None,
-        max_num_levels=max_num_levels,
-    )
-    num_voxels = int(octpath.shape[0])
-    num_grid_points = (
-        int(voxel_keys.max().item()) + 1 if voxel_keys.numel() else 0
-    )
-    sh_coefficients = (sh_degree + 1) ** 2 - 1
-    scene = ember.SparseVoxelScene(
-        backend_name="new_cuda",
-        active_sh_degree=sh_degree,
-        max_num_levels=max_num_levels,
-        scene_center=scene_center,
-        scene_extent=scene_extent.reshape(1),
-        inside_extent=inside_extent.reshape(1),
-        octpath=octpath,
-        octlevel=octlevel,
-        geo_grid_pts=torch.full(
-            (num_grid_points, 1),
-            geometry_initial_value,
-            dtype=torch.float32,
-            device=target_device,
-        ).requires_grad_(True),
-        sh0=svraster_rgb_to_sh_zero(
-            torch.full(
-                (num_voxels, 3),
-                sh0_initial_rgb,
-                dtype=torch.float32,
-                device=target_device,
-            )
-        ).requires_grad_(True),
-        shs=torch.full(
-            (num_voxels, sh_coefficients, 3),
-            shs_initial_value,
-            dtype=torch.float32,
-            device=target_device,
-        ).requires_grad_(True),
-        subdivision_priority=torch.ones(
-            (num_voxels, 1),
-            dtype=torch.float32,
-            device=target_device,
-        ).requires_grad_(True),
-    )
-    return ember.InitializedModel(
-        scene=scene,
-        modules=dict(modules or {}),
-        parameters=dict(parameters or {}),
-        buffers=dict(buffers or {}),
-        metadata=dict(metadata or {}),
-    )
-
-
-@app.function
-def svraster_rgb_loss(
-    state: ember.TrainState,
-    batch: Any,
-    render_output: Any,
-    *,
-    lambda_photo: float = 1.0,
-    lambda_ssim: float = 0.02,
-    use_l1: bool = False,
-    use_huber: bool = False,
-    huber_threshold: float = 0.03,
-    lambda_t_inside: float = 0.01,
-    lambda_r_concentration: float = 0.01,
-    lambda_distortion: float = 0.1,
-    distortion_start_step: int = 10000,
-    weights: dict[str, float] | None = None,
-) -> LossResult:
-    """Compute the SVRaster RGB loss terms available through current APIs."""
-    del (
-        lambda_ssim,
-        lambda_r_concentration,
-        lambda_distortion,
-        distortion_start_step,
-        weights,
-    )
-    prediction = render_output.render
-    target = batch.images
-    if use_l1:
-        photo_loss = (prediction - target).abs().mean()
-    elif use_huber:
-        photo_loss = torch.nn.functional.huber_loss(
-            prediction,
-            target,
-            delta=huber_threshold,
-        )
-    else:
-        photo_loss = torch.nn.functional.mse_loss(prediction, target)
-    loss = lambda_photo * photo_loss
-    metrics = {"photo_loss": float(photo_loss.detach().item())}
-    transmittance = getattr(render_output, "transmittance", None)
-    if lambda_t_inside > 0.0 and transmittance is not None:
-        transmittance_loss = transmittance.mean()
-        loss = loss + lambda_t_inside * transmittance_loss
-        metrics["transmittance_loss"] = float(
-            transmittance_loss.detach().item()
-        )
-    return LossResult(
-        loss=loss,
-        metrics=metrics,
-    )
-
-
-@app.function
-def svraster_training_backend_options(
-    state: ember.TrainState,
-    *,
-    distortion_weight: float = 0.1,
-    distortion_start_step: int = 10000,
-) -> dict[str, float]:
-    """Return per-step SVRaster native renderer regularizer weights."""
-    return {
-        "distortion_weight": (
-            distortion_weight if state.step >= distortion_start_step else 0.0
-        )
-    }
+    if is_latest or output_dir == default_dir:
+        return default_checkpoint_dir(preset, "svraster.core")
+    return output_dir
 
 
 @app.function
@@ -712,26 +555,234 @@ def resolve_training_config(
     frame_dataset: ember.PreparedFrameDataset | None = None,
 ) -> ember.TrainingConfig:
     """Resolve notebook config to Ember's runtime TrainingConfig."""
-    return experiment_config.to_training_config(frame_dataset)
+    checkpoint = experiment_config.training.checkpoint.model_copy(
+        update={
+            "output_dir": resolve_checkpoint_output_dir(experiment_config),
+        },
+    )
+    training = experiment_config.training.model_copy(
+        update={"checkpoint": checkpoint},
+        deep=True,
+    )
+    resolved_config = experiment_config.model_copy(
+        update={"training": training},
+        deep=True,
+    )
+    return resolved_config.to_training_config(frame_dataset)
+
+
+@app.function
+def format_duration(seconds: float) -> str:
+    """Format a short ETA duration."""
+    total_seconds = max(0, round(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours:d}h {minutes:02d}m"
+    if minutes > 0:
+        return f"{minutes:d}m {seconds:02d}s"
+    return f"{seconds:d}s"
+
+
+@app.function
+def resolved_svraster_scene_path(config: SVRasterExperimentConfig) -> Path:
+    """Resolve the configured scene path."""
+    return config.scene.path.expanduser()
+
+
+@app.function
+def resolved_svraster_resized_cache_parent(
+    config: SVRasterExperimentConfig,
+) -> Path:
+    """Return the resized-image cache parent for a config."""
+    if config.data.resized_image_cache_root is not None:
+        return config.data.resized_image_cache_root.expanduser()
+    return resolved_svraster_scene_path(config) / "ember_cache" / "resized_images"
+
+
+@app.function
+def svraster_source_image_root(config: SVRasterExperimentConfig) -> Path:
+    """Return the full-resolution source image root."""
+    if config.scene.image_root is not None:
+        return config.scene.image_root.expanduser()
+    return resolved_svraster_scene_path(config) / "images"
+
+
+@app.function
+def svraster_resized_cache_enabled(
+    config: SVRasterExperimentConfig,
+) -> bool:
+    """Return whether SVRaster should use a derived resized image cache."""
+    return (
+        config.data.cache_resized_images
+        and config.data.image_scale_factor != 1.0
+    )
+
+
+@app.function
+def svraster_resized_cache_root(config: SVRasterExperimentConfig) -> Path:
+    """Return the derived resized image cache root for this config."""
+    scale_name = f"{config.data.image_scale_factor:.6f}".rstrip("0").rstrip(".")
+    scale_name = scale_name.replace(".", "p")
+    return resolved_svraster_resized_cache_parent(config) / (
+        f"scale_{scale_name}_{config.data.interpolation}"
+    )
+
+
+@app.function
+def svraster_pillow_resampling(interpolation: str) -> Any:
+    """Translate notebook interpolation names to Pillow resampling filters."""
+    from PIL import Image
+
+    if interpolation == "nearest":
+        return Image.Resampling.NEAREST
+    if interpolation == "bilinear":
+        return Image.Resampling.BILINEAR
+    if interpolation == "bicubic":
+        return Image.Resampling.BICUBIC
+    raise ValueError(f"Unsupported interpolation mode {interpolation!r}.")
+
+
+@app.function
+def enforce_svraster_resized_cache_limit(
+    *,
+    cache_root: Path,
+    max_caches: int,
+) -> None:
+    """Keep only a bounded number of reusable resized image caches."""
+    parent = cache_root.parent
+    if not parent.exists():
+        return
+    cache_dirs = [
+        path
+        for path in parent.iterdir()
+        if path.is_dir() and path.name.startswith("scale_")
+    ]
+    overflow = len(cache_dirs) - max_caches
+    if overflow <= 0:
+        return
+    evictable = sorted(
+        (path for path in cache_dirs if path != cache_root),
+        key=lambda path: path.stat().st_mtime,
+    )
+    for stale_cache in evictable[:overflow]:
+        shutil.rmtree(stale_cache)
+
+
+@app.function
+def materialize_svraster_resized_image_cache(
+    *,
+    source_root: Path,
+    cache_root: Path,
+    scale: float,
+    interpolation: str,
+    max_caches: int,
+) -> Path:
+    """Create/update a derived resized image cache from full-res images."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from PIL import Image
+    from tqdm.auto import tqdm
+
+    image_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    source_paths = sorted(
+        path
+        for path in source_root.rglob("*")
+        if path.is_file() and path.suffix.lower() in image_suffixes
+    )
+    if not source_paths:
+        raise ValueError(f"No source images found under {source_root}.")
+    resampling = svraster_pillow_resampling(interpolation)
+    enforce_svraster_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    def resize_one(source_path: Path) -> None:
+        relative_path = source_path.relative_to(source_root)
+        target_path = cache_root / relative_path
+        if (
+            target_path.exists()
+            and target_path.stat().st_mtime >= source_path.stat().st_mtime
+        ):
+            return
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(source_path) as image:
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            resized_size = (
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
+            )
+            resized = rgb.resize(resized_size, resampling)
+            save_kwargs = (
+                {"quality": 95}
+                if target_path.suffix.lower() in {".jpg", ".jpeg"}
+                else {}
+            )
+            resized.save(target_path, **save_kwargs)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(resize_one, path) for path in source_paths]
+        for future in tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Preparing resized image cache",
+        ):
+            future.result()
+    (cache_root / "cache_metadata.json").write_text(
+        json.dumps(
+            {
+                "source_root": str(source_root),
+                "scale": scale,
+                "interpolation": interpolation,
+                "num_images": len(source_paths),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    cache_root.touch()
+    enforce_svraster_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    return cache_root
 
 
 @app.function
 def build_scene_load_config(
     config: SVRasterExperimentConfig,
-) -> ember.SceneLoadConfig:
+) -> ember.ColmapSceneConfig:
     """Build scene loading config from notebook options."""
-    postprocess = (
-        ember.ScenePostprocessConfig(
-            horizon_adjustment=ember.HorizonAdjustmentConfig(enabled=True)
-        )
-        if config.scene.align_horizon
-        else None
+    source_pipes = (
+        (ember.HorizonAlignPipeConfig(),) if config.scene.align_horizon else ()
     )
-    return ember.SceneLoadConfig(
-        source="colmap",
-        path=config.scene.path,
-        image_root=config.scene.image_root,
-        postprocess=postprocess,
+    image_root = (
+        materialize_svraster_resized_image_cache(
+            source_root=svraster_source_image_root(config),
+            cache_root=svraster_resized_cache_root(config),
+            scale=config.data.image_scale_factor,
+            interpolation=config.data.interpolation,
+            max_caches=config.data.max_resized_image_caches,
+        )
+        if svraster_resized_cache_enabled(config)
+        else (
+            config.scene.image_root.expanduser()
+            if config.scene.image_root is not None
+            else None
+        )
+    )
+    return ember.ColmapSceneConfig(
+        path=resolved_svraster_scene_path(config),
+        image_root=image_root,
+        undistort_output_dir=(
+            config.scene.undistort_output_dir.expanduser()
+            if config.scene.undistort_output_dir is not None
+            else None
+        ),
+        source_pipes=source_pipes,
     )
 
 
@@ -742,11 +793,19 @@ def build_prepared_frame_dataset_config(
     """Build prepared-frame dataset config from notebook options."""
     split = ember.SplitConfig(
         target=config.data.split_target,
-        mode="none" if config.data.split_target == "all" else "every_n",
-        every_n=config.data.split_every_n or 8,
+        every_n=(
+            None
+            if config.data.split_target == "all"
+            else config.data.split_every_n or 8
+        ),
     )
     preparation = ember.ImagePreparationConfig(
-        resize_width_scale=config.data.image_scale_factor,
+        resize_width_scale=(
+            None
+            if svraster_resized_cache_enabled(config)
+            else config.data.image_scale_factor
+        ),
+        resize_width_target=None,
         normalize=config.data.normalize_images,
         interpolation=config.data.interpolation,
     )
@@ -768,10 +827,19 @@ def run_svraster_training(
     frame_dataset: ember.PreparedFrameDataset,
     *,
     training_config: ember.TrainingConfig,
-) -> ember.TrainingResult:
+    training_viewer_handle: ember_splatting.TrainingViewerHandle | None = None,
+) -> TrainingResult:
     """Run SVRaster training without Torch fallbacks for native failures."""
     try:
-        return ember.run_training(frame_dataset, training_config)
+        return ember.run_training(
+            frame_dataset,
+            training_config,
+            runtime_hooks=(
+                ()
+                if training_viewer_handle is None
+                else training_viewer_handle.runtime_hooks()
+            ),
+        )
     except (ImportError, RuntimeError) as exc:
         message = str(exc).lower()
         extension_markers = ("cuda", "extension", "svraster", "ninja", "nvcc")
@@ -786,25 +854,275 @@ def run_svraster_training(
 @app.cell(hide_code=True)
 def _():
     mo.md("""
-    ## Resolved config
+    ## Training setup
     """)
     return
 
 
 @app.cell
-def _(current_config):
-    training_config = (
-        None
-        if current_config is None
-        else resolve_training_config(current_config)
+def _():
+    prepare_button = mo.ui.run_button(
+        label="Prepare training viewer",
+        full_width=True,
     )
-    return (training_config,)
+    train_button = mo.ui.run_button(
+        label="Start training",
+        full_width=True,
+    )
+    stop_button = mo.ui.run_button(
+        label="Stop training",
+        full_width=True,
+    )
+    training_status_refresh = mo.ui.refresh(
+        options=["1s"],
+        default_interval="1s",
+        label="Training status",
+    )
+    training_controls = mo.vstack(
+        [prepare_button, train_button, stop_button, training_status_refresh],
+        gap=0.5,
+    )
+    return (
+        prepare_button,
+        stop_button,
+        train_button,
+        training_controls,
+        training_status_refresh,
+    )
 
 
-@app.cell(hide_code=True)
-def _(training_config):
-    training_config
+@app.cell
+def _():
+    is_script_mode = mo.running_in_notebook() is False
+    return (is_script_mode,)
+
+
+@app.cell
+def _(current_config, is_script_mode, prepare_button, train_button):
+    should_prepare = (
+        is_script_mode or bool(prepare_button.value) or bool(train_button.value)
+    )
+    scene_load_error = None
+    try:
+        scene_record = (
+            ember.load_scene_record(build_scene_load_config(current_config))
+            if should_prepare and current_config is not None
+            else None
+        )
+    except Exception as error:
+        scene_record = None
+        scene_load_error = error
+    return scene_load_error, scene_record
+
+
+@app.cell
+def _(current_config, scene_record):
+    frame_dataset_error = None
+    try:
+        frame_dataset = (
+            ember.prepare_frame_dataset(
+                scene_record,
+                build_prepared_frame_dataset_config(current_config),
+            )
+            if current_config is not None and scene_record is not None
+            else None
+        )
+    except Exception as error:
+        frame_dataset = None
+        frame_dataset_error = error
+    return frame_dataset, frame_dataset_error
+
+
+@app.cell
+def _(current_config, frame_dataset, is_script_mode):
+    training_config = (
+        resolve_training_config(current_config, frame_dataset)
+        if current_config is not None and frame_dataset is not None
+        else None
+    )
+    viewer_config = (
+        current_config.training.viewer
+        if current_config is not None
+        else ember_splatting.TrainingViewerConfig()
+    )
+    resolved_training_config = training_config if is_script_mode else None
+    return training_config, viewer_config
+
+
+@app.cell
+def _(
+    current_config,
+    frame_dataset,
+    is_script_mode,
+    training_config,
+    viewer_config,
+):
+    training_viewer_error = None
+    try:
+        training_viewer_handle = (
+            ember_splatting.create_training_viewer(
+                frame_dataset,
+                training_config,
+                config=viewer_config,
+                title="SVRaster training viewer",
+            )
+            if not is_script_mode
+            and current_config is not None
+            and frame_dataset is not None
+            and training_config is not None
+            else None
+        )
+    except Exception as error:
+        training_viewer_handle = None
+        training_viewer_error = error
+    return training_viewer_error, training_viewer_handle
+
+
+@app.cell
+def _(training_viewer_handle):
+    training_viewer = (
+        None
+        if training_viewer_handle is None
+        else training_viewer_handle.viewer
+    )
+    return (training_viewer,)
+
+
+@app.cell
+def _(
+    current_config,
+    frame_dataset,
+    is_script_mode,
+    train_button,
+    training_config,
+    training_viewer_handle,
+):
+    should_train = bool(train_button.value)
+    if (
+        is_script_mode
+        and current_config is not None
+        and frame_dataset is not None
+        and training_config is not None
+    ):
+        training_result = run_svraster_training(
+            frame_dataset,
+            training_config=training_config,
+        )
+    else:
+        training_result = None
+        if (
+            should_train
+            and frame_dataset is not None
+            and training_config is not None
+            and training_viewer_handle is not None
+        ):
+            training_viewer_handle.start_training(
+                frame_dataset,
+                training_config,
+            )
+    return (training_result,)
+
+
+@app.cell
+def _(stop_button, training_viewer_handle):
+    should_stop = bool(stop_button.value)
+    if should_stop and training_viewer_handle is not None:
+        training_viewer_handle.request_stop()
     return
+
+
+@app.cell
+def _(
+    frame_dataset_error,
+    scene_load_error,
+    training_result,
+    training_status_refresh,
+    training_viewer_error,
+    training_viewer_handle,
+):
+    _ = training_status_refresh.value
+    if scene_load_error is not None:
+        training_result_view = mo.callout(
+            f"Scene loading failed.\n\n```text\n{scene_load_error}\n```",
+            kind="danger",
+        )
+    elif frame_dataset_error is not None:
+        training_result_view = mo.callout(
+            f"Frame dataset preparation failed.\n\n```text\n{frame_dataset_error}\n```",
+            kind="danger",
+        )
+    elif training_viewer_error is not None:
+        training_result_view = mo.callout(
+            f"Training viewer preparation failed.\n\n```text\n{training_viewer_error}\n```",
+            kind="danger",
+        )
+    elif training_result is not None:
+        training_result_view = mo.md(
+            f"Checkpoint: `{training_result.checkpoint_dir}`\n\n"
+            f"Steps: `{len(training_result.history)}`"
+        )
+    elif training_viewer_handle is None:
+        training_result_view = mo.md("Prepare the training viewer first.")
+    else:
+        snapshot = training_viewer_handle.snapshot()
+        if snapshot.status == "idle":
+            training_result_view = mo.md("Training has not started.")
+        elif snapshot.status in {"running", "stopping"}:
+            step_text = (
+                f"{snapshot.step} / {snapshot.max_steps}"
+                if snapshot.max_steps is not None
+                else str(snapshot.step)
+            )
+            metric_parts = [
+                f"{name}={value:.6g}"
+                for name, value in sorted(snapshot.latest_metrics.items())
+            ]
+            if snapshot.primitive_count is not None:
+                metric_parts.append(f"primitives={snapshot.primitive_count:,}")
+            if snapshot.iterations_per_second is not None:
+                metric_parts.append(
+                    f"it/s={snapshot.iterations_per_second:.2f}"
+                )
+            metric_text = " | ".join(metric_parts)
+            status_text = (
+                "Stopping" if snapshot.status == "stopping" else "Training"
+            )
+            speed_text = (
+                f"{snapshot.iterations_per_second:.2f} it/s"
+                if snapshot.iterations_per_second is not None
+                else "-- it/s"
+            )
+            elapsed_text = (
+                f"elapsed {format_duration(snapshot.elapsed_seconds)}"
+                if snapshot.elapsed_seconds is not None
+                else "elapsed --"
+            )
+            eta_text = (
+                f"ETA {format_duration(snapshot.eta_seconds)}"
+                if snapshot.eta_seconds is not None
+                else "ETA --"
+            )
+            training_result_view = mo.md(
+                f"{status_text}: `{step_text}` {speed_text} "
+                f"{elapsed_text} {eta_text}"
+                + (f"\n\n{metric_text}" if metric_text else "")
+            )
+        elif snapshot.status == "cancelled":
+            training_result_view = mo.md(
+                f"Training cancelled at step `{snapshot.step}`."
+            )
+        elif snapshot.status == "failed":
+            training_result_view = mo.callout(
+                f"Training failed.\n\n```text\n{snapshot.error_text or ''}\n```",
+                kind="danger",
+            )
+        else:
+            assert snapshot.result is not None
+            training_result_view = mo.md(
+                f"Checkpoint: `{snapshot.result.checkpoint_dir}`\n\n"
+                f"Steps: `{len(snapshot.result.history)}`"
+            )
+    return (training_result_view,)
 
 
 if __name__ == "__main__":

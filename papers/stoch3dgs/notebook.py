@@ -2,7 +2,7 @@
 
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.5"
 app = marimo.App(width="columns")
 
 with app.setup:
@@ -62,8 +62,64 @@ def _():
 
 
 @app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Configuration
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(preset_selector):
+    preset_selector
+    return
+
+
+@app.cell(hide_code=True)
+def _(config_gui):
+    config_gui.stacked()
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Training controls
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _(training_controls):
     training_controls
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md("""
+    ## Training output
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_result_view):
+    training_result_view
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_viewer):
+    training_viewer
+    return
+
+
+@app.cell(column=2, hide_code=True)
+def _():
+    mo.md("""
+    # Configuration model
+    """)
     return
 
 
@@ -94,38 +150,6 @@ def _(config_gui):
     return (current_config,)
 
 
-@app.cell(hide_code=True)
-def _(preset_selector):
-    preset_selector
-    return
-
-
-@app.cell(hide_code=True)
-def _(config_gui):
-    config_gui.stacked()
-    return
-
-
-@app.cell(hide_code=True)
-def _(training_result_view):
-    training_result_view
-    return
-
-
-@app.cell(hide_code=True)
-def _(training_viewer):
-    training_viewer
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md("""
-    ## Config definition
-    """)
-    return
-
-
 @app.class_definition
 class Stoch3DGSConfigBase(BaseModel):
     """Strict base model for Stoch3DGS paper configs."""
@@ -154,9 +178,9 @@ class Stoch3DGSDataConfig(Stoch3DGSConfigBase):
     max_resized_image_caches: int = Field(default=4, ge=1)
     split_target: Literal["train", "val", "all"] = "train"
     split_every_n: int | None = Field(default=8, ge=1)
-    materialization_stage: Literal["none", "decoded", "prepared"] = "none"
-    materialization_mode: Literal["lazy", "eager"] = "lazy"
-    materialization_num_workers: int | None = 0
+    materialization_stage: Literal["none", "decoded", "prepared"] = "prepared"
+    materialization_mode: Literal["lazy", "eager"] = "eager"
+    materialization_num_workers: int | None = 8
     normalize_images: bool = True
     interpolation: Literal["nearest", "bilinear", "bicubic"] = "bicubic"
 
@@ -403,6 +427,47 @@ class Stoch3DGSLossConfig(Stoch3DGSConfigBase):
 
 
 @app.class_definition
+class Stoch3DGSMipSplatting3DFilterConfig(Stoch3DGSConfigBase):
+    """Mip-Splatting 3D filter config."""
+
+    recompute_schedule: Stoch3DGSScheduleConfig = Field(
+        default_factory=lambda: Stoch3DGSScheduleConfig(
+            start_iteration=15_000,
+            end_iteration=29_899,
+            frequency=100,
+        )
+    )
+    near_plane: float | None = Field(default=0.2, gt=0.0)
+    filter_variance: float = Field(default=0.2, gt=0.0)
+    clipping_tolerance: float = Field(default=0.15, ge=0.0)
+
+    def build(self, context: ember.TrainingRunContext) -> ember.CallableSpec:
+        """Build the runtime Mip-Splatting 3D filter spec."""
+        del context
+        return ember.bound_callable(
+            target="ember_splatting_training.GaussianMipSplatting3DFilter",
+            kwargs={
+                "recompute_schedule": self.recompute_schedule.model_dump(
+                    mode="python"
+                ),
+                "near_plane": self.near_plane,
+                "filter_variance": self.filter_variance,
+                "clipping_tolerance": self.clipping_tolerance,
+            },
+        )
+
+
+@app.class_definition
+class Stoch3DGSMipSplattingConfig(Stoch3DGSConfigBase):
+    """Mip-Splatting 3D filter controls for Stoch3DGS."""
+
+    enabled: bool = False
+    three_dimensional_filter: Stoch3DGSMipSplatting3DFilterConfig = Field(
+        default_factory=Stoch3DGSMipSplatting3DFilterConfig
+    )
+
+
+@app.class_definition
 class Stoch3DGSDensificationConfig(Stoch3DGSConfigBase):
     """Typed notebook-local Stoch3DGS adaptive density config."""
 
@@ -429,19 +494,28 @@ class Stoch3DGSDensificationConfig(Stoch3DGSConfigBase):
     density_decay_frequency: int = Field(default=50, ge=1)
 
     def build(
-        self, context: ember.TrainingRunContext
+        self,
+        context: ember.TrainingRunContext,
+        *,
+        mip_splatting: Stoch3DGSMipSplattingConfig,
     ) -> ember.DensificationConfig:
         """Build the runtime Stoch3DGS densification stack."""
-        del context
-        return ember.densification_config(
+        builders = [
             ember.bound_callable(
                 target="papers.stoch3dgs.notebook.Stoch3DGSDensification",
                 kwargs=self.model_dump(mode="python"),
-            ),
+            )
+        ]
+        if mip_splatting.enabled:
+            builders.append(
+                mip_splatting.three_dimensional_filter.build(context)
+            )
+        builders.append(
             ember.bound_callable(
                 target="papers.stoch3dgs.notebook.Stoch3DGSFinalCleanup",
-            ),
+            )
         )
+        return ember.densification_config(*builders)
 
 
 @app.class_definition
@@ -461,6 +535,9 @@ class Stoch3DGSTrainingConfig(Stoch3DGSConfigBase):
         default_factory=Stoch3DGSOptimizationConfig
     )
     loss: Stoch3DGSLossConfig = Field(default_factory=Stoch3DGSLossConfig)
+    mip_splatting: Stoch3DGSMipSplattingConfig = Field(
+        default_factory=Stoch3DGSMipSplattingConfig
+    )
     densification: Stoch3DGSDensificationConfig = Field(
         default_factory=Stoch3DGSDensificationConfig
     )
@@ -496,7 +573,10 @@ class Stoch3DGSTrainingConfig(Stoch3DGSConfigBase):
             render=self.render.build(context),
             optimization=self.optimization.build(context),
             loss=self.loss.build(context),
-            densification=self.densification.build(context),
+            densification=self.densification.build(
+                context,
+                mip_splatting=self.mip_splatting,
+            ),
             hooks=ember.HookConfig(
                 builders=[
                     ember.bound_callable(
@@ -849,17 +929,26 @@ def _():
         label="Start training",
         full_width=True,
     )
-    return prepare_button, train_button
-
-
-@app.cell
-def _(prepare_button, train_button):
-    training_controls = mo.hstack(
-        [prepare_button, train_button],
-        justify="start",
-        gap=1,
+    stop_button = mo.ui.run_button(
+        label="Stop training",
+        full_width=True,
     )
-    return (training_controls,)
+    training_status_refresh = mo.ui.refresh(
+        options=["1s"],
+        default_interval="1s",
+        label="Training status",
+    )
+    training_controls = mo.vstack(
+        [prepare_button, train_button, stop_button, training_status_refresh],
+        gap=0.5,
+    )
+    return (
+        prepare_button,
+        stop_button,
+        train_button,
+        training_controls,
+        training_status_refresh,
+    )
 
 
 @app.function
@@ -908,31 +997,44 @@ def format_duration(seconds: float) -> str:
 
 
 @app.cell
-def _(current_config, is_script_mode, prepare_button, train_button):
-    should_prepare = (
-        is_script_mode or bool(prepare_button.value) or bool(train_button.value)
-    )
-    scene_record = (
-        ember.load_scene_record(build_scene_load_config(current_config))
-        if should_prepare and current_config is not None
-        else None
-    )
-    frame_dataset = (
-        ember.PreparedFrameDataset(
-            scene_record,
-            config=build_prepared_frame_dataset_config(current_config),
+def _(current_config, is_script_mode, prepare_button):
+    should_prepare = is_script_mode or bool(prepare_button.value)
+    scene_load_error = None
+    try:
+        scene_record = (
+            ember.load_scene_record(build_scene_load_config(current_config))
+            if should_prepare and current_config is not None
+            else None
         )
-        if scene_record is not None and current_config is not None
-        else None
-    )
-    return (frame_dataset,)
+    except Exception as error:
+        scene_record = None
+        scene_load_error = error
+    return scene_load_error, scene_record
+
+
+@app.cell
+def _(current_config, scene_record):
+    frame_dataset_error = None
+    try:
+        frame_dataset = (
+            ember.PreparedFrameDataset(
+                scene_record,
+                config=build_prepared_frame_dataset_config(current_config),
+            )
+            if scene_record is not None and current_config is not None
+            else None
+        )
+    except Exception as error:
+        frame_dataset = None
+        frame_dataset_error = error
+    return frame_dataset, frame_dataset_error
 
 
 @app.cell
 def _(current_config, frame_dataset, is_script_mode):
     training_config = (
         resolve_training_config(current_config, frame_dataset)
-        if current_config is not None
+        if current_config is not None and frame_dataset is not None
         else None
     )
     viewer_config = (
@@ -948,50 +1050,176 @@ def _(current_config, frame_dataset, is_script_mode):
 def _(
     current_config,
     frame_dataset,
-    prepare_button,
+    is_script_mode,
     training_config,
     viewer_config,
 ):
-    training_viewer = (
-        ember_splatting.training_viewer(
-            frame_dataset,
-            training_config,
-            config=viewer_config,
+    training_viewer_error = None
+    try:
+        training_viewer_handle = (
+            ember_splatting.create_training_viewer(
+                frame_dataset,
+                training_config,
+                config=viewer_config,
+                title="Stoch3DGS training viewer",
+            )
+            if not is_script_mode
+            and current_config is not None
+            and frame_dataset is not None
+            and training_config is not None
+            else None
         )
-        if current_config is not None
-        and frame_dataset is not None
-        and training_config is not None
-        and bool(prepare_button.value)
-        else mo.md("")
+    except Exception as error:
+        training_viewer_handle = None
+        training_viewer_error = error
+    return training_viewer_error, training_viewer_handle
+
+
+@app.cell
+def _(training_viewer_handle):
+    training_viewer = (
+        None
+        if training_viewer_handle is None
+        else training_viewer_handle.viewer
     )
     return (training_viewer,)
 
 
 @app.cell
-def _(current_config, frame_dataset, train_button):
-    training_result = (
-        run_stoch3dgs_training(current_config, frame_dataset)
-        if current_config is not None
+def _(
+    current_config,
+    frame_dataset,
+    is_script_mode,
+    train_button,
+    training_config,
+    training_viewer_handle,
+):
+    should_train = bool(train_button.value)
+    if (
+        is_script_mode
+        and current_config is not None
         and frame_dataset is not None
-        and bool(train_button.value)
-        else None
-    )
+        and training_config is not None
+    ):
+        training_result = run_stoch3dgs_training(
+            current_config,
+            frame_dataset,
+            training_config=training_config,
+        )
+    else:
+        training_result = None
+        if (
+            should_train
+            and frame_dataset is not None
+            and training_config is not None
+            and training_viewer_handle is not None
+        ):
+            training_viewer_handle.start_training(
+                frame_dataset,
+                training_config,
+            )
     return (training_result,)
 
 
 @app.cell
-def _(training_result):
-    training_result_view = (
-        mo.md(
-            f"""
-            **Checkpoint**: `{training_result.checkpoint_dir}`
+def _(stop_button, training_viewer_handle):
+    should_stop = bool(stop_button.value)
+    if should_stop and training_viewer_handle is not None:
+        training_viewer_handle.request_stop()
+    return
 
-            **Steps**: `{len(training_result.history)}`
-            """
+
+@app.cell
+def _(
+    frame_dataset_error,
+    scene_load_error,
+    training_result,
+    training_status_refresh,
+    training_viewer_error,
+    training_viewer_handle,
+):
+    _ = training_status_refresh.value
+    if scene_load_error is not None:
+        training_result_view = mo.callout(
+            f"Scene loading failed.\n\n```text\n{scene_load_error}\n```",
+            kind="danger",
         )
-        if training_result is not None
-        else mo.md("")
-    )
+    elif frame_dataset_error is not None:
+        training_result_view = mo.callout(
+            f"Frame dataset preparation failed.\n\n```text\n{frame_dataset_error}\n```",
+            kind="danger",
+        )
+    elif training_viewer_error is not None:
+        training_result_view = mo.callout(
+            f"Training viewer preparation failed.\n\n```text\n{training_viewer_error}\n```",
+            kind="danger",
+        )
+    elif training_result is not None:
+        training_result_view = mo.md(
+            f"Checkpoint: `{training_result.checkpoint_dir}`\n\n"
+            f"Steps: `{len(training_result.history)}`"
+        )
+    elif training_viewer_handle is None:
+        training_result_view = mo.md("Prepare the training viewer first.")
+    else:
+        snapshot = training_viewer_handle.snapshot()
+        if snapshot.status == "idle":
+            training_result_view = mo.md("Training has not started.")
+        elif snapshot.status in {"running", "stopping"}:
+            step_text = (
+                f"{snapshot.step} / {snapshot.max_steps}"
+                if snapshot.max_steps is not None
+                else str(snapshot.step)
+            )
+            metric_parts = [
+                f"{name}={value:.6g}"
+                for name, value in sorted(snapshot.latest_metrics.items())
+            ]
+            if snapshot.primitive_count is not None:
+                metric_parts.append(f"primitives={snapshot.primitive_count:,}")
+            if snapshot.iterations_per_second is not None:
+                metric_parts.append(
+                    f"it/s={snapshot.iterations_per_second:.2f}"
+                )
+            metric_text = " | ".join(metric_parts)
+            status_text = (
+                "Stopping" if snapshot.status == "stopping" else "Training"
+            )
+            speed_text = (
+                f"{snapshot.iterations_per_second:.2f} it/s"
+                if snapshot.iterations_per_second is not None
+                else "-- it/s"
+            )
+            elapsed_text = (
+                f"elapsed {format_duration(snapshot.elapsed_seconds)}"
+                if snapshot.elapsed_seconds is not None
+                else "elapsed --"
+            )
+            eta_text = (
+                f"ETA {format_duration(snapshot.eta_seconds)}"
+                if snapshot.eta_seconds is not None
+                else "ETA --"
+            )
+            training_result_view = mo.md(
+                f"{status_text}: `{step_text}` {speed_text} "
+                f"{elapsed_text} {eta_text}"
+                + (f"\n\n{metric_text}" if metric_text else "")
+            )
+        elif snapshot.status == "cancelled":
+            training_result_view = mo.md(
+                f"Training cancelled at step `{snapshot.step}`."
+            )
+        elif snapshot.status == "failed":
+            training_result_view = mo.callout(
+                f"Training failed.\n\n```text\n{snapshot.error_text or ''}\n```",
+                kind="danger",
+            )
+        else:
+            assert snapshot.result is not None
+            training_result_view = mo.md(
+                f"Checkpoint: `{snapshot.result.checkpoint_dir}`\n\n"
+                f"Steps: `{len(snapshot.result.history)}`"
+            )
     return (training_result_view,)
 
 
@@ -1034,8 +1262,7 @@ class Stoch3DGSActiveSHHook:
         else:
             active = (
                 1
-                + (state.step - self.sh_start_step - 1)
-                // self.sh_step_interval
+                + (state.step - self.sh_start_step - 1) // self.sh_step_interval
             )
         state.model.metadata["active_sh_degree"] = int(
             min(self.max_sh_degree, active)
@@ -1460,27 +1687,209 @@ def _():
 
 
 @app.function
+def resolved_stoch3dgs_scene_path(config: Stoch3DGSExperimentConfig) -> Path:
+    """Resolve the configured scene path without substituting sample scenes."""
+    return config.scene.path.expanduser()
+
+
+@app.function
 def resolved_resized_image_cache_root(
     config: Stoch3DGSExperimentConfig,
 ) -> Path:
     """Return the resized-image cache root for a config."""
     if config.data.resized_image_cache_root is not None:
         return config.data.resized_image_cache_root.expanduser()
-    return config.scene.path.expanduser() / "ember_cache" / "resized_images"
+    return (
+        resolved_stoch3dgs_scene_path(config) / "ember_cache" / "resized_images"
+    )
 
 
 @app.function
-def resolved_image_root(config: Stoch3DGSExperimentConfig) -> Path:
-    """Return the image root matching upstream MipNeRF360 data factors."""
+def stoch3dgs_source_image_root(config: Stoch3DGSExperimentConfig) -> Path:
+    """Return the full-resolution source image root."""
     if config.scene.image_root is not None:
         return config.scene.image_root.expanduser()
-    scale = 1.0 / config.data.image_scale_factor
-    rounded_scale = round(scale)
-    if abs(scale - rounded_scale) < 1e-6 and rounded_scale > 1:
-        candidate = config.scene.path.expanduser() / f"images_{rounded_scale}"
-        if candidate.exists():
-            return candidate
-    return config.scene.path.expanduser() / "images"
+    return resolved_stoch3dgs_scene_path(config) / "images"
+
+
+@app.function
+def stoch3dgs_resized_cache_enabled(
+    config: Stoch3DGSExperimentConfig,
+) -> bool:
+    """Return whether Stoch3DGS should use a derived resized image cache."""
+    return (
+        config.data.cache_resized_images
+        and config.data.image_scale_factor != 1.0
+    )
+
+
+@app.function
+def stoch3dgs_resized_cache_root(
+    config: Stoch3DGSExperimentConfig,
+) -> Path:
+    """Return the derived resized image cache root for this config."""
+    scale_name = f"{config.data.image_scale_factor:.6f}".rstrip("0").rstrip(".")
+    scale_name = scale_name.replace(".", "p")
+    return resolved_resized_image_cache_root(config) / (
+        f"scale_{scale_name}_{config.data.interpolation}"
+    )
+
+
+@app.function
+def stoch3dgs_pillow_resampling(interpolation: str) -> Any:
+    """Translate notebook interpolation names to Pillow resampling filters."""
+    from PIL import Image
+
+    if interpolation == "nearest":
+        return Image.Resampling.NEAREST
+    if interpolation == "bilinear":
+        return Image.Resampling.BILINEAR
+    if interpolation == "bicubic":
+        return Image.Resampling.BICUBIC
+    raise ValueError(f"Unsupported interpolation mode {interpolation!r}.")
+
+
+@app.function
+def enforce_stoch3dgs_resized_cache_limit(
+    *,
+    cache_root: Path,
+    max_caches: int,
+) -> None:
+    """Keep only a bounded number of reusable resized image caches."""
+    parent = cache_root.parent
+    if not parent.exists():
+        return
+    cache_dirs = [
+        path
+        for path in parent.iterdir()
+        if path.is_dir() and path.name.startswith("scale_")
+    ]
+    overflow = len(cache_dirs) - max_caches
+    if overflow <= 0:
+        return
+    evictable = sorted(
+        (path for path in cache_dirs if path != cache_root),
+        key=lambda path: path.stat().st_mtime,
+    )
+    for stale_cache in evictable[:overflow]:
+        shutil.rmtree(stale_cache)
+
+
+@app.function
+def materialize_stoch3dgs_resized_image_cache(
+    *,
+    source_root: Path,
+    cache_root: Path,
+    scale: float,
+    interpolation: str,
+    max_caches: int,
+) -> Path:
+    """Create/update a derived resized image cache from full-res images."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from PIL import Image
+    from tqdm.auto import tqdm
+
+    image_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    source_paths = sorted(
+        path
+        for path in source_root.rglob("*")
+        if path.is_file() and path.suffix.lower() in image_suffixes
+    )
+    if not source_paths:
+        raise ValueError(f"No source images found under {source_root}.")
+    resampling = stoch3dgs_pillow_resampling(interpolation)
+    enforce_stoch3dgs_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    def resize_one(source_path: Path) -> None:
+        relative_path = source_path.relative_to(source_root)
+        target_path = cache_root / relative_path
+        if (
+            target_path.exists()
+            and target_path.stat().st_mtime >= source_path.stat().st_mtime
+        ):
+            return
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(source_path) as image:
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            resized_size = (
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
+            )
+            resized = rgb.resize(resized_size, resampling)
+            save_kwargs = (
+                {"quality": 95}
+                if target_path.suffix.lower() in {".jpg", ".jpeg"}
+                else {}
+            )
+            resized.save(target_path, **save_kwargs)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(resize_one, path) for path in source_paths]
+        for future in tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Preparing resized image cache",
+        ):
+            future.result()
+    (cache_root / "cache_metadata.json").write_text(
+        json.dumps(
+            {
+                "source_root": str(source_root),
+                "scale": scale,
+                "interpolation": interpolation,
+                "num_images": len(source_paths),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    cache_root.touch()
+    enforce_stoch3dgs_resized_cache_limit(
+        cache_root=cache_root,
+        max_caches=max_caches,
+    )
+    return cache_root
+
+
+@app.function
+def build_scene_load_config(
+    config: Stoch3DGSExperimentConfig,
+) -> ember.ColmapSceneConfig:
+    """Build scene loading config from notebook options."""
+    source_pipes = (
+        (ember.HorizonAlignPipeConfig(),) if config.scene.align_horizon else ()
+    )
+    image_root = (
+        materialize_stoch3dgs_resized_image_cache(
+            source_root=stoch3dgs_source_image_root(config),
+            cache_root=stoch3dgs_resized_cache_root(config),
+            scale=config.data.image_scale_factor,
+            interpolation=config.data.interpolation,
+            max_caches=config.data.max_resized_image_caches,
+        )
+        if stoch3dgs_resized_cache_enabled(config)
+        else (
+            config.scene.image_root.expanduser()
+            if config.scene.image_root is not None
+            else None
+        )
+    )
+    return ember.ColmapSceneConfig(
+        path=resolved_stoch3dgs_scene_path(config),
+        image_root=image_root,
+        undistort_output_dir=(
+            config.scene.undistort_output_dir.expanduser()
+            if config.scene.undistort_output_dir is not None
+            else None
+        ),
+        source_pipes=source_pipes,
+    )
 
 
 @app.function
@@ -1490,11 +1899,18 @@ def build_prepared_frame_dataset_config(
     """Build prepared-frame dataset config from notebook options."""
     split = ember.SplitConfig(
         target=config.data.split_target,
-        mode="none" if config.data.split_target == "all" else "every_n",
-        every_n=config.data.split_every_n or 8,
+        every_n=(
+            None
+            if config.data.split_target == "all"
+            else config.data.split_every_n or 8
+        ),
     )
     preparation = ember.ImagePreparationConfig(
-        resize_width_scale=config.data.image_scale_factor,
+        resize_width_scale=(
+            None
+            if stoch3dgs_resized_cache_enabled(config)
+            else config.data.image_scale_factor
+        ),
         normalize=config.data.normalize_images,
         interpolation=config.data.interpolation,
     )
@@ -1508,40 +1924,6 @@ def build_prepared_frame_dataset_config(
         split=split,
         image_preparation=preparation,
         materialization=materialization,
-    )
-
-
-@app.function
-def build_scene_load_config(
-    config: Stoch3DGSExperimentConfig,
-) -> ember.SceneLoadConfig:
-    """Build scene loading config from notebook options."""
-    postprocess = (
-        ember.ScenePostprocessConfig(
-            horizon_adjustment=ember.HorizonAdjustmentConfig(enabled=True)
-        )
-        if config.scene.align_horizon
-        else None
-    )
-    cache = (
-        ember.ImageCacheConfig(
-            root=resolved_resized_image_cache_root(config),
-            max_entries=config.data.max_resized_image_caches,
-        )
-        if config.data.cache_resized_images
-        else None
-    )
-    return ember.SceneLoadConfig(
-        source="colmap",
-        path=config.scene.path.expanduser(),
-        image_root=resolved_image_root(config),
-        undistort_output_dir=(
-            config.scene.undistort_output_dir.expanduser()
-            if config.scene.undistort_output_dir is not None
-            else None
-        ),
-        postprocess=postprocess,
-        cache=cache,
     )
 
 

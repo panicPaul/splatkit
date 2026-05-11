@@ -80,7 +80,10 @@ def _current_render_statistics(
 ) -> tuple[
     Float[Tensor, " num_voxels 1"],
     Float[Tensor, " num_voxels 1"],
-]:
+] | None:
+    max_weight_tensor = getattr(render_output, "max_weight", None)
+    if max_weight_tensor is None:
+        return None
     max_weight = _max_voxel_weight(render_output)
     min_sample_interval = torch.zeros_like(scene.vox_size)
     return max_weight, min_sample_interval
@@ -94,13 +97,18 @@ def _training_view_statistics(
 ) -> tuple[
     Float[Tensor, " num_voxels 1"],
     Float[Tensor, " num_voxels 1"],
-]:
+] | None:
     max_weight = torch.zeros_like(scene.vox_size)
     min_sample_interval = torch.full_like(scene.vox_size, torch.inf)
+    found_statistics = False
     for view in runtime.all_views():
         camera = _view_camera(view)
         render_output = runtime.render_raw(model, camera)
+        view_max_weight_tensor = getattr(render_output, "max_weight", None)
+        if view_max_weight_tensor is None:
+            continue
         view_max_weight = _max_voxel_weight(render_output)
+        found_statistics = True
         max_weight = torch.maximum(max_weight, view_max_weight)
         visible_mask = view_max_weight > 0.0
         voxel_to_camera = scene.vox_center - _camera_position(camera)
@@ -121,6 +129,8 @@ def _training_view_statistics(
         min_sample_interval,
         torch.zeros_like(min_sample_interval),
     )
+    if not found_statistics:
+        return None
     return max_weight, min_sample_interval
 
 
@@ -131,6 +141,18 @@ def _subdivision_priority(
     if priority.grad is not None:
         return priority.grad.detach()
     return priority.detach()
+
+
+def _ensure_nonempty_keep_mask(
+    keep_mask: Bool[Tensor, " num_voxels"],
+    ranking: Float[Tensor, " num_voxels 1"],
+) -> Bool[Tensor, " num_voxels"]:
+    """Keep the best-ranked voxel if a prune step would empty the scene."""
+    if keep_mask.numel() == 0 or bool(keep_mask.any()):
+        return keep_mask
+    guarded_mask = keep_mask.clone()
+    guarded_mask[torch.argmax(ranking.reshape(-1))] = True
+    return guarded_mask
 
 
 @dataclass
@@ -246,16 +268,19 @@ class SVRasterAdaptivePruneSubdivide(BaseDensificationMethod):
         ):
             return
 
-        max_weight, min_sample_interval = _current_render_statistics(
+        statistics = _current_render_statistics(
             scene,
             context.render_output,
         )
         if context.runtime is not None and hasattr(context.runtime, "all_views"):
-            max_weight, min_sample_interval = _training_view_statistics(
+            statistics = _training_view_statistics(
                 scene=scene,
                 model=context.state.model,
                 runtime=context.runtime,
             )
+        if statistics is None:
+            return
+        max_weight, min_sample_interval = statistics
 
         keep_mask = torch.ones(
             (scene.num_voxels,),
@@ -271,6 +296,7 @@ class SVRasterAdaptivePruneSubdivide(BaseDensificationMethod):
                 final_threshold=self.prune_threshold_final,
             )
             keep_mask = max_weight.reshape(-1) >= threshold
+            keep_mask = _ensure_nonempty_keep_mask(keep_mask, max_weight)
 
         subdivide_mask = torch.zeros_like(keep_mask)
         if (

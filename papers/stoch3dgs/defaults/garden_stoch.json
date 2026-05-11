@@ -1,8 +1,8 @@
 {
   "preset": "garden_stoch",
   "scene": {
-    "path": "dataset/mipnerf360/garden",
-    "image_root": null,
+    "path": "/home/schlack/Documents/3DGS_scenes/360/garden",
+    "image_root": "/home/schlack/Documents/3DGS_scenes/360/garden/images",
     "undistort_output_dir": null,
     "align_horizon": true
   },
@@ -14,9 +14,9 @@
     "max_resized_image_caches": 4,
     "split_target": "train",
     "split_every_n": 8,
-    "materialization_stage": "none",
-    "materialization_mode": "lazy",
-    "materialization_num_workers": 0,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
     "normalize_images": true,
     "interpolation": "bicubic"
   },
@@ -93,6 +93,19 @@
       "lambda_opacity_regularization": 0.0,
       "lambda_scale_regularization": 0.0,
       "ssim_backend": "cuda"
+    },
+    "mip_splatting": {
+      "enabled": false,
+      "three_dimensional_filter": {
+        "recompute_schedule": {
+          "start_iteration": 15000,
+          "end_iteration": 29899,
+          "frequency": 100
+        },
+        "near_plane": 0.2,
+        "filter_variance": 0.2,
+        "clipping_tolerance": 0.15
+      }
     },
     "densification": {
       "densify_frequency": 400,

@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import marimo as mo
 import torch
+from ember_core.core.contracts import Scene
 from ember_core.data import PreparedFrameDataset
 from ember_core.training import (
     TrainingConfig,
@@ -634,11 +635,17 @@ def _clone_model_for_render(model: Any) -> Any:
         return model
     return replace(
         model,
-        scene=_clone_dataclass_tensors(model.scene),
+        scene=_clone_scene_for_render(model.scene),
         parameters=_clone_tensor_mapping(getattr(model, "parameters", {})),
         buffers=_clone_tensor_mapping(getattr(model, "buffers", {})),
         metadata=dict(getattr(model, "metadata", {})),
     )
+
+
+def _clone_scene_for_render(value: Any) -> Any:
+    if isinstance(value, Scene):
+        return value.detached_copy()
+    return _clone_dataclass_tensors(value)
 
 
 def _clone_dataclass_tensors(value: Any) -> Any:
@@ -691,7 +698,7 @@ def _dc_only_model_for_render(model: Any) -> Any:
     feature = getattr(scene, "feature", None)
     if not (
         is_dataclass(model)
-        and is_dataclass(scene)
+        and isinstance(scene, Scene)
         and isinstance(feature, Tensor)
         and feature.ndim == 3
         and feature.shape[1] > 1
@@ -701,7 +708,7 @@ def _dc_only_model_for_render(model: Any) -> Any:
     display_feature[:, 1:, :] = 0.0
     return replace(
         model,
-        scene=replace(scene, feature=display_feature),
+        scene=scene.with_fields(feature=display_feature),
     )
 
 

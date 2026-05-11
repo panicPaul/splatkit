@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from ember_splatting_training import GaussianFastGS
 from marimo_config_gui.api import load_script_config
 from marimo_config_gui.presets import load_preset_config
 
@@ -396,6 +397,27 @@ def test_fastgs_refinement_pruning_pads_scores_after_growth() -> None:
 
     assert int(sampled_prune_mask.sum().item()) == 3
     assert not torch.any(sampled_prune_mask[4:])
+
+
+def test_shared_gaussian_fastgs_prune_sampling_matches_paper_helper() -> None:
+    module = load_fastgs_config_module()
+    shared = GaussianFastGS()
+    paper = module.FastGSDensification()
+    prune_mask = torch.tensor([True, False, True, True, False, True])
+    pruning_score = torch.tensor([0.1, 0.2, 0.3, 0.4])
+
+    torch.manual_seed(0)
+    shared_mask = shared._sample_refinement_prune_mask(
+        prune_mask,
+        pruning_score,
+    )
+    torch.manual_seed(0)
+    paper_mask = paper._sample_refinement_prune_mask(
+        prune_mask,
+        pruning_score,
+    )
+
+    torch.testing.assert_close(shared_mask, paper_mask)
 
 
 def test_fastgs_pruning_score_uses_photometric_probe_loss(

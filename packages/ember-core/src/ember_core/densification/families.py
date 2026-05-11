@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -12,6 +12,8 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 from ember_core.core.contracts import GaussianScene, SparseVoxelScene
+from ember_core.core.families import GAUSSIAN, SPARSE_VOXEL, scene_family_id
+from ember_core.core.keys import SceneFamilyKey
 from ember_core.core.sparse_voxel import (
     _SUBTREE_SHIFTS,
     svraster_build_grid_points_link,
@@ -90,7 +92,8 @@ class _SceneOptimizerAdapter:
         state_transforms: dict[str, Callable[[str, Tensor], Tensor]],
     ) -> Any:
         """Replace scene fields and update optimizer references/state."""
-        for name, value in updates.items():
+        installed = scene.replace_fields_(**updates)
+        for name, value in installed.items():
             bindings = self._bindings.get(name)
             if bindings is None:
                 continue
@@ -99,7 +102,7 @@ class _SceneOptimizerAdapter:
                 replace_parameter = getattr(binding, "replace_parameter", None)
                 if callable(replace_parameter):
                     replace_parameter(value, transform)
-        return replace(scene, **updates)
+        return scene
 
     def reset_state(
         self,
@@ -398,24 +401,21 @@ class GaussianFamilyOps:
         updates: dict[str, Tensor],
         state_transforms: dict[str, Callable[[str, Tensor], Tensor]],
     ) -> None:
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                state_transforms,
-            ),
+        self._optimizer_adapter.replace_scene_fields(
+            scene,
+            updates,
+            state_transforms,
         )
 
     def _tensor_field_names(self) -> tuple[str, ...]:
         scene = self.scene
         num_splats = int(scene.center_position.shape[0])
         return tuple(
-            field_def.name
-            for field_def in fields(scene)
+            name
+            for name in scene.topology_field_names
             if _is_per_splat_tensor(
-                field_def.name,
-                getattr(scene, field_def.name),
+                name,
+                getattr(scene, name, None),
                 num_splats,
             )
         )
@@ -430,8 +430,7 @@ class GaussianFamilyOps:
         num_splats = int(scene.center_position.shape[0])
         updates: dict[str, Tensor] = {}
         state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
-        for field_def in fields(scene):
-            name = field_def.name
+        for name in scene.topology_field_names:
             value = getattr(scene, name)
             if not _is_per_splat_tensor(name, value, num_splats):
                 continue
@@ -479,8 +478,7 @@ class GaussianFamilyOps:
             "offsets": rotated_offsets,
         }
         num_splats = int(scene.center_position.shape[0])
-        for field_def in fields(scene):
-            name = field_def.name
+        for name in scene.topology_field_names:
             value = getattr(scene, name)
             if not _is_per_splat_tensor(name, value, num_splats):
                 continue
@@ -577,8 +575,7 @@ class GaussianFamilyOps:
         prune_field_name_set = (
             None if prune_field_names is None else set(prune_field_names)
         )
-        for field_def in fields(scene):
-            name = field_def.name
+        for name in scene.topology_field_names:
             value = getattr(scene, name)
             if not _is_per_splat_tensor(name, value, num_splats):
                 continue
@@ -595,12 +592,11 @@ class GaussianFamilyOps:
             )
         keep_mask = None
         if prune_fn is not None:
-            grown_scene = replace(scene, **grown_updates)
+            grown_scene = scene.with_fields(**grown_updates)
             keep_mask = prune_fn(grown_scene)
         updates: dict[str, Tensor] = {}
         state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
-        for field_def in fields(scene):
-            name = field_def.name
+        for name in scene.topology_field_names:
             value = getattr(scene, name)
             if not _is_per_splat_tensor(name, value, num_splats):
                 continue
@@ -689,8 +685,7 @@ class GaussianFamilyOps:
         updates: dict[str, Tensor] = {}
         state_transforms: dict[str, Callable[[str, Tensor], Tensor]] = {}
         num_splats = int(scene.center_position.shape[0])
-        for field_def in fields(scene):
-            name = field_def.name
+        for name in scene.topology_field_names:
             value = getattr(scene, name)
             if not _is_per_splat_tensor(name, value, num_splats):
                 continue
@@ -866,17 +861,14 @@ class GaussianFamilyOps:
                 scene.logit_opacity.requires_grad
             )
         }
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                {
-                    "logit_opacity": lambda _key, old_value: torch.zeros_like(
-                        old_value
-                    )
-                },
-            ),
+        self._replace_scene(
+            scene,
+            updates,
+            {
+                "logit_opacity": lambda _key, old_value: torch.zeros_like(
+                    old_value
+                )
+            },
         )
 
     def jitter_positions(self, sigma: float) -> None:
@@ -889,17 +881,14 @@ class GaussianFamilyOps:
             .detach()
             .requires_grad_(scene.center_position.requires_grad)
         }
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                {
-                    "center_position": lambda _key, old_value: torch.zeros_like(
-                        old_value
-                    )
-                },
-            ),
+        self._replace_scene(
+            scene,
+            updates,
+            {
+                "center_position": lambda _key, old_value: torch.zeros_like(
+                    old_value
+                )
+            },
         )
 
 
@@ -1009,22 +998,19 @@ class SparseVoxelFamilyOps:
                 .detach()
                 .requires_grad_(scene.subdivision_priority.requires_grad)
             )
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                {
-                    "sh0": lambda _key, old_value: old_value[keep_mask],
-                    "shs": lambda _key, old_value: old_value[keep_mask],
-                    "geo_grid_pts": lambda _key, old_value: torch.zeros_like(
-                        geo_grid_pts
-                    ),
-                    "subdivision_priority": lambda _key, old_value: (
-                        old_value[keep_mask]
-                    ),
-                },
-            ),
+        self._optimizer_adapter.replace_scene_fields(
+            scene,
+            updates,
+            {
+                "sh0": lambda _key, old_value: old_value[keep_mask],
+                "shs": lambda _key, old_value: old_value[keep_mask],
+                "geo_grid_pts": lambda _key, old_value: torch.zeros_like(
+                    geo_grid_pts
+                ),
+                "subdivision_priority": lambda _key, old_value: (
+                    old_value[keep_mask]
+                ),
+            },
         )
 
     def subdivide(self, mask: Bool[Tensor, " num_voxels"]) -> None:
@@ -1087,32 +1073,29 @@ class SparseVoxelFamilyOps:
                     scene.subdivision_priority.requires_grad
                 )
             )
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                {
-                    "sh0": lambda _key, old_value: torch.cat(
-                        [old_value[keep_mask], torch.zeros_like(child_sh0)],
-                        dim=0,
-                    ),
-                    "shs": lambda _key, old_value: torch.cat(
-                        [old_value[keep_mask], torch.zeros_like(child_shs)],
-                        dim=0,
-                    ),
-                    "geo_grid_pts": lambda _key, old_value: torch.zeros_like(
-                        geo_grid_pts
-                    ),
-                    "subdivision_priority": lambda _key, old_value: torch.cat(
-                        [
-                            old_value[keep_mask],
-                            torch.zeros_like(child_subdivision_priority),
-                        ],
-                        dim=0,
-                    ),
-                },
-            ),
+        self._optimizer_adapter.replace_scene_fields(
+            scene,
+            updates,
+            {
+                "sh0": lambda _key, old_value: torch.cat(
+                    [old_value[keep_mask], torch.zeros_like(child_sh0)],
+                    dim=0,
+                ),
+                "shs": lambda _key, old_value: torch.cat(
+                    [old_value[keep_mask], torch.zeros_like(child_shs)],
+                    dim=0,
+                ),
+                "geo_grid_pts": lambda _key, old_value: torch.zeros_like(
+                    geo_grid_pts
+                ),
+                "subdivision_priority": lambda _key, old_value: torch.cat(
+                    [
+                        old_value[keep_mask],
+                        torch.zeros_like(child_subdivision_priority),
+                    ],
+                    dim=0,
+                ),
+            },
         )
 
     def reset_subdivision_priority(self) -> None:
@@ -1126,28 +1109,58 @@ class SparseVoxelFamilyOps:
                 scene.subdivision_priority.requires_grad
             )
         }
-        self._state.model = replace(
-            self._state.model,
-            scene=self._optimizer_adapter.replace_scene_fields(
-                scene,
-                updates,
-                {
-                    "subdivision_priority": lambda _key, old_value: (
-                        torch.zeros_like(old_value)
-                    )
-                },
-            ),
+        self._optimizer_adapter.replace_scene_fields(
+            scene,
+            updates,
+            {
+                "subdivision_priority": lambda _key, old_value: (
+                    torch.zeros_like(old_value)
+                )
+            },
         )
 
 
-def build_family_ops(state: Any, optimizers: list[Any]) -> Any:
+FamilyOpsFactory = Callable[[Any, list[Any]], Any]
+_FAMILY_OPS_FACTORIES: dict[str, FamilyOpsFactory] = {}
+
+
+def register_family_ops(
+    family: str | SceneFamilyKey,
+    factory: FamilyOpsFactory,
+) -> None:
+    """Register topology ops for a scene family."""
+    family_key = scene_family_id(family)
+    existing = _FAMILY_OPS_FACTORIES.get(family_key)
+    if existing is not None and existing is not factory:
+        raise ValueError(
+            f"Conflicting densification family ops registration for {family_key!r}."
+        )
+    _FAMILY_OPS_FACTORIES[family_key] = factory
+
+
+def build_family_ops(
+    state: Any,
+    optimizers: list[Any],
+    *,
+    required: bool = True,
+) -> Any | None:
     """Build family ops for the current scene."""
-    family = state.model.scene.scene_family
-    if family == "gaussian":
-        return GaussianFamilyOps(state, optimizers)
-    if family == "sparse_voxel":
-        return SparseVoxelFamilyOps(state, optimizers)
-    raise ValueError(f"Unsupported densification scene family {family!r}.")
+    family = scene_family_id(state.model.scene.scene_family)
+    factory = _FAMILY_OPS_FACTORIES.get(family)
+    if factory is None:
+        if not required:
+            return None
+        raise ValueError(
+            f"Unsupported densification scene family {family!r}. Register "
+            "family ops or implement bind_context(...) on the densification method."
+        )
+    return factory(state, optimizers)
+
+
+register_family_ops("gaussian", GaussianFamilyOps)
+register_family_ops(GAUSSIAN, GaussianFamilyOps)
+register_family_ops("sparse_voxel", SparseVoxelFamilyOps)
+register_family_ops(SPARSE_VOXEL, SparseVoxelFamilyOps)
 
 
 __all__ = [
@@ -1157,5 +1170,6 @@ __all__ = [
     "build_family_ops",
     "copy_field",
     "custom_field",
+    "register_family_ops",
     "zero_field",
 ]

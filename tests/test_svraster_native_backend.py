@@ -5,6 +5,7 @@ from typing import cast
 import pytest
 import torch
 from ember_core.core import BACKEND_REGISTRY, render
+from ember_native_svraster.backends import SVRASTER_CORE
 from ember_native_svraster.svraster import (
     SVRasterDepthRenderOutput,
     SVRasterRenderOutput,
@@ -13,6 +14,13 @@ from ember_native_svraster.svraster import (
 )
 
 register()
+
+
+def test_svraster_typed_backend_ref_builds_options() -> None:
+    options = SVRASTER_CORE.options(samples_per_voxel=2)
+
+    assert SVRASTER_CORE.serialized == "svraster.core"
+    assert options.samples_per_voxel == 2
 
 
 @pytest.mark.backend

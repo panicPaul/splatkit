@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 import torch
 from ember_core.core import (
@@ -138,8 +136,7 @@ def cuda_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
 
 @pytest.fixture
 def cpu_visible_scene(cpu_scene: GaussianScene3D) -> GaussianScene3D:
-    return replace(
-        cpu_scene,
+    return cpu_scene.with_fields(
         center_position=cpu_scene.center_position
         + torch.tensor([0.0, 0.0, 5.0], dtype=torch.float32),
     )

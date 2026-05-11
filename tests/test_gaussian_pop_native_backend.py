@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -39,8 +38,7 @@ def _remove_primitive(scene, primitive_index: int):
         device=scene.center_position.device,
     )
     keep_mask[primitive_index] = False
-    return replace(
-        scene,
+    return scene.with_fields(
         center_position=scene.center_position[keep_mask],
         log_scales=scene.log_scales[keep_mask],
         quaternion_orientation=scene.quaternion_orientation[keep_mask],

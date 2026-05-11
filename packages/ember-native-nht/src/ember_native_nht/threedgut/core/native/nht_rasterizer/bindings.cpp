@@ -78,6 +78,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, module) {
     module.def(
         "rasterize_depth_bwd",
         &gsplat::rasterize_to_pixels_from_world_3dgs_bwd);
+    module.def("rasterize_to_indices_3dgs", &gsplat::rasterize_to_indices_3dgs);
 
     module.attr("encoding_expansion_factor") = ENCF;
     module.attr("num_encoding_frequencies") = ENCF;

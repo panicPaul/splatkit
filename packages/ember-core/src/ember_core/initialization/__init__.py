@@ -43,7 +43,7 @@ class InitializedModel:
         }
         return replace(
             self,
-            scene=self.scene.to(device),
+            scene=self.scene.detached_copy(device),
             modules=moved_modules,
             parameters=moved_parameters,
             buffers=moved_buffers,

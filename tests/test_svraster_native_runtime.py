@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 import torch
 from ember_core.core.sparse_voxel import svraster_octpath_to_ijk
@@ -129,8 +127,8 @@ def test_render_backward_produces_finite_gradients(
     camera_to_world = cuda_camera.cam_to_world[0]
     tanfovx = (width * 0.5) / focal_x
     tanfovy = (height * 0.5) / focal_y
-    scene = replace(
-        cuda_sparse_voxel_scene,
+    scene = cuda_sparse_voxel_scene.detached_copy()
+    scene.replace_fields_(
         geo_grid_pts=cuda_sparse_voxel_scene.geo_grid_pts.detach()
         .clone()
         .requires_grad_(True),
@@ -163,6 +161,76 @@ def test_render_backward_produces_finite_gradients(
     for grad in (scene.geo_grid_pts.grad, scene.sh0.grad, scene.shs.grad):
         assert grad is not None
         assert torch.isfinite(grad).all()
+
+
+@pytest.mark.cuda
+def test_rasterize_backward_accepts_empty_voxel_gradients(
+    cuda_camera,
+) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
+    )
+    camera_to_world = cuda_camera.cam_to_world[0]
+    device = camera_to_world.device
+    dtype = torch.float32
+    octree_paths = torch.empty((0,), device=device, dtype=torch.int64)
+    voxel_centers = torch.empty((0, 3), device=device, dtype=dtype)
+    voxel_lengths = torch.empty((0,), device=device, dtype=dtype)
+    preprocess_result = runtime.preprocess(
+        image_width=width,
+        image_height=height,
+        tanfovx=(width * 0.5) / focal_x,
+        tanfovy=(height * 0.5) / focal_y,
+        cx=center_x,
+        cy=center_y,
+        world_to_camera=torch.linalg.inv(camera_to_world),
+        camera_to_world=camera_to_world,
+        near=0.02,
+        octree_paths=octree_paths,
+        voxel_centers=voxel_centers,
+        voxel_lengths=voxel_lengths,
+    )
+    voxel_geometries = torch.empty(
+        (0, 8), device=device, dtype=dtype, requires_grad=True
+    )
+    voxel_colors = torch.empty(
+        (0, 3), device=device, dtype=dtype, requires_grad=True
+    )
+    subdivision_priority = torch.empty(
+        (0, 1), device=device, dtype=dtype, requires_grad=True
+    )
+
+    result = runtime.rasterize(
+        samples_per_voxel=1,
+        image_width=width,
+        image_height=height,
+        tanfovx=(width * 0.5) / focal_x,
+        tanfovy=(height * 0.5) / focal_y,
+        cx=center_x,
+        cy=center_y,
+        world_to_camera=torch.linalg.inv(camera_to_world),
+        camera_to_world=camera_to_world,
+        background_color=0.0,
+        return_depth=True,
+        return_normal=False,
+        track_max_weight=True,
+        octree_paths=octree_paths,
+        voxel_centers=voxel_centers,
+        voxel_lengths=voxel_lengths,
+        voxel_geometries=voxel_geometries,
+        voxel_colors=voxel_colors,
+        subdivision_priority=subdivision_priority,
+        geometry_buffer=preprocess_result.geom_buffer,
+        distortion_weight=0.1,
+    )
+    (result.color.sum() + result.depth.sum()).backward()
+
+    assert voxel_geometries.grad is not None
+    assert voxel_geometries.grad.shape == (0, 8)
+    assert voxel_colors.grad is not None
+    assert voxel_colors.grad.shape == (0, 3)
+    assert subdivision_priority.grad is not None
+    assert subdivision_priority.grad.shape == (0, 1)
 
 
 @pytest.mark.cuda

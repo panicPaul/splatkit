@@ -164,6 +164,13 @@ class GaussianMCMC(BaseDensificationMethod):
             self.min_opacity,
             1.0 - torch.finfo(torch.float32).eps,
         ).logit()
+        if adjusted_opacities.ndim == 2:
+            if adjusted_opacities.shape[-1] != 1:
+                raise ValueError(
+                    "MCMC relocation expected scalar opacity logits per "
+                    f"Gaussian, got shape {tuple(adjusted_opacities.shape)}."
+                )
+            adjusted_opacities = adjusted_opacities.squeeze(-1)
         return adjusted_opacities, adjusted_scales.log()
 
     def _relocate_dead(self, scene: GaussianScene) -> None:

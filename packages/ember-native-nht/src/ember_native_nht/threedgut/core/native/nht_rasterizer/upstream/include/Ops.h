@@ -77,7 +77,7 @@ projection_ewa_3dgs_fused_fwd(
     const float near_plane,
     const float far_plane,
     const float radius_clip,
-    const bool calc_compensations,
+    const bool mip_splatting_screen_filter,
     const CameraModelType camera_model
 );
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -96,12 +96,12 @@ projection_ewa_3dgs_fused_bwd(
     // fwd outputs
     const at::Tensor radii,                       // [..., C, N, 2]
     const at::Tensor conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> mip_splatting_screen_filter_compensations, // [..., C, N] optional
     // grad outputs
     const at::Tensor v_means2d,                     // [..., C, N, 2]
     const at::Tensor v_depths,                      // [..., C, N]
     const at::Tensor v_conics,                      // [..., C, N, 3]
-    const at::optional<at::Tensor> v_compensations, // [..., C, N] optional
+    const at::optional<at::Tensor> v_mip_splatting_screen_filter_compensations, // [..., C, N] optional
     const bool viewmats_requires_grad
 );
 
@@ -137,7 +137,7 @@ projection_ewa_3dgs_packed_fwd(
     const float near_plane,
     const float far_plane,
     const float radius_clip,
-    const bool calc_compensations,
+    const bool mip_splatting_screen_filter,
     const CameraModelType camera_model
 );
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -158,12 +158,12 @@ projection_ewa_3dgs_packed_bwd(
     const at::Tensor camera_ids,                  // [nnz]
     const at::Tensor gaussian_ids,                // [nnz]
     const at::Tensor conics,                      // [nnz, 3]
-    const at::optional<at::Tensor> compensations, // [nnz] optional
+    const at::optional<at::Tensor> mip_splatting_screen_filter_compensations, // [nnz] optional
     // grad outputs
     const at::Tensor v_means2d,                     // [nnz, 2]
     const at::Tensor v_depths,                      // [nnz]
     const at::Tensor v_conics,                      // [nnz, 3]
-    const at::optional<at::Tensor> v_compensations, // [nnz] optional
+    const at::optional<at::Tensor> v_mip_splatting_screen_filter_compensations, // [nnz] optional
     const bool viewmats_requires_grad,
     const bool sparse_grad
 );
@@ -539,7 +539,7 @@ projection_ut_3dgs_fused(
     const float near_plane,
     const float far_plane,
     const float radius_clip,
-    const bool calc_compensations,
+    const bool mip_splatting_screen_filter,
     const CameraModelType camera_model,
     // uncented transform
     const UnscentedTransformParameters ut_params,

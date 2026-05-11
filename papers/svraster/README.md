@@ -19,8 +19,9 @@ regularization.
 
 This notebook targets the standard sparse-voxel reconstruction path through the
 native Ember `svraster.core` render backend. Paper-specific scheduling,
-initialization, pruning, subdivision, and experiment defaults live in the
-notebook so the implementation can stress-test the training API.
+initialization, pruning, subdivision, optimization, and loss helpers live in
+`ember-svraster-training` so the notebook stays aligned with the current
+FastGS/FasterGS/Stoch3DGS paper-notebook flow.
 
 ## Notebook
 
@@ -34,7 +35,10 @@ Run interactively:
 uv run marimo run papers/svraster/notebook.py
 ```
 
-The notebook is also the Python config/module surface used by script mode:
+The notebook includes the current paper training controls: preset selection,
+config editing, prepare/train/stop buttons, live viewer output, and compact
+training status with throughput and ETA. It is also the Python config/module
+surface used by script mode:
 
 - `papers/svraster/notebook.py`
 
@@ -58,6 +62,10 @@ Training utilities:
 
 - `ember-svraster-training`
 - `ember_native_svraster.training`
+
+Data loading follows the sibling paper notebooks: resized training images can
+be cached under `<scene.path>/ember_cache/resized_images/...`, and prepared
+frame materialization defaults to eager prepared samples with worker threads.
 
 Each successful run writes the resolved training artifact directory configured by
 `checkpoint.output_dir`, including:

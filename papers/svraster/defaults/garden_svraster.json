@@ -2,18 +2,41 @@
   "preset": "garden_svraster",
   "scene": {
     "path": "dataset/mipnerf360/garden",
+    "image_root": null,
+    "undistort_output_dir": null,
     "align_horizon": true
   },
   "data": {
+    "camera_sensor_id": null,
     "image_scale_factor": 0.25,
+    "cache_resized_images": true,
+    "resized_image_cache_root": null,
+    "max_resized_image_caches": 4,
     "split_target": "train",
-    "split_every_n": 8
+    "split_every_n": 8,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
+    "normalize_images": true,
+    "interpolation": "bicubic"
   },
   "training": {
     "runtime": {
       "device": "cuda",
       "seed": 3721,
       "max_steps": 20000
+    },
+    "profiler": {
+      "enabled": false,
+      "log_every": 10,
+      "output_path": null
+    },
+    "batching": {
+      "batch_size": 1,
+      "shuffle": true,
+      "num_workers": 8,
+      "persistent_workers": true,
+      "pin_memory": true
     },
     "checkpoint": {
       "output_dir": "checkpoints/papers/svraster/garden_svraster/svraster.core",
@@ -59,7 +82,7 @@
       "use_huber": false,
       "huber_threshold": 0.03,
       "lambda_t_concentration": 0.0,
-      "lambda_t_inside": 0.0,
+      "lambda_t_inside": 0.01,
       "lambda_r_concentration": 0.01,
       "lambda_ascending": 0.0,
       "ascending_start_step": 0,
@@ -83,6 +106,14 @@
       "subdivide_sample_threshold": 1.0,
       "subdivide_proportion": 0.05,
       "subdivide_max_voxels": 10000000
+    },
+    "viewer": {
+      "enabled": true,
+      "update_every_steps": 500,
+      "min_update_seconds": 2.0,
+      "pause_on_interaction": true,
+      "pause_poll_seconds": 0.05,
+      "max_pause_seconds": null
     }
   }
 }

@@ -9,6 +9,8 @@ from typing import Any
 import torch
 
 from ember_core.core.capabilities import HasScreenSpaceDensificationSignals
+from ember_core.core.families import scene_family_id
+from ember_core.core.keys import SceneFamilyKey
 from ember_core.densification.collectors import (
     ImagePlaneGradientCollector,
     PositionGradientCollector,
@@ -33,6 +35,7 @@ from ember_core.densification.passes import (
     SparseVoxelPrunePass,
     SparseVoxelSubdividePass,
 )
+from ember_core.densification.runtime import call_densification_hook
 
 
 @dataclass
@@ -40,7 +43,7 @@ class ComposedDensificationMethod:
     """Composable densification method."""
 
     name: str
-    expected_scene_families: tuple[str, ...]
+    expected_scene_families: tuple[str | SceneFamilyKey, ...]
     collectors: list[Any] = field(default_factory=list)
     passes: list[Any] = field(default_factory=list)
     signals: DensificationSignals = field(
@@ -115,14 +118,15 @@ class ComposedDensificationMethod:
         optimizers: Sequence[Any],
         family_ops: Any,
     ) -> None:
-        family = state.model.scene.scene_family
+        family = scene_family_id(state.model.scene.scene_family)
+        expected = tuple(scene_family_id(item) for item in self.expected_scene_families)
         if (
-            self.expected_scene_families
-            and family not in self.expected_scene_families
+            expected
+            and family not in expected
         ):
             raise TypeError(
                 f"{self.name} expects scene families "
-                f"{self.expected_scene_families!r}, got {family!r}."
+                f"{expected!r}, got {family!r}."
             )
         self.signals = DensificationSignals()
         for component in [*self.collectors, *self.passes]:
@@ -130,41 +134,51 @@ class ComposedDensificationMethod:
 
     def before_training(self, context: DensificationLifecycleContext) -> None:
         for component in self.collectors:
-            component.before_training(context)
+            call_densification_hook(component.before_training, context)
         for component in self.passes:
-            component.before_training(context)
+            call_densification_hook(component.before_training, context)
 
     def pre_backward(self, context: DensificationContext) -> None:
         for component in self.collectors:
-            component.pre_backward(context, self.signals)
+            call_densification_hook(
+                component.pre_backward, context, self.signals
+            )
         for component in self.passes:
-            component.pre_backward(context, self.signals)
+            call_densification_hook(
+                component.pre_backward, context, self.signals
+            )
 
     def post_backward(self, context: DensificationContext) -> None:
         for component in self.collectors:
-            component.post_backward(context, self.signals)
+            call_densification_hook(
+                component.post_backward, context, self.signals
+            )
         for component in self.passes:
-            component.post_backward(context, self.signals)
+            call_densification_hook(
+                component.post_backward, context, self.signals
+            )
 
     def pre_optimizer_step(self, context: DensificationContext) -> None:
         for component in self.collectors:
             pre_optimizer_step = getattr(
                 component, "pre_optimizer_step", None
             )
-            if pre_optimizer_step is not None:
-                pre_optimizer_step(context, self.signals)
+            call_densification_hook(pre_optimizer_step, context, self.signals)
         for component in self.passes:
             pre_optimizer_step = getattr(
                 component, "pre_optimizer_step", None
             )
-            if pre_optimizer_step is not None:
-                pre_optimizer_step(context, self.signals)
+            call_densification_hook(pre_optimizer_step, context, self.signals)
 
     def post_optimizer_step(self, context: DensificationContext) -> None:
         for component in self.collectors:
-            component.post_optimizer_step(context, self.signals)
+            call_densification_hook(
+                component.post_optimizer_step, context, self.signals
+            )
         for component in self.passes:
-            component.post_optimizer_step(context, self.signals)
+            call_densification_hook(
+                component.post_optimizer_step, context, self.signals
+            )
 
     def after_step(
         self,
@@ -172,21 +186,25 @@ class ComposedDensificationMethod:
         metrics: dict[str, float],
     ) -> None:
         for component in self.collectors:
-            component.after_step(context, self.signals, metrics)
+            call_densification_hook(
+                component.after_step, context, self.signals, metrics
+            )
         for component in self.passes:
-            component.after_step(context, self.signals, metrics)
+            call_densification_hook(
+                component.after_step, context, self.signals, metrics
+            )
 
     def after_training(self, context: DensificationLifecycleContext) -> None:
         for component in self.collectors:
-            component.after_training(context)
+            call_densification_hook(component.after_training, context)
         for component in self.passes:
-            component.after_training(context)
+            call_densification_hook(component.after_training, context)
 
 
 def compose_densification(
     *,
-    family: str | None = None,
-    families: Sequence[str] | None = None,
+    family: str | SceneFamilyKey | None = None,
+    families: Sequence[str | SceneFamilyKey] | None = None,
     collectors: Sequence[Any] = (),
     passes: Sequence[Any] = (),
     name: str = "ComposedDensification",
@@ -325,7 +343,7 @@ class FastGS(BaseDensificationMethod):
     opacity_reset_every: int = 3_000
     probe_view_count: int = 10
     importance_threshold: float = 5.0
-    expected_scene_families: tuple[str, ...] = ("gaussian",)
+    expected_scene_families: tuple[str | SceneFamilyKey, ...] = ("gaussian",)
     family_ops: Any | None = field(default=None, init=False, repr=False)
     clone_grad_sum: torch.Tensor | None = field(
         default=None, init=False, repr=False
@@ -347,11 +365,12 @@ class FastGS(BaseDensificationMethod):
         family_ops: Any,
     ) -> None:
         del optimizers
-        family = state.model.scene.scene_family
-        if family not in self.expected_scene_families:
+        family = scene_family_id(state.model.scene.scene_family)
+        expected = tuple(scene_family_id(item) for item in self.expected_scene_families)
+        if family not in expected:
             raise TypeError(
                 f"FastGS expects scene families "
-                f"{self.expected_scene_families!r}, got {family!r}."
+                f"{expected!r}, got {family!r}."
             )
         self.family_ops = family_ops
         self.clone_grad_sum = None

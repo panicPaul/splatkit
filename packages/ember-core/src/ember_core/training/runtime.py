@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import nullcontext
@@ -35,6 +36,7 @@ from ember_core.densification.runtime import (
     DensificationMethodSequence,
     bind_densification,
     build_densification,
+    call_densification_hook,
     make_context,
     make_lifecycle_context,
 )
@@ -59,8 +61,11 @@ from ember_core.training.protocols import (
     RenderFn,
     TrainingConfigSource,
     TrainingHook,
+    TrainingHookBindContext,
+    TrainingLoopComponents,
     TrainingResult,
     TrainingRunContext,
+    TrainingRunner,
     TrainState,
 )
 from ember_core.training.resolution import (
@@ -70,6 +75,9 @@ from ember_core.training.resolution import (
     resolve_callable_target,
     resolve_target,
 )
+
+_CUDA_LINALG_WARMUP_LOCK = threading.Lock()
+_CUDA_LINALG_WARMED_DEVICES: set[int] = set()
 
 
 class OptimizerBinding:
@@ -104,18 +112,23 @@ class OptimizerBinding:
 
     @property
     def target_path(self) -> str:
+        """Return the serialized parameter target path."""
         return f"{self.target.scope}.{self.target.name}"
 
     def matches_target(self, scope: str, name: str) -> bool:
+        """Return whether this binding targets a parameter selector."""
         return self.target.scope == scope and self.target.name == name
 
     def current_lr(self) -> float:
+        """Return the current learning rate."""
         return float(self.optimizer.param_groups[0]["lr"])
 
     def zero_grad(self) -> None:
+        """Clear optimizer gradients."""
         self.optimizer.zero_grad(set_to_none=True)
 
     def step(self) -> None:
+        """Run an optimizer and scheduler step."""
         snapshot = self._prepare_view_step()
         self.optimizer.step()
         self._restore_view_step(snapshot)
@@ -127,6 +140,7 @@ class OptimizerBinding:
         new_parameter: torch.Tensor,
         transform: Callable[[str, torch.Tensor], torch.Tensor],
     ) -> None:
+        """Replace the bound parameter and transform optimizer state."""
         if self.base_parameter is None:
             return
         group = self.optimizer.param_groups[0]
@@ -145,6 +159,7 @@ class OptimizerBinding:
         self.base_parameter = new_parameter
 
     def reset_state_for_indices(self, indices: torch.Tensor) -> None:
+        """Zero optimizer state rows for selected topology indices."""
         if self.base_parameter is None:
             return
         state = self.optimizer.state.get(self.base_parameter, {})
@@ -1104,6 +1119,16 @@ def _call_before_step_hooks(
             before_step(state)
 
 
+def _call_bind_hooks(
+    hooks: Sequence[TrainingHook],
+    context: TrainingHookBindContext,
+) -> None:
+    for hook in hooks:
+        bind = getattr(hook, "bind", None)
+        if bind is not None:
+            bind(context)
+
+
 def _call_post_backward_hooks(
     hooks: Sequence[TrainingHook],
     state: TrainState,
@@ -1210,7 +1235,10 @@ def train_step(
             runtime=probe_runtime,
         )
         with _profile_phase(profile, "densification_pre_backward"):
-            densification.pre_backward(densification_context)
+            call_densification_hook(
+                densification.pre_backward,
+                densification_context,
+            )
     with _profile_phase(profile, "pre_backward_hooks"):
         _call_pre_backward_hooks(
             hooks,
@@ -1223,7 +1251,10 @@ def train_step(
         loss_result.loss.backward()
     if densification is not None and densification_context is not None:
         with _profile_phase(profile, "densification_post_backward"):
-            densification.post_backward(densification_context)
+            call_densification_hook(
+                densification.post_backward,
+                densification_context,
+            )
     with _profile_phase(profile, "post_backward_hooks"):
         _call_post_backward_hooks(
             hooks,
@@ -1238,13 +1269,19 @@ def train_step(
         )
         if pre_optimizer_step is not None:
             with _profile_phase(profile, "densification_pre_optimizer"):
-                pre_optimizer_step(densification_context)
+                call_densification_hook(
+                    pre_optimizer_step,
+                    densification_context,
+                )
     with _profile_phase(profile, "optimizer"):
         for optimizer_binding in optimizers:
             optimizer_binding.step()
     if densification is not None and densification_context is not None:
         with _profile_phase(profile, "densification_post_optimizer"):
-            densification.post_optimizer_step(densification_context)
+            call_densification_hook(
+                densification.post_optimizer_step,
+                densification_context,
+            )
     with _profile_phase(profile, "post_optimizer_hooks"):
         _call_post_optimizer_step_hooks(
             hooks,
@@ -1261,7 +1298,8 @@ def train_step(
     }
     if densification is not None and densification_context is not None:
         with _profile_phase(profile, "densification_after_step"):
-            densification.after_step(
+            call_densification_hook(
+                densification.after_step,
                 make_context(
                     state=state,
                     batch=resolved_batch,
@@ -1286,6 +1324,23 @@ def set_torch_seed(seed: int) -> None:
 
 def _set_seed(seed: int) -> None:
     set_torch_seed(seed)
+
+
+def _warm_cuda_linalg(device: torch.device) -> None:
+    """Eagerly load CUDA linalg kernels before threaded viewer renders."""
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return
+    device_index = device.index
+    if device_index is None:
+        device_index = torch.cuda.current_device()
+    with _CUDA_LINALG_WARMUP_LOCK:
+        if device_index in _CUDA_LINALG_WARMED_DEVICES:
+            return
+        with torch.cuda.device(device_index):
+            probe = torch.eye(4, device=device)[None]
+            torch.linalg.inv(probe)
+            torch.cuda.synchronize(device)
+        _CUDA_LINALG_WARMED_DEVICES.add(device_index)
 
 
 def cycle_dataloader(
@@ -1359,13 +1414,13 @@ def materialize_training_config(
     return resolved
 
 
-def run_training(
+def prepare_training_loop(
     frame_dataset: PreparedFrameDataset,
     config: TrainingConfig | TrainingConfigSource,
     *,
     runtime_hooks: Sequence[TrainingHook] = (),
-) -> TrainingResult:
-    """Run the declarative training loop and export a checkpoint directory."""
+) -> TrainingLoopComponents:
+    """Prepare reusable components for an Ember training loop."""
     from ember_core.training.checkpoints import (
         checkpoint_run_dir,
     )
@@ -1384,6 +1439,7 @@ def run_training(
     )
     _set_seed(config.runtime.seed)
     device = torch.device(config.runtime.device)
+    _warm_cuda_linalg(device)
     run_context = build_training_run_context(
         frame_dataset,
         config,
@@ -1429,78 +1485,157 @@ def run_training(
             raw_render_fn=raw_render_fn,
             device=device,
         )
-        densification.before_training(
-            make_lifecycle_context(
-                state=state,
-                optimizers=optimizers,
-                runtime=probe_runtime,
-            )
-        )
-    history: list[dict[str, float]] = []
-    iterator = _cycle(dataloader)
     logger = build_training_logger(
         config.logging,
         checkpoint_dir=config.checkpoint.output_dir,
     )
     profiler = build_training_profiler(config.profiler)
-    training_started_at = time.perf_counter()
-    for _ in range(config.runtime.max_steps):
-        step_started_at = time.perf_counter()
-        profile = None if profiler is None else profiler.start_step(state)
-        with _profile_phase(profile, "dataloader"):
-            batch = next(iterator)
-        metrics = train_step(
-            state,
-            batch,
+    components = TrainingLoopComponents(
+        frame_dataset=frame_dataset,
+        config=config,
+        checkpoint_dir=concrete_checkpoint_dir,
+        device=device,
+        run_context=run_context,
+        state=state,
+        dataloader=dataloader,
+        raw_render_fn=raw_render_fn,
+        render_fn=render_fn,
+        render_fn_with_requirements=render_fn_with_requirements,
+        loss_fn=loss_fn,
+        hooks=hooks,
+        optimizers=optimizers,
+        densification=densification,
+        densification_runtime=probe_runtime,
+        logger=logger,
+        profiler=profiler,
+    )
+    _call_bind_hooks(
+        hooks,
+        TrainingHookBindContext(
+            config=config,
+            run_context=run_context,
+            frame_dataset=frame_dataset,
+            checkpoint_dir=concrete_checkpoint_dir,
+            state=state,
+            optimizers=optimizers,
+            raw_render_fn=raw_render_fn,
             render_fn=render_fn,
             render_fn_with_requirements=render_fn_with_requirements,
             loss_fn=loss_fn,
-            optimizers=optimizers,
             densification=densification,
-            probe_runtime=probe_runtime,
-            hooks=hooks,
-            profile=profile,
-        )
-        step_duration_seconds = max(
-            time.perf_counter() - step_started_at,
-            1e-12,
-        )
-        metrics["step_seconds"] = step_duration_seconds
-        metrics["elapsed_seconds"] = time.perf_counter() - training_started_at
-        metrics["iterations_per_second"] = 1.0 / step_duration_seconds
-        if profiler is not None:
-            profiler.finish_step(state, metrics, profile)
-        if logger is not None:
-            logger.write_step(state.step, metrics)
-        history.append(metrics)
-    if logger is not None:
-        logger.close()
-    from ember_core.training.checkpoints import save_checkpoint_dir
+            densification_runtime=probe_runtime,
+            device=device,
+        ),
+    )
+    return components
 
-    if densification is not None:
-        densification.after_training(
-            make_lifecycle_context(
-                state=state,
-                optimizers=optimizers,
-                runtime=probe_runtime,
+
+class DefaultTrainingRunner:
+    """Default Ember training loop."""
+
+    def run(self, components: TrainingLoopComponents) -> TrainingResult:
+        """Run training with prepared Ember loop components."""
+        config = components.config
+        state = components.state
+        optimizers = list(components.optimizers)
+        densification = components.densification
+        probe_runtime = components.densification_runtime
+        logger = components.logger
+        profiler = components.profiler
+        if densification is not None:
+            call_densification_hook(
+                densification.before_training,
+                make_lifecycle_context(
+                    state=state,
+                    optimizers=optimizers,
+                    runtime=probe_runtime,
+                ),
             )
+
+        history: list[dict[str, float]] = []
+        iterator = _cycle(components.dataloader)
+        training_started_at = time.perf_counter()
+        for _ in range(config.runtime.max_steps):
+            step_started_at = time.perf_counter()
+            profile = None if profiler is None else profiler.start_step(state)
+            with _profile_phase(profile, "dataloader"):
+                batch = next(iterator)
+            metrics = train_step(
+                state,
+                batch,
+                render_fn=components.render_fn,
+                render_fn_with_requirements=(
+                    components.render_fn_with_requirements
+                ),
+                loss_fn=components.loss_fn,
+                optimizers=optimizers,
+                densification=densification,
+                probe_runtime=probe_runtime,
+                hooks=components.hooks,
+                profile=profile,
+            )
+            step_duration_seconds = max(
+                time.perf_counter() - step_started_at,
+                1e-12,
+            )
+            metrics["step_seconds"] = step_duration_seconds
+            metrics["elapsed_seconds"] = (
+                time.perf_counter() - training_started_at
+            )
+            metrics["iterations_per_second"] = 1.0 / step_duration_seconds
+            if profiler is not None:
+                profiler.finish_step(state, metrics, profile)
+            if logger is not None:
+                logger.write_step(state.step, metrics)
+            history.append(metrics)
+        if logger is not None:
+            logger.close()
+        from ember_core.training.checkpoints import save_checkpoint_dir
+
+        if densification is not None:
+            call_densification_hook(
+                densification.after_training,
+                make_lifecycle_context(
+                    state=state,
+                    optimizers=optimizers,
+                    runtime=probe_runtime,
+                ),
+            )
+
+        checkpoint_dir = save_checkpoint_dir(
+            config.checkpoint.output_dir,
+            state,
+            config,
+            frame_dataset=components.frame_dataset,
+            run_context=components.run_context,
+        )
+        return TrainingResult(
+            state=state,
+            history=history,
+            checkpoint_dir=str(checkpoint_dir),
         )
 
-    checkpoint_dir = save_checkpoint_dir(
-        config.checkpoint.output_dir,
-        state,
+
+def run_training(
+    frame_dataset: PreparedFrameDataset,
+    config: TrainingConfig | TrainingConfigSource,
+    *,
+    runtime_hooks: Sequence[TrainingHook] = (),
+    trainer: TrainingRunner | None = None,
+) -> TrainingResult:
+    """Run a training loop and export a checkpoint directory."""
+    components = prepare_training_loop(
+        frame_dataset,
         config,
-        frame_dataset=frame_dataset,
-        run_context=run_context,
+        runtime_hooks=runtime_hooks,
     )
-    return TrainingResult(
-        state=state,
-        history=history,
-        checkpoint_dir=str(checkpoint_dir),
-    )
+    runner = trainer or DefaultTrainingRunner()
+    return runner.run(components)
 
 
 __all__ = [
+    "DefaultTrainingRunner",
+    "OptimizerBinding",
     "build_dataloader",
     "build_densification_for_context",
     "build_densification_from_config",
@@ -1519,6 +1654,7 @@ __all__ = [
     "instantiate_callable",
     "materialize_optimization_config",
     "materialize_training_config",
+    "prepare_training_loop",
     "resolve_backend_options",
     "resolve_callable",
     "resolve_target",
