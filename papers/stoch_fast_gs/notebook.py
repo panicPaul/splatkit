@@ -46,7 +46,9 @@ with app.setup:
         return module
 
     _ensure_namespace_package("papers", REPO_ROOT / "papers")
-    _ensure_namespace_package("papers.stoch3dgs", REPO_ROOT / "papers" / "stoch3dgs")
+    _ensure_namespace_package(
+        "papers.stoch3dgs", REPO_ROOT / "papers" / "stoch3dgs"
+    )
     _ensure_namespace_package(
         "papers.stoch_fast_gs",
         REPO_ROOT / "papers" / "stoch_fast_gs",
@@ -80,6 +82,7 @@ with app.setup:
     StochFastGSBackendName = Literal["3dgrt.stoch_fast_gs"]
     StochFastGSDefaultName = Literal[
         "garden_stoch_fast_gs",
+        "garden_big",
         "garden_debug_val",
     ]
     sys.modules.setdefault(
@@ -196,9 +199,7 @@ class StochFastGSDataConfig(stoch3dgs.Stoch3DGSDataConfig):
 
 
 @app.class_definition
-class StochFastGSInitializationConfig(
-    stoch3dgs.Stoch3DGSInitializationConfig
-):
+class StochFastGSInitializationConfig(stoch3dgs.Stoch3DGSInitializationConfig):
     """Stoch3DGS initialization options reused by Stoch-Fast-GS."""
 
 
@@ -251,6 +252,7 @@ class StochFastGSDensificationConfig(stoch3dgs.Stoch3DGSConfigBase):
     final_prune_stop_iter: int = Field(default=30_000, ge=0)
     final_prune_every: int = Field(default=3_000, ge=1)
     final_prune_opacity_threshold: float = Field(default=0.1, gt=0.0, lt=1.0)
+    final_prune_mode: Literal["fastgs", "disabled"] = "disabled"
 
     def build(
         self,
@@ -387,6 +389,12 @@ def stoch_fast_gs_preset_catalog() -> ConfigPresetCatalog[
                 name="garden_stoch_fast_gs",
                 path=DEFAULTS_DIR / "garden_stoch_fast_gs.json",
                 label="Garden Stoch-Fast-GS",
+                base_dir=REPO_ROOT,
+            ),
+            "garden_big": ConfigPreset(
+                name="garden_big",
+                path=DEFAULTS_DIR / "garden_big.json",
+                label="Garden Stoch-Fast-GS Big",
                 base_dir=REPO_ROOT,
             ),
             "garden_debug_val": ConfigPreset(

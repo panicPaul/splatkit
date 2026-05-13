@@ -1,5 +1,5 @@
 {
-  "preset": "garden_stoch_fast_gs",
+  "preset": "garden_big",
   "scene": {
     "path": "/home/schlack/Documents/3DGS_scenes/360/garden",
     "image_root": "/home/schlack/Documents/3DGS_scenes/360/garden/images",
@@ -53,12 +53,12 @@
       }
     },
     "densification": {
-      "refine_every": 500,
+      "refine_every": 100,
       "start_iter": 500,
       "stop_iter": 15000,
       "loss_thresh": 0.06,
       "grad_threshold": 0.0002,
-      "grad_abs_threshold": 0.0008,
+      "grad_abs_threshold": 0.0003,
       "dense_fraction": 0.001,
       "prune_opacity_threshold": 0.005,
       "opacity_reset_every": 3000,
@@ -74,7 +74,7 @@
       "final_prune_mode": "disabled"
     },
     "checkpoint": {
-      "output_dir": "checkpoints/papers/stoch_fast_gs/garden_stoch_fast_gs/3dgrt.stoch_fast_gs",
+      "output_dir": "checkpoints/papers/stoch_fast_gs/garden_big/3dgrt.stoch_fast_gs",
       "export_ply": true
     }
   }

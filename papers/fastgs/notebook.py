@@ -2,7 +2,7 @@
 
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.5"
 app = marimo.App(width="columns")
 
 with app.setup:
@@ -991,7 +991,7 @@ class FastGSSHTrainingHook:
             return
         state.model = replace(
             state.model,
-            scene=replace(scene, sh_degree=active_degree),
+            scene=scene.with_fields(sh_degree=active_degree),
         )
 
 

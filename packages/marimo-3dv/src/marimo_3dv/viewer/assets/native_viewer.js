@@ -382,6 +382,14 @@ function render({ model, el }) {
   let bestClockSyncRttMs = null;
   let backendClockOffsetMs = null;
   const pendingClockSyncPings = new Map();
+  let pendingInteractiveCameraJson = null;
+  let pendingSettledRender = false;
+  let interactiveInFlightRevision = null;
+  let interactiveFlushTimeoutId = null;
+  let lastInteractiveSendAtMs = 0.0;
+  let lastAdaptiveProbeAtMs = performance.now();
+  let lastAdaptiveSampleAtMs = null;
+  let effectiveInteractiveMaxFps = Number(model.get("interactive_max_fps")) || 12.0;
 
   function setCameraRotation(rotation) {
     cameraState.cam_to_world = [
@@ -627,6 +635,7 @@ function render({ model, el }) {
     model.set("browser_decode_time_ms", smoothedDecodeTimeMs);
     model.set("browser_draw_time_ms", smoothedDrawTimeMs);
     model.set("browser_present_wait_ms", smoothedPresentWaitTimeMs);
+    model.set("effective_interactive_fps", effectiveInteractiveMaxFps);
     model.save_changes();
   }
 
@@ -659,7 +668,7 @@ function render({ model, el }) {
     });
   }
 
-function updateCameraMatrix() {
+  function updateCameraMatrix() {
     setCameraRotation(rotationFromCamToWorld(cameraState.cam_to_world));
   }
 
@@ -669,27 +678,205 @@ function updateCameraMatrix() {
     cameraState.height = viewport.height;
   }
 
-  function pushCameraState() {
+  function positiveNumberSetting(name, fallback) {
+    const value = Number(model.get(name));
+    return Number.isFinite(value) && value > 0.0 ? value : fallback;
+  }
+
+  function interactiveFpsConfig() {
+    const configuredMaxFps = positiveNumberSetting("interactive_max_fps", 12.0);
+    const configuredMinFps = Math.min(
+      configuredMaxFps,
+      positiveNumberSetting("interactive_min_fps", 2.0),
+    );
+    return {
+      backpressure: Boolean(model.get("interactive_backpressure")),
+      maxFps: configuredMaxFps,
+      minFps: configuredMinFps,
+      latencyTargetMs: positiveNumberSetting(
+        "interactive_latency_target_ms",
+        350.0,
+      ),
+      probeIntervalMs:
+        positiveNumberSetting("interactive_probe_interval_s", 10.0) * 1000.0,
+      resetIntervalMs:
+        positiveNumberSetting("interactive_reset_interval_s", 30.0) * 1000.0,
+    };
+  }
+
+  function clampInteractiveFps(fps) {
+    const config = interactiveFpsConfig();
+    return clamp(fps, config.minFps, config.maxFps);
+  }
+
+  function setEffectiveInteractiveMaxFps(fps) {
+    effectiveInteractiveMaxFps = clampInteractiveFps(fps);
+    model.set("effective_interactive_fps", effectiveInteractiveMaxFps);
+  }
+
+  function resetAdaptiveFpsIfStale(nowMs) {
+    const config = interactiveFpsConfig();
+    if (
+      lastAdaptiveSampleAtMs === null
+      || nowMs - lastAdaptiveSampleAtMs > config.resetIntervalMs
+    ) {
+      setEffectiveInteractiveMaxFps(config.maxFps);
+      lastAdaptiveProbeAtMs = nowMs;
+    }
+  }
+
+  function updateAdaptiveFps(latencySampleMs, nowMs) {
+    const config = interactiveFpsConfig();
+    if (!config.backpressure || latencySampleMs === null) {
+      setEffectiveInteractiveMaxFps(config.maxFps);
+      return;
+    }
+    lastAdaptiveSampleAtMs = nowMs;
+    if (latencySampleMs > config.latencyTargetMs) {
+      setEffectiveInteractiveMaxFps(effectiveInteractiveMaxFps * 0.7);
+      lastAdaptiveProbeAtMs = nowMs;
+      return;
+    }
+    if (
+      latencySampleMs < config.latencyTargetMs * 0.6
+      && nowMs - lastAdaptiveProbeAtMs > config.probeIntervalMs
+    ) {
+      setEffectiveInteractiveMaxFps(effectiveInteractiveMaxFps * 1.25);
+      lastAdaptiveProbeAtMs = nowMs;
+    }
+  }
+
+  function serializedCurrentCameraState() {
     syncSizeIntoCameraState();
     updateCameraMatrix();
-    const nextJson = serializeCameraState();
-    if (nextJson === model.get("camera_state_json")) {
-      return;
+    return serializeCameraState();
+  }
+
+  function sendCameraStateJson(nextJson, { interactive, forceRevision = false }) {
+    if (!forceRevision && nextJson === model.get("camera_state_json")) {
+      return null;
     }
     const nextRevision = model.get("_camera_revision") + 1;
     revisionSentAtMs.set(nextRevision, performance.now());
+    if (interactive) {
+      interactiveInFlightRevision = nextRevision;
+      lastInteractiveSendAtMs = performance.now();
+    }
     model.set("camera_state_json", nextJson);
     model.set("_camera_revision", nextRevision);
     model.save_changes();
+    return nextRevision;
+  }
+
+  function clearInteractiveFlushTimer() {
+    if (interactiveFlushTimeoutId !== null) {
+      clearTimeout(interactiveFlushTimeoutId);
+      interactiveFlushTimeoutId = null;
+    }
+  }
+
+  function sendPendingInteractiveCameraState() {
+    clearInteractiveFlushTimer();
+    if (
+      pendingInteractiveCameraJson === null
+      || interactiveInFlightRevision !== null
+    ) {
+      return;
+    }
+    const nextJson = pendingInteractiveCameraJson;
+    pendingInteractiveCameraJson = null;
+    sendCameraStateJson(nextJson, { interactive: true });
+  }
+
+  function scheduleInteractiveFlush() {
+    if (
+      pendingInteractiveCameraJson === null
+      || interactiveInFlightRevision !== null
+      || pendingSettledRender
+    ) {
+      return;
+    }
+    const config = interactiveFpsConfig();
+    if (!config.backpressure) {
+      sendPendingInteractiveCameraState();
+      return;
+    }
+    const nowMs = performance.now();
+    const frameIntervalMs = 1000.0 / Math.max(
+      config.minFps,
+      effectiveInteractiveMaxFps,
+    );
+    const delayMs = Math.max(
+      0.0,
+      lastInteractiveSendAtMs + frameIntervalMs - nowMs,
+    );
+    clearInteractiveFlushTimer();
+    if (delayMs <= 0.0) {
+      sendPendingInteractiveCameraState();
+      return;
+    }
+    interactiveFlushTimeoutId = setTimeout(() => {
+      interactiveFlushTimeoutId = null;
+      sendPendingInteractiveCameraState();
+    }, delayMs);
+  }
+
+  function requestInteractiveCameraState() {
+    const nextJson = serializedCurrentCameraState();
+    const config = interactiveFpsConfig();
+    if (!config.backpressure) {
+      sendCameraStateJson(nextJson, { interactive: true });
+      return;
+    }
+    resetAdaptiveFpsIfStale(performance.now());
+    pendingInteractiveCameraJson = nextJson;
+    scheduleInteractiveFlush();
+  }
+
+  function requestCameraState() {
+    sendCameraStateJson(
+      serializedCurrentCameraState(),
+      { interactive: false },
+    );
   }
 
   function requestSettledRender() {
+    const nextJson = serializedCurrentCameraState();
+    if (
+      Boolean(model.get("interactive_backpressure"))
+      && interactiveInFlightRevision !== null
+    ) {
+      pendingInteractiveCameraJson = nextJson;
+      pendingSettledRender = true;
+      return;
+    }
+    clearInteractiveFlushTimer();
+    pendingInteractiveCameraJson = null;
+    pendingSettledRender = false;
     const nextRevision = model.get("_camera_revision") + 1;
     revisionSentAtMs.set(nextRevision, performance.now());
+    model.set("camera_state_json", nextJson);
     model.set("interaction_active", false);
     model.set("_camera_revision", nextRevision);
     model.save_changes();
     interactionActive = false;
+  }
+
+  function flushAfterInteractiveFrame(revision) {
+    if (
+      interactiveInFlightRevision !== null
+      && revision >= interactiveInFlightRevision
+    ) {
+      interactiveInFlightRevision = null;
+    }
+    if (interactiveInFlightRevision !== null) {
+      return;
+    }
+    if (pendingSettledRender) {
+      requestSettledRender();
+      return;
+    }
+    scheduleInteractiveFlush();
   }
 
   function scheduleSettledRender() {
@@ -712,6 +899,8 @@ function updateCameraMatrix() {
       clearTimeout(settleTimeoutId);
       settleTimeoutId = null;
     }
+    resetAdaptiveFpsIfStale(performance.now());
+    pendingSettledRender = false;
     if (interactionActive) {
       return;
     }
@@ -801,7 +990,7 @@ function updateCameraMatrix() {
     if (pressedKeys.has("e")) motion = add(motion, scale(up, speed));
     position = add(position, motion);
     target = add(target, motion);
-    pushCameraState();
+    requestInteractiveCameraState();
   }
 
   function tick(timestamp) {
@@ -859,6 +1048,7 @@ function updateCameraMatrix() {
     }
     updateLatencyBadge();
     syncMetricsToModel();
+    return latencySampleMs;
   }
 
   async function drawFrame(
@@ -968,10 +1158,13 @@ function updateCameraMatrix() {
         lastPacketSizeBytes,
         shouldReset,
       );
-      registerFrameMetrics(revision, renderTimeMs, shouldReset);
-      if (interactionActive) {
-        pushCameraState();
-      }
+      const latencySampleMs = registerFrameMetrics(
+        revision,
+        renderTimeMs,
+        shouldReset,
+      );
+      updateAdaptiveFps(latencySampleMs, performance.now());
+      flushAfterInteractiveFrame(revision);
       return;
     }
     revisionSentAtMs.delete(revision);
@@ -1171,7 +1364,7 @@ function updateCameraMatrix() {
     } else {
       pan(deltaX, deltaY);
     }
-    pushCameraState();
+    requestInteractiveCameraState();
   });
 
   function endInteraction(event) {
@@ -1225,7 +1418,7 @@ function updateCameraMatrix() {
       event.preventDefault();
       markInteractionActive();
       dolly(event.deltaY);
-      pushCameraState();
+      requestInteractiveCameraState();
       scheduleSettledRender();
     },
     { passive: false },
@@ -1255,14 +1448,18 @@ function updateCameraMatrix() {
   });
 
   const resizeObserver = new ResizeObserver(() => {
-    pushCameraState();
+    if (interactionActive) {
+      requestInteractiveCameraState();
+      return;
+    }
+    requestCameraState();
   });
   resizeObserver.observe(root);
 
   const onCameraChange = () => applyCameraStateJson();
   const onAspectRatioChange = () => {
     updateAspectRatio();
-    pushCameraState();
+    requestCameraState();
   };
   const onInteractionActiveChange = () => {
     const wasActive = interactionActive;
@@ -1283,6 +1480,20 @@ function updateCameraMatrix() {
   const onRenderFpsChange = () => {
     renderFps = Number(model.get("render_fps")) || null;
     updateLatencyBadge();
+  };
+  const onRenderRevisionChange = () => {
+    if (!model.get("error_text")) {
+      return;
+    }
+    const revision = Number(model.get("render_revision"));
+    if (!Number.isFinite(revision)) {
+      return;
+    }
+    flushAfterInteractiveFrame(revision);
+  };
+  const onInteractiveBackpressureConfigChange = () => {
+    setEffectiveInteractiveMaxFps(effectiveInteractiveMaxFps);
+    scheduleInteractiveFlush();
   };
   const onShowAxesChange = () => {
     drawAxesGizmo();
@@ -1320,6 +1531,7 @@ function updateCameraMatrix() {
       clearTimeout(settleTimeoutId);
       settleTimeoutId = null;
     }
+    clearInteractiveFlushTimer();
     disconnectFrameStream();
     model.off("change:camera_state_json", onCameraChange);
     model.off("change:aspect_ratio", onAspectRatioChange);
@@ -1330,6 +1542,13 @@ function updateCameraMatrix() {
     model.off("change:transport_mode", onStreamConfigChange);
     model.off("change:frame_packet", onFramePacketChange);
     model.off("change:render_fps", onRenderFpsChange);
+    model.off("change:render_revision", onRenderRevisionChange);
+    model.off("change:interactive_backpressure", onInteractiveBackpressureConfigChange);
+    model.off("change:interactive_max_fps", onInteractiveBackpressureConfigChange);
+    model.off("change:interactive_min_fps", onInteractiveBackpressureConfigChange);
+    model.off("change:interactive_latency_target_ms", onInteractiveBackpressureConfigChange);
+    model.off("change:interactive_probe_interval_s", onInteractiveBackpressureConfigChange);
+    model.off("change:interactive_reset_interval_s", onInteractiveBackpressureConfigChange);
     model.off("change:show_axes", onShowAxesChange);
     model.off("change:show_horizon", onShowHorizonChange);
     model.off("change:show_origin", onShowOriginChange);
@@ -1357,6 +1576,13 @@ function updateCameraMatrix() {
   model.on("change:transport_mode", onStreamConfigChange);
   model.on("change:frame_packet", onFramePacketChange);
   model.on("change:render_fps", onRenderFpsChange);
+  model.on("change:render_revision", onRenderRevisionChange);
+  model.on("change:interactive_backpressure", onInteractiveBackpressureConfigChange);
+  model.on("change:interactive_max_fps", onInteractiveBackpressureConfigChange);
+  model.on("change:interactive_min_fps", onInteractiveBackpressureConfigChange);
+  model.on("change:interactive_latency_target_ms", onInteractiveBackpressureConfigChange);
+  model.on("change:interactive_probe_interval_s", onInteractiveBackpressureConfigChange);
+  model.on("change:interactive_reset_interval_s", onInteractiveBackpressureConfigChange);
   model.on("change:show_axes", onShowAxesChange);
   model.on("change:show_horizon", onShowHorizonChange);
   model.on("change:show_origin", onShowOriginChange);
@@ -1373,9 +1599,10 @@ function updateCameraMatrix() {
   updateLatencyBadge();
   drawAxesGizmo();
   drawHorizon();
+  setEffectiveInteractiveMaxFps(effectiveInteractiveMaxFps);
   onFramePacketChange();
   connectFrameStream();
-  pushCameraState();
+  requestCameraState();
 
   return cleanup;
 }

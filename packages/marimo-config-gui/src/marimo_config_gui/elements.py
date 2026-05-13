@@ -1880,7 +1880,9 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
     ) -> ModelT:
         path_defaults = self._path_defaults
         base_dir = self._path_base_dir
+        should_resolve_paths = bool(path_defaults or base_dir is not None)
         if self._presets is not None:
+            should_resolve_paths = True
             presets = self._presets
             preset_field = presets.preset_field or "preset"
             preset_name = payload.get(preset_field, presets.default)
@@ -1895,9 +1897,9 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
                 base_dir = (
                     preset.base_dir.expanduser().resolve()
                     if preset.base_dir is not None
-                    else preset_path.parent
+                    else None
                 )
-        if not path_defaults:
+        if not should_resolve_paths:
             return value
         from marimo_config_gui.presets import resolve_config_paths
 

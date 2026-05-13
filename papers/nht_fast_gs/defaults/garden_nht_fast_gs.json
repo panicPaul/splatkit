@@ -60,7 +60,8 @@
       "final_prune_start_iter": 15000,
       "final_prune_stop_iter": 30000,
       "final_prune_every": 3000,
-      "final_prune_opacity_threshold": 0.1
+      "final_prune_opacity_threshold": 0.1,
+      "final_prune_mode": "disabled"
     },
     "loss": {
       "lambda_l1": 0.8,

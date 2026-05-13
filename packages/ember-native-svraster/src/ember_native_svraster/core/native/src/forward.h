@@ -29,6 +29,7 @@ rasterize_voxels(
     const bool need_distortion,
     const bool need_normal,
     const bool track_max_w,
+    const int sort_rank_max_level,
 
     const torch::Tensor& octree_paths,
     const torch::Tensor& vox_centers,

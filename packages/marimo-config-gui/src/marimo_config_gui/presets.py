@@ -73,9 +73,9 @@ class ConfigPresetCatalog(Generic[ModelT]):
             )
 
 
-def _base_dir_for_json(path: Path, base_dir: Path | None) -> Path:
+def _base_dir_for_json(_path: Path, base_dir: Path | None) -> Path:
     return (
-        base_dir.expanduser().resolve() if base_dir is not None else path.parent
+        base_dir.expanduser().resolve() if base_dir is not None else Path.cwd()
     )
 
 

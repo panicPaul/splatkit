@@ -118,13 +118,19 @@ applied to the model defaults:
 python notebook.py --scene-path data/bicycle --runtime.device cuda
 ```
 
-A positional JSON config path can be used as the base. Sparse typed overrides
-come after the JSON file, which is usually the most convenient workflow on a
-server:
+A positional JSON config path can be used as the starting config. Sparse typed
+overrides come after the JSON file, which is usually the most convenient
+workflow on a server:
 
 ```bash
 python notebook.py config.json --runtime.device cuda --max-steps 1000
 ```
+
+Relative `Path` field values loaded from JSON are resolved against the process
+current working directory, matching manual Pydantic validation and CLI path
+flags. Use an explicit `ConfigPreset(base_dir=...)` when a preset should anchor
+paths somewhere else, or `load_json_config(..., base_dir=...)` when loading
+JSON directly.
 
 When a notebook defines presets with `ConfigPresetCatalog`, select them with
 `--preset`:

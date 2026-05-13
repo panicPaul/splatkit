@@ -28,6 +28,7 @@ def rasterize_op(
     return_depth: bool,
     return_normal: bool,
     track_max_weight: bool,
+    sort_rank_max_level: int,
     color_concentration_weight: float,
     ascending_weight: float,
     distortion_weight: float,
@@ -72,6 +73,7 @@ def rasterize_op(
         distortion_weight > 0.0,
         return_normal,
         track_max_weight,
+        sort_rank_max_level,
         octree_paths,
         voxel_centers,
         voxel_lengths,
@@ -111,6 +113,7 @@ def _rasterize_fake(
     return_depth: bool,
     return_normal: bool,
     track_max_weight: bool,
+    sort_rank_max_level: int,
     color_concentration_weight: float,
     ascending_weight: float,
     distortion_weight: float,
@@ -133,6 +136,7 @@ def _rasterize_fake(
         world_to_camera,
         camera_to_world,
         background_color,
+        sort_rank_max_level,
         voxel_centers,
         voxel_lengths,
         voxel_colors,
@@ -191,22 +195,23 @@ def _rasterize_setup_context(
     ctx.background_color = inputs[9]
     ctx.return_depth = inputs[10]
     ctx.return_normal = inputs[11]
-    ctx.color_concentration_weight = inputs[13]
-    ctx.ascending_weight = inputs[14]
-    ctx.distortion_weight = inputs[15]
-    ctx.debug = inputs[17]
+    ctx.sort_rank_max_level = inputs[13]
+    ctx.color_concentration_weight = inputs[14]
+    ctx.ascending_weight = inputs[15]
+    ctx.distortion_weight = inputs[16]
+    ctx.debug = inputs[18]
     ctx.save_for_backward(
         parsed.num_rendered,
         inputs[7],
         inputs[8],
-        inputs[16],
-        inputs[18],
+        inputs[17],
         inputs[19],
         inputs[20],
         inputs[21],
         inputs[22],
         inputs[23],
         inputs[24],
+        inputs[25],
         parsed.binning_buffer,
         parsed.image_buffer,
         parsed.result.transmittance,
@@ -263,6 +268,7 @@ def _rasterize_backward(
             world_to_camera,
             camera_to_world,
             ctx.background_color,
+            ctx.sort_rank_max_level,
             octree_paths,
             voxel_centers,
             voxel_lengths,
@@ -316,6 +322,7 @@ def _rasterize_backward(
             )
         grad_subdivision_priority = torch.zeros_like(subdivision_priority)
     return (
+        None,
         None,
         None,
         None,

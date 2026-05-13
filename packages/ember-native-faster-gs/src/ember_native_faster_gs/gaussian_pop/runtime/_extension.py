@@ -6,17 +6,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from torch.utils.cpp_extension import load
+from ember_core.native.torch_extensions import load_torch_extension
 
 
 @lru_cache(maxsize=1)
 def load_extension() -> Any:
     """Compile and load the GaussianPOP native blend extension."""
+    extension_name = "ember_gaussian_pop_ext"
     package_root = Path(__file__).resolve().parent.parent
     native_root = package_root / "native"
     core_native_root = package_root.parent / "faster_gs" / "native"
-    return load(
-        name="ember_gaussian_pop_ext",
+    return load_torch_extension(
+        name=extension_name,
         sources=[
             str(native_root / "bindings.cpp"),
             str(native_root / "pop_blend.cu"),

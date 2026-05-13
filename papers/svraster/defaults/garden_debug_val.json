@@ -46,9 +46,11 @@
     "model": {
       "backend_name": "new_cuda",
       "max_num_levels": 21,
+      "runtime_max_num_levels": 21,
       "sh_degree": 1,
       "initial_sh_degree": 1,
       "samples_per_voxel": 1,
+      "render_supersampling": 1.0,
       "ss_aug_max": 1.0,
       "white_background": false,
       "black_background": false

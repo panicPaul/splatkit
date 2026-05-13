@@ -795,7 +795,11 @@ def test_load_script_config_applies_json_overlays_before_cli(
     assert loaded == _RequiredModel(title="overlay", count=11)
 
 
-def test_load_json_config_resolves_relative_paths(tmp_path: Path) -> None:
+def test_load_json_config_resolves_relative_paths_from_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
     config_path = tmp_path / "configs" / "config.json"
     config_path.parent.mkdir()
     config_path.write_text(
@@ -808,8 +812,122 @@ def test_load_json_config_resolves_relative_paths(tmp_path: Path) -> None:
         preset="file",
         title="json",
         count=2,
-        path=config_path.parent / "data",
+        path=tmp_path / "data",
     )
+
+
+def test_load_json_config_honors_explicit_base_dir(tmp_path: Path) -> None:
+    config_path = tmp_path / "configs" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        '{"preset": "file", "title": "json", "count": 2, "path": "data"}'
+    )
+
+    loaded = load_json_config(
+        _PresetModel,
+        config_path,
+        base_dir=config_path.parent,
+    )
+
+    assert loaded.path == config_path.parent / "data"
+
+
+def test_script_json_path_resolves_relative_paths_from_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "configs" / "test.json"
+    config_path.parent.mkdir()
+    config_path.write_text('{"path": "test_path"}')
+
+    config_gui = create_config_gui(
+        _PresetModel,
+        value=_PresetModel.model_validate({"path": "test_path"}),
+        background=None,
+        script_args=[str(config_path)],
+    )
+
+    assert config_gui.validated_config().path == tmp_path / "test_path"
+
+
+def test_script_path_override_is_operationally_relative_to_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "configs" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        '{"preset": "file", "title": "json", "count": 2, "path": "data"}'
+    )
+
+    loaded = load_script_config(
+        _PresetModel,
+        args=[str(config_path), "--path", "cli_path"],
+    )
+
+    assert loaded.path.absolute() == tmp_path / "cli_path"
+
+
+def test_load_preset_config_without_base_dir_resolves_paths_from_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    preset_path = tmp_path / "configs" / "preset.json"
+    preset_path.parent.mkdir()
+    preset_path.write_text(
+        '{"preset": "demo", "title": "json", "count": 2, "path": "data"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "demo": ConfigPreset(name="demo", path=preset_path),
+        },
+        default="demo",
+    )
+
+    loaded = load_preset_config(catalog)
+
+    assert loaded.path == tmp_path / "data"
+
+
+def test_config_gui_preset_without_base_dir_resolves_edited_paths_from_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    notebook_runtime: None,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    preset_path = tmp_path / "configs" / "preset.json"
+    preset_path.parent.mkdir()
+    preset_path.write_text(
+        '{"preset": "demo", "title": "json", "count": 2, "path": "data"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "demo": ConfigPreset(name="demo", path=preset_path),
+        },
+        default="demo",
+    )
+
+    config_gui = create_config_gui(
+        _PresetModel,
+        presets=catalog,
+        background=None,
+    )
+    config_gui._convert_value(
+        {
+            CONFIG_JSON_VIEW_KEY: (
+                '{"preset": "demo", "title": "edited", '
+                '"count": 3, "path": "edited"}'
+            )
+        }
+    )
+
+    assert config_gui.validated_config().path == tmp_path / "edited"
 
 
 def test_load_json_config_applies_sibling_path_defaults(tmp_path: Path) -> None:

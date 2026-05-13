@@ -12,7 +12,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from torch.utils.cpp_extension import CUDA_HOME, load
+from ember_core.native.torch_extensions import load_torch_extension
+from torch.utils.cpp_extension import CUDA_HOME
 
 
 @dataclass(frozen=True)
@@ -211,7 +212,7 @@ def load_stoch3dgs_optix_tracer_runtime(
     module_name = f"ember_stoch3dgs_native_{_runtime_key(config)}"
     build_directory = stage_root / "torch_extensions"
     build_directory.mkdir(parents=True, exist_ok=True)
-    module = load(
+    module = load_torch_extension(
         name=module_name,
         sources=[
             str(stage_root / "src" / "optixTracer.cpp"),

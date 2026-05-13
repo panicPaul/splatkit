@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import ClassVar, Literal, NamedTuple, Self, cast
+from typing import Any, ClassVar, Literal, NamedTuple, Self, cast
 
 import torch
 from beartype import beartype
@@ -272,9 +272,7 @@ class CameraState:
             self,
             width=self.width.to(device, non_blocking=non_blocking),
             height=self.height.to(device, non_blocking=non_blocking),
-            fov_degrees=self.fov_degrees.to(
-                device, non_blocking=non_blocking
-            ),
+            fov_degrees=self.fov_degrees.to(device, non_blocking=non_blocking),
             intrinsics=(
                 self.intrinsics.to(device, non_blocking=non_blocking)
                 if self.intrinsics is not None
@@ -444,6 +442,7 @@ class SparseVoxelScene(Scene):
         subdivision_priority: Float[Tensor, "num_voxels 1"] | None = None,
     ) -> None:
         super().__init__()
+        self._svraster_derived_cache: dict[str, Any] = {}
         self.backend_name = backend_name
         self.active_sh_degree = active_sh_degree
         self.max_num_levels = max_num_levels
@@ -506,6 +505,89 @@ class SparseVoxelScene(Scene):
                 "SparseVoxelScene.active_sh_degree must be non-negative."
             )
 
+    @staticmethod
+    def _tensor_cache_signature(value: Tensor) -> tuple[Any, ...]:
+        return (
+            id(value),
+            value.device,
+            value.dtype,
+            tuple(value.shape),
+            int(value._version),
+        )
+
+    def _cache(self) -> dict[str, Any]:
+        cache = self.__dict__.get("_svraster_derived_cache")
+        if not isinstance(cache, dict):
+            cache = {}
+            self.__dict__["_svraster_derived_cache"] = cache
+        return cache
+
+    def _voxel_geometry_signature(self) -> tuple[Any, ...]:
+        return (
+            self.backend_name,
+            self.max_num_levels,
+            self._tensor_cache_signature(self.octpath),
+            self._tensor_cache_signature(self.octlevel),
+            self._tensor_cache_signature(self.scene_center),
+            self._tensor_cache_signature(self.scene_extent),
+        )
+
+    def _grid_link_signature(self) -> tuple[Any, ...]:
+        return (
+            self.backend_name,
+            self.max_num_levels,
+            self._tensor_cache_signature(self.octpath),
+            self._tensor_cache_signature(self.octlevel),
+        )
+
+    def _voxel_geometry(
+        self,
+    ) -> tuple[
+        Float[Tensor, "num_voxels 3"],
+        Float[Tensor, "num_voxels 1"],
+    ]:
+        signature = self._voxel_geometry_signature()
+        cache = self._cache()
+        cached = cache.get("voxel_geometry")
+        if cached is not None and cached[0] == signature:
+            return cast(
+                "tuple[Float[Tensor, 'num_voxels 3'], Float[Tensor, 'num_voxels 1']]",
+                cached[1],
+            )
+        value = svraster_octpath_decoding(
+            self.octpath,
+            self.octlevel,
+            self.scene_center,
+            self.scene_extent,
+            backend_name=self.backend_name,
+            max_num_levels=self.max_num_levels,
+        )
+        cache["voxel_geometry"] = (signature, value)
+        return value
+
+    def _grid_link(
+        self,
+    ) -> tuple[
+        Int[Tensor, "num_grid_points 3"],
+        Int[Tensor, "num_voxels 8"],
+    ]:
+        signature = self._grid_link_signature()
+        cache = self._cache()
+        cached = cache.get("grid_link")
+        if cached is not None and cached[0] == signature:
+            return cast(
+                "tuple[Int[Tensor, 'num_grid_points 3'], Int[Tensor, 'num_voxels 8']]",
+                cached[1],
+            )
+        value = svraster_build_grid_points_link(
+            self.octpath,
+            self.octlevel,
+            backend_name=self.backend_name,
+            max_num_levels=self.max_num_levels,
+        )
+        cache["grid_link"] = (signature, value)
+        return value
+
     @property
     def num_voxels(self) -> int:
         """Return the number of voxels in the sparse grid."""
@@ -519,49 +601,25 @@ class SparseVoxelScene(Scene):
     @property
     def vox_center(self) -> Float[Tensor, "num_voxels 3"]:
         """Return voxel centers in world coordinates."""
-        center, _size = svraster_octpath_decoding(
-            self.octpath,
-            self.octlevel,
-            self.scene_center,
-            self.scene_extent,
-            backend_name=self.backend_name,
-            max_num_levels=self.max_num_levels,
-        )
+        center, _size = self._voxel_geometry()
         return center
 
     @property
     def vox_size(self) -> Float[Tensor, "num_voxels 1"]:
         """Return voxel side lengths in world coordinates."""
-        _center, size = svraster_octpath_decoding(
-            self.octpath,
-            self.octlevel,
-            self.scene_center,
-            self.scene_extent,
-            backend_name=self.backend_name,
-            max_num_levels=self.max_num_levels,
-        )
+        _center, size = self._voxel_geometry()
         return size
 
     @property
     def grid_pts_key(self) -> Int[Tensor, "num_grid_points 3"]:
         """Return integer grid-point keys at the finest octree level."""
-        grid_pts_key, _vox_key = svraster_build_grid_points_link(
-            self.octpath,
-            self.octlevel,
-            backend_name=self.backend_name,
-            max_num_levels=self.max_num_levels,
-        )
+        grid_pts_key, _vox_key = self._grid_link()
         return grid_pts_key
 
     @property
     def vox_key(self) -> Int[Tensor, "num_voxels 8"]:
         """Return the eight corner-point indices for each voxel."""
-        _grid_pts_key, vox_key = svraster_build_grid_points_link(
-            self.octpath,
-            self.octlevel,
-            backend_name=self.backend_name,
-            max_num_levels=self.max_num_levels,
-        )
+        _grid_pts_key, vox_key = self._grid_link()
         return vox_key
 
     @property

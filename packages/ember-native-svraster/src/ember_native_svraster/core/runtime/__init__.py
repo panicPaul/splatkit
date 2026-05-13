@@ -100,6 +100,7 @@ def rasterize(
     return_depth: bool,
     return_normal: bool,
     track_max_weight: bool,
+    sort_rank_max_level: int,
     octree_paths: Tensor,
     voxel_centers: Tensor,
     voxel_lengths: Tensor,
@@ -135,6 +136,7 @@ def rasterize(
             return_depth,
             return_normal,
             track_max_weight,
+            sort_rank_max_level,
             color_concentration_weight,
             ascending_weight,
             distortion_weight,
@@ -174,6 +176,7 @@ def render(
     return_normal: bool = False,
     track_max_weight: bool = False,
     samples_per_voxel: int = 1,
+    sort_rank_max_level: int | None = None,
     subdivision_priority: Tensor | None = None,
     color_concentration_weight: float = 0.0,
     ascending_weight: float = 0.0,
@@ -219,6 +222,8 @@ def render(
             dtype=sh0.dtype,
             device=sh0.device,
         )
+    if sort_rank_max_level is None:
+        sort_rank_max_level = utils.max_num_levels()
     return rasterize(
         samples_per_voxel=samples_per_voxel,
         image_width=image_width,
@@ -233,6 +238,7 @@ def render(
         return_depth=return_depth,
         return_normal=return_normal,
         track_max_weight=track_max_weight,
+        sort_rank_max_level=sort_rank_max_level,
         color_concentration_weight=color_concentration_weight,
         ascending_weight=ascending_weight,
         distortion_weight=distortion_weight,

@@ -1,5 +1,5 @@
 {
-  "preset": "garden_debug_val",
+  "preset": "garden_big",
   "scene": {
     "path": "/home/schlack/Documents/3DGS_scenes/360/garden",
     "image_root": "/home/schlack/Documents/3DGS_scenes/360/garden/images"
@@ -14,7 +14,7 @@
   },
   "training": {
     "runtime": {
-      "max_steps": 10,
+      "max_steps": 30000,
       "device": "cuda"
     },
     "initialization": {
@@ -43,7 +43,24 @@
       "shader_lr": 0.00068
     },
     "densification": {
-      "probe_view_count": 2,
+      "refine_every": 100,
+      "start_iter": 500,
+      "stop_iter": 15000,
+      "loss_thresh": 0.06,
+      "grad_threshold": 0.0002,
+      "grad_abs_threshold": 0.0003,
+      "dense_fraction": 0.001,
+      "prune_opacity_threshold": 0.005,
+      "opacity_reset_every": 3000,
+      "extra_opacity_reset_iter": null,
+      "max_reset_opacity": 0.8,
+      "scheduled_reset_opacity": 0.01,
+      "probe_view_count": 10,
+      "importance_threshold": 5.0,
+      "final_prune_start_iter": 15000,
+      "final_prune_stop_iter": 30000,
+      "final_prune_every": 3000,
+      "final_prune_opacity_threshold": 0.1,
       "final_prune_mode": "disabled"
     },
     "loss": {

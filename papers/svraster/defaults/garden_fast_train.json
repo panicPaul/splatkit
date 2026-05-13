@@ -46,9 +46,11 @@
     "model": {
       "backend_name": "new_cuda",
       "max_num_levels": 21,
+      "runtime_max_num_levels": 16,
       "sh_degree": 3,
       "initial_sh_degree": 2,
       "samples_per_voxel": 1,
+      "render_supersampling": 1.5,
       "ss_aug_max": 1.5,
       "white_background": false,
       "black_background": false
@@ -66,9 +68,9 @@
       "filter_zero_visibility": true
     },
     "optimization": {
-      "geo_lr": 0.025,
-      "sh0_lr": 0.01,
-      "shs_lr": 0.00025,
+      "geo_lr": 0.08333333333333334,
+      "sh0_lr": 0.03333333333333333,
+      "shs_lr": 0.0008333333333333334,
       "beta1": 0.1,
       "beta2": 0.99,
       "epsilon": 1e-15,

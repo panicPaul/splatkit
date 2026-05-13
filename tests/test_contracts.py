@@ -10,6 +10,7 @@ from ember_core.core import (
     intrinsics_to_camera_params,
 )
 from ember_core.core.sparse_voxel import (
+    DEFAULT_SVRASTER_MAX_NUM_LEVELS,
     svraster_build_grid_points_link,
     svraster_octpath_to_ijk,
 )
@@ -190,7 +191,7 @@ def test_svraster_helpers_match_new_cuda_backend_on_cuda() -> None:
         octpath,
         octlevel,
         backend_name="new_cuda",
-        max_num_levels=5,
+        max_num_levels=DEFAULT_SVRASTER_MAX_NUM_LEVELS,
     )
     ref_ijk = new_svraster_cuda.utils.octpath_2_ijk(octpath, octlevel)
 
@@ -200,7 +201,7 @@ def test_svraster_helpers_match_new_cuda_backend_on_cuda() -> None:
         octpath,
         octlevel,
         backend_name="new_cuda",
-        max_num_levels=5,
+        max_num_levels=DEFAULT_SVRASTER_MAX_NUM_LEVELS,
     )
     ref_grid_pts_key, ref_vox_key = octree_utils.build_grid_pts_link(
         octpath,
@@ -210,3 +211,22 @@ def test_svraster_helpers_match_new_cuda_backend_on_cuda() -> None:
 
     assert torch.equal(ours_grid_pts_key, ref_grid_pts_key)
     assert torch.equal(ours_vox_key, ref_vox_key)
+
+
+def test_sparse_voxel_scene_caches_derived_voxel_attributes(
+    cpu_sparse_voxel_scene: SparseVoxelScene,
+) -> None:
+    first_center = cpu_sparse_voxel_scene.vox_center
+    second_center = cpu_sparse_voxel_scene.vox_center
+    first_key = cpu_sparse_voxel_scene.vox_key
+    second_key = cpu_sparse_voxel_scene.vox_key
+
+    assert first_center is second_center
+    assert first_key is second_key
+
+    original_center = first_center.clone()
+    cpu_sparse_voxel_scene.octpath.add_(1 << 60)
+    updated_center = cpu_sparse_voxel_scene.vox_center
+
+    assert updated_center is not first_center
+    assert not torch.equal(updated_center, original_center)

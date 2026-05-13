@@ -116,8 +116,125 @@ def test_gaussian_fastgs_opacity_reset_defaults_match_paper_behavior() -> None:
     assert method.extra_opacity_reset_iter is None
     assert method.max_reset_opacity == 0.8
     assert method.scheduled_reset_opacity == 0.01
+    assert method.final_prune_mode == "fastgs"
     assert method.should_reset_opacity(500) is False
     assert method.should_reset_opacity(3_000) is True
+
+
+def test_gaussian_fastgs_final_prune_mode_keeps_reference_schedule() -> None:
+    method = GaussianFastGS(
+        final_prune_start_iter=15_000,
+        final_prune_stop_iter=30_000,
+        final_prune_every=3_000,
+    )
+
+    assert method.should_final_prune(15_000) is False
+    assert method.should_final_prune(18_000) is True
+    assert method.should_final_prune(30_000) is False
+
+
+def test_gaussian_fastgs_disabled_final_prune_skips_background_prune(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene = GaussianScene3D(
+        center_position=torch.zeros((2, 3), dtype=torch.float32),
+        log_scales=torch.zeros((2, 3), dtype=torch.float32),
+        quaternion_orientation=torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        ),
+        logit_opacity=torch.tensor(
+            [0.01, 0.5],
+            dtype=torch.float32,
+        ).logit(),
+        feature=torch.zeros((2, 1, 3), dtype=torch.float32),
+        sh_degree=0,
+    )
+    method = GaussianFastGS(
+        final_prune_mode="disabled",
+        final_prune_start_iter=15_000,
+        final_prune_stop_iter=30_000,
+        final_prune_every=3_000,
+    )
+    pruned: list[torch.Tensor] = []
+
+    class _FamilyOps:
+        def __init__(self, scene: GaussianScene3D) -> None:
+            self.scene = scene
+
+        def prune(self, keep_mask: torch.Tensor) -> None:
+            pruned.append(keep_mask.clone())
+
+        def reset_opacity(self, _max_opacity: float) -> None:
+            raise AssertionError(
+                "disabled final prune should not reset opacity"
+            )
+
+    def fail_compute_pruning_score(_context: object) -> torch.Tensor:
+        raise AssertionError(
+            "disabled final prune should not compute VCP scores"
+        )
+
+    monkeypatch.setattr(
+        method,
+        "compute_pruning_score",
+        fail_compute_pruning_score,
+    )
+    method.family_ops = _FamilyOps(scene)  # type: ignore[assignment]
+    context = SimpleNamespace(
+        state=SimpleNamespace(model=SimpleNamespace(scene=scene)),
+        step=17_999,
+    )
+
+    method.pre_optimizer_step(context)  # type: ignore[arg-type]
+
+    assert pruned == []
+    assert method.should_final_prune(18_000) is False
+
+
+def test_gaussian_fastgs_final_prune_keeps_fastgs_opacity_and_vcp_policy() -> (
+    None
+):
+    scene = GaussianScene3D(
+        center_position=torch.zeros((3, 3), dtype=torch.float32),
+        log_scales=torch.zeros((3, 3), dtype=torch.float32),
+        quaternion_orientation=torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        ),
+        logit_opacity=torch.tensor(
+            [0.01, 0.5, 0.5],
+            dtype=torch.float32,
+        ).logit(),
+        feature=torch.zeros((3, 1, 3), dtype=torch.float32),
+        sh_degree=0,
+    )
+    method = GaussianFastGS(final_prune_opacity_threshold=0.1)
+    keep_masks: list[torch.Tensor] = []
+
+    class _FamilyOps:
+        def __init__(self, scene: GaussianScene3D) -> None:
+            self.scene = scene
+
+        def prune(self, keep_mask: torch.Tensor) -> None:
+            keep_masks.append(keep_mask.clone())
+
+    method.family_ops = _FamilyOps(scene)  # type: ignore[assignment]
+
+    method.final_prune(torch.tensor([0.0, 0.95, 0.2], dtype=torch.float32))
+
+    assert len(keep_masks) == 1
+    torch.testing.assert_close(
+        keep_masks[0],
+        torch.tensor([False, False, True]),
+    )
 
 
 def test_gaussian_fastgs_refinement_prunes_sampled_candidates_only(
@@ -186,7 +303,9 @@ def test_gaussian_fastgs_refinement_prunes_sampled_candidates_only(
         def reset_opacity(self, max_opacity: float) -> None:
             captured["max_reset_opacity"] = torch.tensor(max_opacity)
 
-    monkeypatch.setattr(method, "_sample_refinement_prune_mask", sample_prune_mask)
+    monkeypatch.setattr(
+        method, "_sample_refinement_prune_mask", sample_prune_mask
+    )
     monkeypatch.setattr(
         method,
         "compute_fastgs_scores",
@@ -212,12 +331,141 @@ def test_gaussian_fastgs_refinement_prunes_sampled_candidates_only(
         torch.tensor([False, True, True, False]),
     )
     assert float(captured["max_reset_opacity"].item()) == pytest.approx(0.8)
-    assert context.state.diagnostics["metrics"][
-        "refinement_fastgs_prune_candidate_count"
-    ] == 2.0
-    assert context.state.diagnostics["metrics"][
-        "refinement_fastgs_sampled_prune_count"
-    ] == 1.0
+    assert (
+        context.state.diagnostics["metrics"][
+            "refinement_fastgs_prune_candidate_count"
+        ]
+        == 2.0
+    )
+    assert (
+        context.state.diagnostics["metrics"][
+            "refinement_fastgs_sampled_prune_count"
+        ]
+        == 1.0
+    )
+
+
+def test_gaussian_fastgs_scores_use_floor_counts_and_l1_ssim_probe_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    method = GaussianFastGS(probe_view_count=2)
+    scene = GaussianScene3D(
+        center_position=torch.zeros((2, 3), dtype=torch.float32),
+        log_scales=torch.zeros((2, 3), dtype=torch.float32),
+        quaternion_orientation=torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        ),
+        logit_opacity=torch.zeros((2,), dtype=torch.float32),
+        feature=torch.zeros((2, 1, 3), dtype=torch.float32),
+        sh_degree=0,
+    )
+    monkeypatch.setattr(
+        "ember_splatting_training.losses.ssim_score",
+        lambda _prediction, _target: torch.tensor(0.5),
+    )
+
+    class _ProbeOutput:
+        def __init__(self, render: torch.Tensor) -> None:
+            self.render = render
+
+    class _Sample:
+        def __init__(self, target: float) -> None:
+            self.camera = object()
+            self.image = torch.full((2, 2, 3), target, dtype=torch.float32)
+
+    class _Attribution:
+        def __init__(self) -> None:
+            self.values = iter(
+                (
+                    torch.tensor([3.0, 0.0]),
+                    torch.tensor([0.0, 4.0]),
+                )
+            )
+
+        def attribute_metric_map(self, *_args, **_kwargs) -> torch.Tensor:
+            return next(self.values)
+
+    class _Runtime:
+        render_options = None
+
+        def __init__(self) -> None:
+            self.views = (_Sample(1.0), _Sample(0.25))
+            self.renders = iter(
+                (
+                    torch.zeros((1, 2, 2, 3), dtype=torch.float32),
+                    torch.zeros((1, 2, 2, 3), dtype=torch.float32),
+                )
+            )
+            self.attribution = _Attribution()
+
+        def sample_views(self, _count: int):
+            return self.views
+
+        def render_raw(self, *_args):
+            return _ProbeOutput(next(self.renders))
+
+        def resolve_trait(self, _trait_type):
+            return self.attribution
+
+    importance_score, pruning_score = method.compute_fastgs_scores(
+        DensificationContext(
+            state=SimpleNamespace(
+                model=InitializedModel(
+                    scene=scene,
+                    modules={},
+                    parameters={},
+                )
+            ),
+            batch=None,
+            render_output=None,
+            loss_result=None,
+            step=0,
+            optimizers=(),
+            runtime=_Runtime(),
+        ),
+        densify=True,
+    )
+
+    torch.testing.assert_close(
+        importance_score,
+        torch.tensor([1.0, 2.0]),
+    )
+    torch.testing.assert_close(
+        pruning_score,
+        torch.tensor([1.0, 0.0]),
+    )
+
+
+def test_gaussian_fastgs_photometric_loss_casts_half_probes_for_ssim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    method = GaussianFastGS()
+    seen_dtypes: list[tuple[torch.dtype, torch.dtype]] = []
+
+    def fake_ssim_score(
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        seen_dtypes.append((prediction.dtype, target.dtype))
+        return torch.tensor(0.75, dtype=prediction.dtype)
+
+    monkeypatch.setattr(
+        "ember_splatting_training.losses.ssim_score",
+        fake_ssim_score,
+    )
+
+    loss = method._photometric_loss(
+        torch.zeros((2, 2, 3), dtype=torch.float16),
+        torch.ones((2, 2, 3), dtype=torch.float16),
+    )
+
+    assert loss.dtype == torch.float32
+    assert seen_dtypes == [(torch.float32, torch.float32)]
+    assert loss.item() == pytest.approx(0.85)
 
 
 def test_gaussian_mip_splatting_3d_filter_has_no_render_requirements() -> None:

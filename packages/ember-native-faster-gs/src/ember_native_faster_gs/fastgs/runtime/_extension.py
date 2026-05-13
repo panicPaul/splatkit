@@ -6,21 +6,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from torch.utils.cpp_extension import load
-
-from ember_native_faster_gs._torch_extensions import clear_completed_build_lock
+from ember_core.native.torch_extensions import load_torch_extension
 
 
 @lru_cache(maxsize=1)
 def load_extension() -> Any:
     """Compile and load the FastGS-specific rasterization extension."""
     extension_name = "ember_fastgs_native_ext"
-    clear_completed_build_lock(extension_name)
     fastgs_root = Path(__file__).resolve().parent.parent / "native"
     core_native_root = (
         Path(__file__).resolve().parents[2] / "faster_gs" / "native"
     )
-    return load(
+    return load_torch_extension(
         name=extension_name,
         sources=[
             str(fastgs_root / "bindings.cpp"),

@@ -59,31 +59,39 @@ __forceinline__ __device__ uint64_t compute_order_rank(uint64_t octree_path, int
     return octree_path ^ order_tables[quadrant_id];
 }
 
-__forceinline__ __device__ uint64_t encode_order_key(uint64_t tile_id, uint64_t order_rank)
+__forceinline__ __device__ uint64_t encode_order_key(
+    uint64_t tile_id,
+    uint64_t order_rank,
+    int order_rank_bits)
 {
-    return (tile_id << ORDER_RANK_BITS) | order_rank;
+    return (tile_id << order_rank_bits) | order_rank;
 }
 
 __forceinline__ __host__ __device__ SortKey128 encode_order_key_wide(
     uint64_t tile_id,
-    uint64_t order_rank)
+    uint64_t order_rank,
+    int order_rank_bits)
 {
-    constexpr int tile_lo_bits = SINGLE_SORT_KEY_BITS - ORDER_RANK_BITS;
+    const int tile_lo_bits = SINGLE_SORT_KEY_BITS - order_rank_bits;
     SortKey128 key;
-    key.lo = (tile_id << ORDER_RANK_BITS) | order_rank;
+    key.lo = (tile_id << order_rank_bits) | order_rank;
     key.hi = tile_id >> tile_lo_bits;
     return key;
 }
 
-__forceinline__ __host__ __device__ uint64_t decode_tile_id_from_key(uint64_t key)
+__forceinline__ __host__ __device__ uint64_t decode_tile_id_from_key(
+    uint64_t key,
+    int order_rank_bits)
 {
-    return key >> ORDER_RANK_BITS;
+    return key >> order_rank_bits;
 }
 
-__forceinline__ __host__ __device__ uint64_t decode_tile_id_from_key(SortKey128 key)
+__forceinline__ __host__ __device__ uint64_t decode_tile_id_from_key(
+    SortKey128 key,
+    int order_rank_bits)
 {
-    constexpr int tile_lo_bits = SINGLE_SORT_KEY_BITS - ORDER_RANK_BITS;
-    return (key.hi << tile_lo_bits) | (key.lo >> ORDER_RANK_BITS);
+    const int tile_lo_bits = SINGLE_SORT_KEY_BITS - order_rank_bits;
+    return (key.hi << tile_lo_bits) | (key.lo >> order_rank_bits);
 }
 
 __forceinline__ __host__ __device__ uint32_t required_bits_u32(uint32_t n)

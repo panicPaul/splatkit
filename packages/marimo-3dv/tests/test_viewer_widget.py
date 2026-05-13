@@ -108,6 +108,12 @@ def test_viewer_controls_config_reflects_viewer_state() -> None:
         settled_quality="png",
         internal_render_max_side=2048,
         interactive_max_side=1024,
+        interactive_backpressure=False,
+        interactive_max_fps=18.0,
+        interactive_min_fps=4.0,
+        interactive_latency_target_ms=250.0,
+        interactive_probe_interval_s=6.0,
+        interactive_reset_interval_s=20.0,
         show_axes=False,
         show_horizon=True,
         show_origin=True,
@@ -131,6 +137,12 @@ def test_viewer_controls_config_reflects_viewer_state() -> None:
     assert config.render.settled_quality == "png"
     assert config.render.interactive_max_side == 1024
     assert config.render.internal_render_max_side == 2048
+    assert config.render.interactive_backpressure is False
+    assert config.render.interactive_max_fps == 18.0
+    assert config.render.interactive_min_fps == 4.0
+    assert config.render.interactive_latency_target_ms == 250.0
+    assert config.render.interactive_probe_interval_s == 6.0
+    assert config.render.interactive_reset_interval_s == 20.0
     assert config.navigation.move_speed == 0.125
     assert config.navigation.sprint_multiplier == 4.0
     assert config.interaction.orbit_invert_x is True
@@ -160,6 +172,12 @@ def test_apply_viewer_config_updates_viewer_state() -> None:
             "settled_quality": "png",
             "interactive_max_side": 900,
             "internal_render_max_side": 1800,
+            "interactive_backpressure": False,
+            "interactive_max_fps": 16.0,
+            "interactive_min_fps": 3.0,
+            "interactive_latency_target_ms": 450.0,
+            "interactive_probe_interval_s": 7.0,
+            "interactive_reset_interval_s": 25.0,
         },
         navigation={"move_speed": 0.3, "sprint_multiplier": 6.0},
         interaction={
@@ -191,6 +209,12 @@ def test_apply_viewer_config_updates_viewer_state() -> None:
     assert state.settled_quality == "png"
     assert state.interactive_max_side == 900
     assert state.internal_render_max_side == 1800
+    assert state.interactive_backpressure is False
+    assert state.interactive_max_fps == 16.0
+    assert state.interactive_min_fps == 3.0
+    assert state.interactive_latency_target_ms == 450.0
+    assert state.interactive_probe_interval_s == 7.0
+    assert state.interactive_reset_interval_s == 25.0
     assert state.keyboard_move_speed == 0.3
     assert state.keyboard_sprint_multiplier == 6.0
     assert state.orbit_invert_x is True
@@ -887,6 +911,7 @@ def test_marimo_viewer_get_debug_info_reads_synced_metrics() -> None:
     widget.browser_decode_time_ms = 2.0
     widget.browser_draw_time_ms = 0.25
     widget.browser_present_wait_ms = 8.5
+    widget.effective_interactive_fps = 6.0
 
     assert viewer.get_debug_info() == {
         "error_text": "boom",
@@ -904,6 +929,7 @@ def test_marimo_viewer_get_debug_info_reads_synced_metrics() -> None:
         "browser_decode_time_ms": 2.0,
         "browser_draw_time_ms": 0.25,
         "browser_present_wait_ms": 8.5,
+        "effective_interactive_fps": 6.0,
         "accounted_leaf_latency_ms": 21.75,
         "unaccounted_leaf_latency_ms": -9.25,
         "unaccounted_leaf_latency_sample_ms": -10.75,
@@ -920,6 +946,29 @@ def test_marimo_viewer_exposes_configured_aspect_ratio() -> None:
     )
 
     assert viewer.anywidget().aspect_ratio == 2.0
+
+
+def test_marimo_viewer_exposes_interactive_backpressure_settings() -> None:
+    viewer = marimo_viewer(
+        lambda state: np.zeros((state.height, state.width, 3), dtype=np.uint8),
+        state=ViewerState(
+            interactive_backpressure=False,
+            interactive_max_fps=18.0,
+            interactive_min_fps=4.0,
+            interactive_latency_target_ms=250.0,
+            interactive_probe_interval_s=6.0,
+            interactive_reset_interval_s=20.0,
+        ),
+    )
+    widget = viewer.anywidget()
+
+    assert widget.interactive_backpressure is False
+    assert widget.interactive_max_fps == 18.0
+    assert widget.interactive_min_fps == 4.0
+    assert widget.interactive_latency_target_ms == 250.0
+    assert widget.interactive_probe_interval_s == 6.0
+    assert widget.interactive_reset_interval_s == 20.0
+    assert widget.effective_interactive_fps == 18.0
 
 
 def test_marimo_viewer_uses_widget_transport_by_default() -> None:
@@ -1029,6 +1078,34 @@ def test_viewer_state_rejects_non_positive_interactive_max_side() -> None:
         ValueError, match="interactive_max_side must be None or a positive"
     ):
         ViewerState(interactive_max_side=0)
+
+
+def test_viewer_state_rejects_invalid_interactive_fps_limits() -> None:
+    with pytest.raises(
+        ValueError, match="interactive_max_fps must be positive"
+    ):
+        ViewerState(interactive_max_fps=0.0)
+    with pytest.raises(
+        ValueError, match="interactive_min_fps must be positive"
+    ):
+        ViewerState(interactive_min_fps=0.0)
+    with pytest.raises(ValueError, match="interactive_min_fps must be less"):
+        ViewerState(interactive_min_fps=13.0, interactive_max_fps=12.0)
+
+
+def test_viewer_state_rejects_invalid_interactive_latency_timing() -> None:
+    with pytest.raises(
+        ValueError, match="interactive_latency_target_ms must be positive"
+    ):
+        ViewerState(interactive_latency_target_ms=0.0)
+    with pytest.raises(
+        ValueError, match="interactive_probe_interval_s must be positive"
+    ):
+        ViewerState(interactive_probe_interval_s=0.0)
+    with pytest.raises(
+        ValueError, match="interactive_reset_interval_s must be positive"
+    ):
+        ViewerState(interactive_reset_interval_s=0.0)
 
 
 def test_viewer_state_rejects_non_positive_internal_render_max_side() -> None:

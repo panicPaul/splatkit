@@ -505,18 +505,27 @@ uint32_t getHigherMsb(uint32_t n)
 }
 
 template <typename KeyT>
-__forceinline__ __device__ KeyT make_sort_key(uint64_t tile_id, uint64_t order_rank);
+__forceinline__ __device__ KeyT make_sort_key(
+    uint64_t tile_id,
+    uint64_t order_rank,
+    int order_rank_bits);
 
 template <>
-__forceinline__ __device__ uint64_t make_sort_key<uint64_t>(uint64_t tile_id, uint64_t order_rank)
+__forceinline__ __device__ uint64_t make_sort_key<uint64_t>(
+    uint64_t tile_id,
+    uint64_t order_rank,
+    int order_rank_bits)
 {
-    return encode_order_key(tile_id, order_rank);
+    return encode_order_key(tile_id, order_rank, order_rank_bits);
 }
 
 template <>
-__forceinline__ __device__ SortKey128 make_sort_key<SortKey128>(uint64_t tile_id, uint64_t order_rank)
+__forceinline__ __device__ SortKey128 make_sort_key<SortKey128>(
+    uint64_t tile_id,
+    uint64_t order_rank,
+    int order_rank_bits)
 {
-    return encode_order_key_wide(tile_id, order_rank);
+    return encode_order_key_wide(tile_id, order_rank, order_rank_bits);
 }
 
 // Duplicate each voxel by #tiles x #cam_quadrant it touches.
@@ -530,7 +539,9 @@ __global__ void duplicateWithKeys(
     const uint32_t* n_duplicates_scan,
     KeyT* vox_list_keys_unsorted,
     uint32_t* vox_list_unsorted,
-    dim3 grid)
+    dim3 grid,
+    int rank_shift,
+    int order_rank_bits)
 {
     auto idx = cg::this_grid().thread_rank();
     if (idx >= P || n_duplicates[idx] == 0)
@@ -553,7 +564,7 @@ __global__ void duplicateWithKeys(
             continue;
 
         // Compute order_rank for the voxel in this quadrant.
-        uint64_t order_rank = compute_order_rank(octree_path, quadrant_id);
+        uint64_t order_rank = compute_order_rank(octree_path, quadrant_id) >> rank_shift;
 
         // Duplicate result to touched tiles.
         for (int y = tile_min.y; y <= tile_max.y; y++)
@@ -561,7 +572,10 @@ __global__ void duplicateWithKeys(
             for (int x = tile_min.x; x <= tile_max.x; x++)
             {
                 uint64_t tile_id = y * grid.x + x;
-                vox_list_keys_unsorted[off] = make_sort_key<KeyT>(tile_id, order_rank);
+                vox_list_keys_unsorted[off] = make_sort_key<KeyT>(
+                    tile_id,
+                    order_rank,
+                    order_rank_bits);
                 vox_list_unsorted[off] = encode_order_val(idx, quadrant_id);
                 off++;
             }
@@ -578,19 +592,27 @@ __global__ void duplicateWithKeys(
 //   [--sorted voxels for tile 1--  --sorted voxels for tile 2--  ...]
 // We want to identify the start/end index of each tile from this list.
 template <typename KeyT>
-__global__ void identifyTileRanges(int L, const KeyT* vox_list_keys, uint2* ranges)
+__global__ void identifyTileRanges(
+    int L,
+    const KeyT* vox_list_keys,
+    uint2* ranges,
+    int order_rank_bits)
 {
     auto idx = cg::this_grid().thread_rank();
     if (idx >= L)
         return;
 
     // Read tile ID from key. Update start/end of tile range if at limit.
-    uint32_t currtile = decode_tile_id_from_key(vox_list_keys[idx]);
+    uint32_t currtile = decode_tile_id_from_key(
+        vox_list_keys[idx],
+        order_rank_bits);
     if (idx == 0)
         ranges[currtile].x = 0;
     else
     {
-        uint32_t prevtile = decode_tile_id_from_key(vox_list_keys[idx - 1]);
+        uint32_t prevtile = decode_tile_id_from_key(
+            vox_list_keys[idx - 1],
+            order_rank_bits);
         if (currtile != prevtile)
         {
             ranges[prevtile].y = idx;
@@ -617,6 +639,7 @@ int rasterize_voxels_procedure(
     const bool need_depth,
     const bool need_distortion,
     const bool need_normal,
+    const int sort_rank_max_level,
 
     const int64_t* octree_paths,
     const float* vox_centers,
@@ -632,6 +655,13 @@ int rasterize_voxels_procedure(
 
     bool debug)
 {
+    if (sort_rank_max_level < 1 || sort_rank_max_level > MAX_NUM_LEVELS)
+    {
+        AT_ERROR("sort_rank_max_level must be in [1, MAX_NUM_LEVELS].");
+    }
+
+    const int order_rank_bits = 3 * sort_rank_max_level;
+    const int rank_shift = 3 * (MAX_NUM_LEVELS - sort_rank_max_level);
     dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
     dim3 block(BLOCK_X, BLOCK_Y, 1);
 
@@ -662,7 +692,7 @@ int rasterize_voxels_procedure(
     CHECK_CUDA(debug);
 
     const uint32_t tile_count = tile_grid.x * tile_grid.y;
-    const int total_key_bits = ORDER_RANK_BITS + getHigherMsb(tile_count);
+    const int total_key_bits = order_rank_bits + getHigherMsb(tile_count);
     if (total_key_bits > MAX_SORT_KEY_BITS)
         AT_ERROR("Composite raster sort key exceeds MAX_SORT_KEY_BITS.");
 
@@ -695,7 +725,9 @@ int rasterize_voxels_procedure(
             geomState.n_duplicates_scan,
             binningState.vox_list_keys_unsorted_wide,
             binningState.vox_list_unsorted,
-            tile_grid);
+            tile_grid,
+            rank_shift,
+            order_rank_bits);
         CHECK_CUDA(debug);
 
         cub::DeviceRadixSort::SortPairs(
@@ -716,7 +748,9 @@ int rasterize_voxels_procedure(
             geomState.n_duplicates_scan,
             binningState.vox_list_keys_unsorted,
             binningState.vox_list_unsorted,
-            tile_grid);
+            tile_grid,
+            rank_shift,
+            order_rank_bits);
         CHECK_CUDA(debug);
 
         cub::DeviceRadixSort::SortPairs(
@@ -739,14 +773,16 @@ int rasterize_voxels_procedure(
             identifyTileRanges<SortKey128> <<<(num_rendered + 255) / 256, 256>>> (
                 num_rendered,
                 binningState.vox_list_keys_wide,
-                imgState.ranges);
+                imgState.ranges,
+                order_rank_bits);
         }
         else
         {
             identifyTileRanges<uint64_t> <<<(num_rendered + 255) / 256, 256>>> (
                 num_rendered,
                 binningState.vox_list_keys,
-                imgState.ranges);
+                imgState.ranges,
+                order_rank_bits);
         }
         CHECK_CUDA(debug);
     }
@@ -800,6 +836,7 @@ rasterize_voxels(
     const bool need_distortion,
     const bool need_normal,
     const bool track_max_w,
+    const int sort_rank_max_level,
 
     const torch::Tensor& octree_paths,
     const torch::Tensor& vox_centers,
@@ -858,6 +895,7 @@ rasterize_voxels(
             need_depth,
             need_distortion,
             need_normal,
+            sort_rank_max_level,
 
             octree_paths.contiguous().data_ptr<int64_t>(),
             vox_centers.contiguous().data_ptr<float>(),

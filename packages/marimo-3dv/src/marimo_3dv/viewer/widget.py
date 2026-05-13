@@ -116,7 +116,9 @@ def _register_process_cleanup_handlers() -> None:
             _cleanup_active_marimo_viewers()
 
             if callable(previous_handler):
-                handler = cast(Callable[[int, object | None], None], previous_handler)
+                handler = cast(
+                    Callable[[int, object | None], None], previous_handler
+                )
                 handler(signum, frame)
                 return
             if previous_handler == signal.SIG_IGN:
@@ -678,6 +680,12 @@ class ViewerState:
     settled_quality: Literal["jpeg_95", "jpeg_100", "png"]
     internal_render_max_side: int | None
     interactive_max_side: int | None
+    interactive_backpressure: bool
+    interactive_max_fps: float
+    interactive_min_fps: float
+    interactive_latency_target_ms: float
+    interactive_probe_interval_s: float
+    interactive_reset_interval_s: float
     raise_on_error: bool
     transport_mode: ViewerTransportMode
     last_click: ViewerClick | None = None
@@ -724,6 +732,12 @@ class ViewerState:
         settled_quality: Literal["jpeg_95", "jpeg_100", "png"] = "jpeg_100",
         internal_render_max_side: int | None = 3840,
         interactive_max_side: int | None = 1980,
+        interactive_backpressure: bool = True,
+        interactive_max_fps: float = 12.0,
+        interactive_min_fps: float = 2.0,
+        interactive_latency_target_ms: float = 350.0,
+        interactive_probe_interval_s: float = 10.0,
+        interactive_reset_interval_s: float = 30.0,
         raise_on_error: bool = True,
         transport_mode: ViewerTransportMode = "widget",
         last_click: ViewerClick | None = None,
@@ -767,6 +781,37 @@ class ViewerState:
                 "interactive_max_side must be None or a positive integer, "
                 f"got {interactive_max_side}."
             )
+        if interactive_max_fps <= 0.0:
+            raise ValueError(
+                "interactive_max_fps must be positive, "
+                f"got {interactive_max_fps}."
+            )
+        if interactive_min_fps <= 0.0:
+            raise ValueError(
+                "interactive_min_fps must be positive, "
+                f"got {interactive_min_fps}."
+            )
+        if interactive_min_fps > interactive_max_fps:
+            raise ValueError(
+                "interactive_min_fps must be less than or equal to "
+                f"interactive_max_fps, got {interactive_min_fps} > "
+                f"{interactive_max_fps}."
+            )
+        if interactive_latency_target_ms <= 0.0:
+            raise ValueError(
+                "interactive_latency_target_ms must be positive, "
+                f"got {interactive_latency_target_ms}."
+            )
+        if interactive_probe_interval_s <= 0.0:
+            raise ValueError(
+                "interactive_probe_interval_s must be positive, "
+                f"got {interactive_probe_interval_s}."
+            )
+        if interactive_reset_interval_s <= 0.0:
+            raise ValueError(
+                "interactive_reset_interval_s must be positive, "
+                f"got {interactive_reset_interval_s}."
+            )
         if transport_mode not in {"widget", "websocket"}:
             raise ValueError(
                 "transport_mode must be 'widget' or 'websocket', "
@@ -790,6 +835,12 @@ class ViewerState:
         self.settled_quality = settled_quality
         self.internal_render_max_side = internal_render_max_side
         self.interactive_max_side = interactive_max_side
+        self.interactive_backpressure = interactive_backpressure
+        self.interactive_max_fps = interactive_max_fps
+        self.interactive_min_fps = interactive_min_fps
+        self.interactive_latency_target_ms = interactive_latency_target_ms
+        self.interactive_probe_interval_s = interactive_probe_interval_s
+        self.interactive_reset_interval_s = interactive_reset_interval_s
         self.raise_on_error = raise_on_error
         self.transport_mode = transport_mode
         self.last_click = last_click
@@ -1066,6 +1117,12 @@ class ViewerState:
             settled_quality=self.settled_quality,
             internal_render_max_side=self.internal_render_max_side,
             interactive_max_side=self.interactive_max_side,
+            interactive_backpressure=self.interactive_backpressure,
+            interactive_max_fps=self.interactive_max_fps,
+            interactive_min_fps=self.interactive_min_fps,
+            interactive_latency_target_ms=self.interactive_latency_target_ms,
+            interactive_probe_interval_s=self.interactive_probe_interval_s,
+            interactive_reset_interval_s=self.interactive_reset_interval_s,
             raise_on_error=self.raise_on_error,
             transport_mode=self.transport_mode,
             last_click=self.last_click,
@@ -1450,6 +1507,7 @@ class _NativeViewerAnyWidget(anywidget.AnyWidget):
     browser_draw_time_ms = traitlets.Float(0.0).tag(sync=True)
     browser_present_wait_ms = traitlets.Float(0.0).tag(sync=True)
     render_fps = traitlets.Float(0.0).tag(sync=True)
+    effective_interactive_fps = traitlets.Float(12.0).tag(sync=True)
     last_click_json = traitlets.Unicode("").tag(sync=True)
     is_rendering = traitlets.Bool(False).tag(sync=True)
     closed = traitlets.Bool(False).tag(sync=True)
@@ -1466,6 +1524,12 @@ class _NativeViewerAnyWidget(anywidget.AnyWidget):
     origin_z = traitlets.Float(0.0).tag(sync=True)
     keyboard_move_speed = traitlets.Float(0.125).tag(sync=True)
     keyboard_sprint_multiplier = traitlets.Float(4.0).tag(sync=True)
+    interactive_backpressure = traitlets.Bool(True).tag(sync=True)
+    interactive_max_fps = traitlets.Float(12.0).tag(sync=True)
+    interactive_min_fps = traitlets.Float(2.0).tag(sync=True)
+    interactive_latency_target_ms = traitlets.Float(350.0).tag(sync=True)
+    interactive_probe_interval_s = traitlets.Float(10.0).tag(sync=True)
+    interactive_reset_interval_s = traitlets.Float(30.0).tag(sync=True)
     orbit_invert_x = traitlets.Bool(False).tag(sync=True)
     orbit_invert_y = traitlets.Bool(False).tag(sync=True)
     pan_invert_x = traitlets.Bool(False).tag(sync=True)
@@ -1493,6 +1557,12 @@ class _NativeViewerAnyWidget(anywidget.AnyWidget):
         origin_z: float,
         keyboard_move_speed: float = 0.125,
         keyboard_sprint_multiplier: float = 4.0,
+        interactive_backpressure: bool = True,
+        interactive_max_fps: float = 12.0,
+        interactive_min_fps: float = 2.0,
+        interactive_latency_target_ms: float = 350.0,
+        interactive_probe_interval_s: float = 10.0,
+        interactive_reset_interval_s: float = 30.0,
         orbit_invert_x: bool = False,
         orbit_invert_y: bool = False,
         pan_invert_x: bool = False,
@@ -1517,6 +1587,13 @@ class _NativeViewerAnyWidget(anywidget.AnyWidget):
             origin_z=origin_z,
             keyboard_move_speed=keyboard_move_speed,
             keyboard_sprint_multiplier=keyboard_sprint_multiplier,
+            interactive_backpressure=interactive_backpressure,
+            interactive_max_fps=interactive_max_fps,
+            interactive_min_fps=interactive_min_fps,
+            interactive_latency_target_ms=interactive_latency_target_ms,
+            interactive_probe_interval_s=interactive_probe_interval_s,
+            interactive_reset_interval_s=interactive_reset_interval_s,
+            effective_interactive_fps=interactive_max_fps,
             orbit_invert_x=orbit_invert_x,
             orbit_invert_y=orbit_invert_y,
             pan_invert_x=pan_invert_x,
@@ -1588,12 +1665,18 @@ class MarimoViewer(_StableMarimoAnyWidget):
         self._native_widget.observe(
             self._on_last_click_json_change, names=["last_click_json"]
         )
-        self._native_widget.observe(self._on_show_axes_change, names=["show_axes"])
+        self._native_widget.observe(
+            self._on_show_axes_change, names=["show_axes"]
+        )
         self._native_widget.observe(
             self._on_show_horizon_change, names=["show_horizon"]
         )
-        self._native_widget.observe(self._on_show_origin_change, names=["show_origin"])
-        self._native_widget.observe(self._on_show_stats_change, names=["show_stats"])
+        self._native_widget.observe(
+            self._on_show_origin_change, names=["show_origin"]
+        )
+        self._native_widget.observe(
+            self._on_show_stats_change, names=["show_stats"]
+        )
         if self._state is not None:
             self._state._reset_camera_callback = self.set_camera_state
             self._state._viewer_rotation_callback = self.set_viewer_rotation
@@ -1616,7 +1699,9 @@ class MarimoViewer(_StableMarimoAnyWidget):
         self._native_widget.closed = True
         self._native_widget.interaction_active = False
         self._native_widget.is_rendering = False
-        self._native_widget.send_state(["closed", "interaction_active", "is_rendering"])
+        self._native_widget.send_state(
+            ["closed", "interaction_active", "is_rendering"]
+        )
         _ACTIVE_MARIMO_VIEWERS.pop(id(self), None)
         self._native_widget.unobserve(
             self._on_camera_revision_change, names=["_camera_revision"]
@@ -1627,14 +1712,18 @@ class MarimoViewer(_StableMarimoAnyWidget):
         self._native_widget.unobserve(
             self._on_last_click_json_change, names=["last_click_json"]
         )
-        self._native_widget.unobserve(self._on_show_axes_change, names=["show_axes"])
+        self._native_widget.unobserve(
+            self._on_show_axes_change, names=["show_axes"]
+        )
         self._native_widget.unobserve(
             self._on_show_horizon_change, names=["show_horizon"]
         )
         self._native_widget.unobserve(
             self._on_show_origin_change, names=["show_origin"]
         )
-        self._native_widget.unobserve(self._on_show_stats_change, names=["show_stats"])
+        self._native_widget.unobserve(
+            self._on_show_stats_change, names=["show_stats"]
+        )
         if self._state is not None:
             self._clear_state_callback("_reset_camera_callback")
             self._clear_state_callback("_viewer_rotation_callback")
@@ -1731,10 +1820,16 @@ class MarimoViewer(_StableMarimoAnyWidget):
             "latency_ms": float(self._native_widget.latency_ms),
             "latency_sample_ms": float(self._native_widget.latency_sample_ms),
             "render_time_ms": float(self._native_widget.render_time_ms),
-            "render_queue_time_ms": float(self._native_widget.render_queue_time_ms),
+            "render_queue_time_ms": float(
+                self._native_widget.render_queue_time_ms
+            ),
             "encode_time_ms": float(self._native_widget.encode_time_ms),
-            "stream_queue_time_ms": float(self._native_widget.stream_queue_time_ms),
-            "stream_send_time_ms": float(self._native_widget.stream_send_time_ms),
+            "stream_queue_time_ms": float(
+                self._native_widget.stream_queue_time_ms
+            ),
+            "stream_send_time_ms": float(
+                self._native_widget.stream_send_time_ms
+            ),
             "backend_to_browser_time_ms": float(
                 self._native_widget.backend_to_browser_time_ms
             ),
@@ -1745,10 +1840,17 @@ class MarimoViewer(_StableMarimoAnyWidget):
             "browser_post_receive_ms": float(
                 self._native_widget.browser_post_receive_ms
             ),
-            "browser_decode_time_ms": float(self._native_widget.browser_decode_time_ms),
-            "browser_draw_time_ms": float(self._native_widget.browser_draw_time_ms),
+            "browser_decode_time_ms": float(
+                self._native_widget.browser_decode_time_ms
+            ),
+            "browser_draw_time_ms": float(
+                self._native_widget.browser_draw_time_ms
+            ),
             "browser_present_wait_ms": float(
                 self._native_widget.browser_present_wait_ms
+            ),
+            "effective_interactive_fps": float(
+                self._native_widget.effective_interactive_fps
             ),
         }
         accounted_leaf_latency_ms = (
@@ -2199,7 +2301,8 @@ class MarimoViewer(_StableMarimoAnyWidget):
     ) -> None:
         def _apply_error_update() -> None:
             self._native_widget.error_text = message
-            self._native_widget.send_state("error_text")
+            self._native_widget.render_revision = revision
+            self._native_widget.send_state(["error_text", "render_revision"])
 
         self._run_on_main_loop(_apply_error_update)
         self._complete_revision(revision, error)
@@ -2220,6 +2323,12 @@ def marimo_viewer(
     settled_quality: Literal["jpeg_95", "jpeg_100", "png"] | None = None,
     internal_render_max_side: int | None = None,
     interactive_max_side: int | None = None,
+    interactive_backpressure: bool | None = None,
+    interactive_max_fps: float | None = None,
+    interactive_min_fps: float | None = None,
+    interactive_latency_target_ms: float | None = None,
+    interactive_probe_interval_s: float | None = None,
+    interactive_reset_interval_s: float | None = None,
     transport_mode: ViewerTransportMode | None = None,
     camera_convention: CameraConvention | None = None,
     initial_view: CameraState | None = None,
@@ -2239,9 +2348,10 @@ def marimo_viewer(
     `render_fn` is recreated. `internal_render_max_side` caps the larger image
     axis for all renders while preserving the live widget aspect ratio.
     `interactive_max_side` applies an additional motion-only cap on top of
-    that; `None` disables motion downscaling. Interactive render rate is
-    limited by the browser's pointer event frequency (typically 20-60 fps);
-    use `rerender(interactive=True)` to drive rendering from Python instead.
+    that; `None` disables motion downscaling. Interactive camera updates use
+    latest-only backpressure by default: only one render request is kept in
+    flight and the browser lowers the effective FPS cap when frame latency
+    exceeds `interactive_latency_target_ms`.
     When `raise_on_error` is `True`, Python-triggered renders re-raise render
     exceptions instead of only surfacing them in widget state.
     `transport_mode="widget"` streams frames through marimo's existing widget
@@ -2282,6 +2392,32 @@ def marimo_viewer(
                 if interactive_max_side is not None
                 else 1980
             ),
+            interactive_backpressure=(
+                interactive_backpressure
+                if interactive_backpressure is not None
+                else True
+            ),
+            interactive_max_fps=(
+                interactive_max_fps if interactive_max_fps is not None else 12.0
+            ),
+            interactive_min_fps=(
+                interactive_min_fps if interactive_min_fps is not None else 2.0
+            ),
+            interactive_latency_target_ms=(
+                interactive_latency_target_ms
+                if interactive_latency_target_ms is not None
+                else 350.0
+            ),
+            interactive_probe_interval_s=(
+                interactive_probe_interval_s
+                if interactive_probe_interval_s is not None
+                else 10.0
+            ),
+            interactive_reset_interval_s=(
+                interactive_reset_interval_s
+                if interactive_reset_interval_s is not None
+                else 30.0
+            ),
             raise_on_error=(
                 raise_on_error if raise_on_error is not None else True
             ),
@@ -2293,6 +2429,18 @@ def marimo_viewer(
         state.set_camera(initial_view)
     if transport_mode is not None:
         state.transport_mode = transport_mode
+    if interactive_backpressure is not None:
+        state.interactive_backpressure = interactive_backpressure
+    if interactive_max_fps is not None:
+        state.interactive_max_fps = interactive_max_fps
+    if interactive_min_fps is not None:
+        state.interactive_min_fps = interactive_min_fps
+    if interactive_latency_target_ms is not None:
+        state.interactive_latency_target_ms = interactive_latency_target_ms
+    if interactive_probe_interval_s is not None:
+        state.interactive_probe_interval_s = interactive_probe_interval_s
+    if interactive_reset_interval_s is not None:
+        state.interactive_reset_interval_s = interactive_reset_interval_s
 
     existing_viewer = (
         None
@@ -2327,6 +2475,12 @@ def marimo_viewer(
         origin_z=state.origin[2],
         keyboard_move_speed=state.keyboard_move_speed,
         keyboard_sprint_multiplier=state.keyboard_sprint_multiplier,
+        interactive_backpressure=state.interactive_backpressure,
+        interactive_max_fps=state.interactive_max_fps,
+        interactive_min_fps=state.interactive_min_fps,
+        interactive_latency_target_ms=state.interactive_latency_target_ms,
+        interactive_probe_interval_s=state.interactive_probe_interval_s,
+        interactive_reset_interval_s=state.interactive_reset_interval_s,
         orbit_invert_x=state.orbit_invert_x,
         orbit_invert_y=state.orbit_invert_y,
         pan_invert_x=state.pan_invert_x,

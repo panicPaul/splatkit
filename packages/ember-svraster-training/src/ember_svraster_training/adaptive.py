@@ -77,10 +77,13 @@ def _camera_position(camera: Any) -> Float[Tensor, " 3"]:
 def _current_render_statistics(
     scene: SparseVoxelScene,
     render_output: Any,
-) -> tuple[
-    Float[Tensor, " num_voxels 1"],
-    Float[Tensor, " num_voxels 1"],
-] | None:
+) -> (
+    tuple[
+        Float[Tensor, " num_voxels 1"],
+        Float[Tensor, " num_voxels 1"],
+    ]
+    | None
+):
     max_weight_tensor = getattr(render_output, "max_weight", None)
     if max_weight_tensor is None:
         return None
@@ -94,10 +97,13 @@ def _training_view_statistics(
     scene: SparseVoxelScene,
     model: Any,
     runtime: Any,
-) -> tuple[
-    Float[Tensor, " num_voxels 1"],
-    Float[Tensor, " num_voxels 1"],
-] | None:
+) -> (
+    tuple[
+        Float[Tensor, " num_voxels 1"],
+        Float[Tensor, " num_voxels 1"],
+    ]
+    | None
+):
     max_weight = torch.zeros_like(scene.vox_size)
     min_sample_interval = torch.full_like(scene.vox_size, torch.inf)
     found_statistics = False
@@ -169,6 +175,7 @@ class SVRasterAdaptivePruneSubdivide(BaseDensificationMethod):
     subdivide_sample_threshold: float = 1.0
     subdivide_proportion: float = 0.05
     subdivide_max_voxels: int = 10_000_000
+    max_num_levels: int | None = None
     final_step_margin: int = 500
     expected_scene_families: tuple[str, ...] = ("sparse_voxel",)
     _family_ops: SparseVoxelFamilyOps | None = field(
@@ -187,8 +194,7 @@ class SVRasterAdaptivePruneSubdivide(BaseDensificationMethod):
         del state, optimizers
         if not isinstance(family_ops, SparseVoxelFamilyOps):
             raise TypeError(
-                "SVRasterAdaptivePruneSubdivide requires "
-                "SparseVoxelFamilyOps."
+                "SVRasterAdaptivePruneSubdivide requires SparseVoxelFamilyOps."
             )
         self._family_ops = family_ops
 
@@ -221,13 +227,21 @@ class SVRasterAdaptivePruneSubdivide(BaseDensificationMethod):
         min_sample_interval: Float[Tensor, " num_voxels 1"],
         step: int,
     ) -> Bool[Tensor, " num_voxels"]:
-        valid_mask = keep_mask & (scene.octlevel.reshape(-1) < scene.max_num_levels)
+        runtime_max_num_levels = (
+            scene.max_num_levels
+            if self.max_num_levels is None
+            else self.max_num_levels
+        )
+        max_num_levels = min(scene.max_num_levels, runtime_max_num_levels)
+        valid_mask = keep_mask & (scene.octlevel.reshape(-1) < max_num_levels)
         if valid_mask.sum() == 0:
             return valid_mask
         size_threshold = (
             min_sample_interval.reshape(-1) * self.subdivide_sample_threshold
         )
-        valid_mask = valid_mask & (scene.vox_size.reshape(-1) * 0.5 > size_threshold)
+        valid_mask = valid_mask & (
+            scene.vox_size.reshape(-1) * 0.5 > size_threshold
+        )
         priority = _subdivision_priority(scene).reshape(-1)
         masked_priority = priority * valid_mask.to(priority.dtype)
         if step <= self.subdivide_all_until:
@@ -272,7 +286,9 @@ class SVRasterAdaptivePruneSubdivide(BaseDensificationMethod):
             scene,
             context.render_output,
         )
-        if context.runtime is not None and hasattr(context.runtime, "all_views"):
+        if context.runtime is not None and hasattr(
+            context.runtime, "all_views"
+        ):
             statistics = _training_view_statistics(
                 scene=scene,
                 model=context.state.model,

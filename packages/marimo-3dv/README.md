@@ -216,8 +216,21 @@ Controls:
 - camera pose and field of view
 - overlay toggles for axes, horizon, origin, and stats
 - render-quality settings
+- interactive backpressure settings for high-latency SSH sessions
 - keyboard and pointer tuning
 - viewer-frame origin and rotation
+
+Interactive backpressure is enabled by default. The browser sends at most one
+interactive camera revision at a time, keeps only the latest pending camera,
+and lowers the effective interactive FPS when measured frame latency exceeds
+the target. The relevant controls are:
+
+- `interactive_backpressure`
+- `interactive_max_fps`
+- `interactive_min_fps`
+- `interactive_latency_target_ms`
+- `interactive_probe_interval_s`
+- `interactive_reset_interval_s`
 
 The reusable controls are Pydantic models, so they work naturally with
 `marimo-config-gui`:

@@ -1,4 +1,4 @@
-"""Compatibility imports for shared PyTorch JIT extension helpers."""
+"""Native runtime helpers shared by Ember backend packages."""
 
 from ember_core.native.torch_extensions import (
     clear_completed_build_lock,

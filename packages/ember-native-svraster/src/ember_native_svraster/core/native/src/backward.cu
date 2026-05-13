@@ -657,6 +657,7 @@ rasterize_voxels_backward(
     const torch::Tensor& w2c_matrix,
     const torch::Tensor& c2w_matrix,
     const float bg_color,
+    const int sort_rank_max_level,
 
     const torch::Tensor& octree_paths,
     const torch::Tensor& vox_centers,
@@ -687,6 +688,8 @@ rasterize_voxels_backward(
 {
     if (vox_centers.ndimension() != 2 || vox_centers.size(1) != 3)
         AT_ERROR("vox_centers must have dimensions (num_points, 3)");
+    if (sort_rank_max_level < 1 || sort_rank_max_level > MAX_NUM_LEVELS)
+        AT_ERROR("sort_rank_max_level must be in [1, MAX_NUM_LEVELS].");
 
     const int P = vox_centers.size(0);
 
@@ -709,7 +712,8 @@ rasterize_voxels_backward(
     RASTER_STATE::GeometryState geomState = RASTER_STATE::GeometryState::fromChunk(
         geomB_ptr,
         P);
-    const int total_key_bits = ORDER_RANK_BITS + required_bits_u32(tile_grid.x * tile_grid.y);
+    const int order_rank_bits = 3 * sort_rank_max_level;
+    const int total_key_bits = order_rank_bits + required_bits_u32(tile_grid.x * tile_grid.y);
     const bool use_wide_sort_key = total_key_bits > SINGLE_SORT_KEY_BITS;
     RASTER_STATE::BinningState binningState = RASTER_STATE::BinningState::fromChunk(
         binningB_ptr,

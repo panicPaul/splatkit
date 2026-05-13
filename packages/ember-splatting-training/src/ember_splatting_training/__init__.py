@@ -11,8 +11,9 @@ except ImportError:
         __version__ = "0.0.0"
 
 __all__ = [
-    "FusedAdam",
     "FastGSDensificationRecipe",
+    "FastGSFinalPruneMode",
+    "FusedAdam",
     "Gaussian3DGSOptimizationRecipe",
     "GaussianFastGS",
     "GaussianMCMC",
@@ -59,8 +60,9 @@ def __getattr__(name: str) -> object:
 
             return getattr(densification, name)
         case (
-            "GaussianMipSplatting3DFilter"
+            "FastGSFinalPruneMode"
             | "GaussianFastGS"
+            | "GaussianMipSplatting3DFilter"
             | "GaussianMortonOrdering"
             | "active_sh_bases_for_step"
             | "fastgs_l1_metric_map"
@@ -99,9 +101,7 @@ def __getattr__(name: str) -> object:
             from ember_splatting_training import tensorboard_analysis
 
             return getattr(tensorboard_analysis, name)
-        case (
-            "FastGSDensificationRecipe"
-        ):
+        case "FastGSDensificationRecipe":
             from ember_splatting_training import typed_recipes
 
             return getattr(typed_recipes, name)

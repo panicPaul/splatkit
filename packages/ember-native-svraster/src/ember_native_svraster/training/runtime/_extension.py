@@ -7,6 +7,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ember_core.native.torch_extensions import load_torch_extension
+
 
 def _cuda_include_paths() -> list[str]:
     cuda_home = Path(os.environ.get("CUDA_HOME", "/usr/local/cuda"))
@@ -22,12 +24,11 @@ def _cuda_include_paths() -> list[str]:
 @lru_cache(maxsize=1)
 def load_extension() -> Any:
     """Compile and load the vendored SVRaster training extension."""
-    from torch.utils.cpp_extension import load
-
+    extension_name = "ember_svraster_training_native_ext"
     training_root = Path(__file__).resolve().parent.parent / "native"
     source_root = training_root / "src"
-    return load(
-        name="ember_svraster_training_native_ext",
+    return load_torch_extension(
+        name=extension_name,
         sources=[
             str(training_root / "bindings.cpp"),
             str(source_root / "adam_step.cu"),

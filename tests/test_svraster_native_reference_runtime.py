@@ -102,8 +102,12 @@ def test_sh_eval_kernel_matches_optional_reference_forward_backward(
 ) -> None:
     raw_svraster_renderer = _import_reference_renderer()
     cam_pos = cuda_camera.cam_to_world[0, :3, 3]
-    native_sh0 = cuda_sparse_voxel_scene.sh0.detach().clone().requires_grad_(True)
-    native_shs = cuda_sparse_voxel_scene.shs.detach().clone().requires_grad_(True)
+    native_sh0 = (
+        cuda_sparse_voxel_scene.sh0.detach().clone().requires_grad_(True)
+    )
+    native_shs = (
+        cuda_sparse_voxel_scene.shs.detach().clone().requires_grad_(True)
+    )
     reference_sh0 = (
         cuda_sparse_voxel_scene.sh0.detach().clone().requires_grad_(True)
     )
@@ -269,6 +273,7 @@ def test_rasterize_kernel_matches_optional_reference_forward_backward(
         return_depth=True,
         return_normal=True,
         track_max_weight=True,
+        sort_rank_max_level=runtime.utils.max_num_levels(),
         octree_paths=cuda_sparse_voxel_scene.octpath.reshape(-1),
         voxel_centers=cuda_sparse_voxel_scene.vox_center,
         voxel_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),

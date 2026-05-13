@@ -155,7 +155,8 @@ def test_svraster_resolved_training_config_uses_native_training_package() -> (
         "black_background": False,
         "return_transmittance": True,
         "samples_per_voxel": 1,
-        "supersampling": 1.0,
+        "sort_rank_max_level": 21,
+        "supersampling": 1.5,
         "track_max_weight": True,
         "white_background": False,
     }
@@ -163,9 +164,18 @@ def test_svraster_resolved_training_config_uses_native_training_package() -> (
     assert training_config.render.training_backend_options_builder.target == (
         "ember_svraster_training.svraster_paper_training_backend_options"
     )
-    assert training_config.render.training_backend_options_builder.kwargs[
-        "ss_aug_max"
-    ] == 1.5
+    assert (
+        training_config.render.training_backend_options_builder.kwargs[
+            "ss_aug_max"
+        ]
+        == 1.5
+    )
+    assert (
+        training_config.render.training_backend_options_builder.kwargs[
+            "default_supersampling"
+        ]
+        == 1.5
+    )
     assert training_config.initialization.initializer.target == (
         "ember_svraster_training.initialize_svraster_paper_scene"
     )
@@ -193,6 +203,9 @@ def test_svraster_resolved_training_config_uses_native_training_package() -> (
     assert training_config.densification is not None
     assert training_config.densification.builders[0].target == (
         "ember_svraster_training.SVRasterAdaptivePruneSubdivide"
+    )
+    assert (
+        training_config.densification.builders[0].kwargs["max_num_levels"] == 21
     )
     assert (
         training_config.checkpoint.output_dir
@@ -319,6 +332,52 @@ def test_svraster_paper_training_options_are_batch_aware() -> None:
     assert options["ground_truth_color"] is batch.images
     assert 1.0 <= options["supersampling"] <= 1.5
 
+    no_aug_options = svraster_paper_training_backend_options(
+        state=state,
+        batch=batch,
+        default_supersampling=1.1,
+        ss_aug_max=1.0,
+    )
+
+    assert no_aug_options["supersampling"] == 1.1
+
+
+def test_svraster_fast_presets_match_upstream_overrides() -> None:
+    module = load_svraster_config_module()
+    fast_train = load_svraster_preset(module, "garden_fast_train")
+    fast_render = load_svraster_preset(module, "garden_fast_render")
+
+    fast_train_config = module.resolve_training_config(fast_train)
+    fast_train_recipe = fast_train_config.optimization.builder.kwargs["recipe"]
+
+    assert fast_train.training.runtime.max_steps == 6000
+    assert fast_train_recipe["geo_lr"] == 0.08333333333333334
+    assert fast_train_recipe["sh0_lr"] == 0.03333333333333333
+    assert fast_train_recipe["shs_lr"] == 0.0008333333333333334
+    assert fast_train.training.adaptive.adapt_from == 300
+    assert fast_train.training.adaptive.adapt_every == 100
+    assert fast_train.training.adaptive.prune_until == 5400
+    assert fast_train.training.adaptive.subdivide_until == 4500
+    assert fast_train.training.model.max_num_levels == 21
+    assert fast_train.training.model.runtime_max_num_levels == 16
+    assert fast_train_config.render.backend_options["sort_rank_max_level"] == 16
+    assert fast_train_config.densification is not None
+    assert (
+        fast_train_config.densification.builders[0].kwargs["max_num_levels"]
+        == 16
+    )
+
+    fast_render_config = module.resolve_training_config(fast_render)
+
+    assert fast_render.training.model.runtime_max_num_levels == 21
+    assert fast_render.training.model.render_supersampling == 1.1
+    assert fast_render.training.adaptive.prune_threshold_final == 0.15
+    assert fast_render_config.render.backend_options["supersampling"] == 1.1
+    assert fast_render_config.checkpoint.output_dir == (
+        REPO_ROOT
+        / "checkpoints/papers/svraster/garden_fast_render/svraster.core"
+    )
+
 
 def test_svraster_adaptive_pruning_keeps_one_voxel() -> None:
     import torch
@@ -333,6 +392,29 @@ def test_svraster_adaptive_pruning_keeps_one_voxel() -> None:
         guarded,
         torch.tensor([False, True, False]),
     )
+
+
+def test_svraster_adaptive_subdivide_respects_runtime_max_level(
+    cpu_sparse_voxel_scene,
+) -> None:
+    import torch
+    from ember_svraster_training.adaptive import (
+        SVRasterAdaptivePruneSubdivide,
+    )
+
+    scene = cpu_sparse_voxel_scene.with_fields(
+        octlevel=torch.full_like(cpu_sparse_voxel_scene.octlevel, 16)
+    )
+    method = SVRasterAdaptivePruneSubdivide(max_num_levels=16)
+
+    mask = method._subdivide_mask(
+        scene,
+        torch.ones((scene.num_voxels,), dtype=torch.bool),
+        torch.ones((scene.num_voxels, 1), dtype=torch.float32),
+        step=300,
+    )
+
+    assert not mask.any()
 
 
 def test_svraster_adaptive_skips_when_render_statistics_are_missing() -> None:
@@ -357,7 +439,10 @@ def test_svraster_adaptive_skips_when_render_statistics_are_missing() -> None:
         subdivision_priority=torch.ones((1, 1), dtype=torch.float32),
     )
 
-    assert _current_render_statistics(scene, SimpleNamespace(max_weight=None)) is None
+    assert (
+        _current_render_statistics(scene, SimpleNamespace(max_weight=None))
+        is None
+    )
 
 
 def test_svraster_scene_loader_uses_current_colmap_config() -> None:
@@ -405,6 +490,8 @@ def test_svraster_defaults_include_current_notebook_runtime_fields() -> None:
     assert debug.data.materialization_mode == "eager"
     assert debug.data.materialization_num_workers == 8
     assert debug.training.model.max_num_levels == 21
+    assert debug.training.model.runtime_max_num_levels == 21
+    assert debug.training.model.render_supersampling == 1.0
     assert debug.training.batching.num_workers == 8
     assert debug.training.batching.persistent_workers is True
     assert debug.training.batching.pin_memory is True
@@ -420,8 +507,7 @@ def test_svraster_training_config_retargets_default_checkpoint_dir() -> None:
     training_config = module.resolve_training_config(experiment_config)
 
     assert training_config.checkpoint.output_dir == (
-        REPO_ROOT
-        / "checkpoints/papers/svraster/garden_debug_val/svraster.core"
+        REPO_ROOT / "checkpoints/papers/svraster/garden_debug_val/svraster.core"
     )
 
     experiment_config.training.checkpoint.output_dir = (
@@ -429,6 +515,5 @@ def test_svraster_training_config_retargets_default_checkpoint_dir() -> None:
     )
     training_config = module.resolve_training_config(experiment_config)
     assert training_config.checkpoint.output_dir == (
-        REPO_ROOT
-        / "checkpoints/papers/svraster/garden_debug_val/svraster.core"
+        REPO_ROOT / "checkpoints/papers/svraster/garden_debug_val/svraster.core"
     )

@@ -10,7 +10,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from torch.utils.cpp_extension import CUDA_HOME, load
+from ember_core.native.torch_extensions import load_torch_extension
+from torch.utils.cpp_extension import CUDA_HOME
 
 
 @dataclass(frozen=True)
@@ -179,7 +180,7 @@ def load_nht_rasterizer_runtime(
     if config.fast_math:
         cuda_compile_flags.append("-use_fast_math")
 
-    module = load(
+    module = load_torch_extension(
         name=module_name,
         sources=_source_files(stage_root),
         extra_include_paths=[

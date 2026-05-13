@@ -6,7 +6,7 @@ import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from ember_core.core.contracts import CameraState, GaussianScene
@@ -32,6 +32,8 @@ from ember_native_faster_gs.faster_gs.training import (
 )
 from jaxtyping import Float, Int
 from torch import Tensor
+
+FastGSFinalPruneMode = Literal["fastgs", "disabled"]
 
 
 def fastgs_normalize_score(score: Tensor) -> Tensor:
@@ -128,6 +130,7 @@ class GaussianFastGS(BaseDensificationMethod):
     final_prune_stop_iter: int = 30_000
     final_prune_every: int = 3_000
     final_prune_opacity_threshold: float = 0.1
+    final_prune_mode: FastGSFinalPruneMode = "fastgs"
     camera_extent: float = 1.0
     request_collect_densification_info: bool = True
     expected_scene_families: tuple[str, ...] = ("gaussian",)
@@ -383,7 +386,10 @@ class GaussianFastGS(BaseDensificationMethod):
                 sample.image,
                 self.loss_thresh,
             )
-            photometric_loss = (predicted - sample.image).abs().mean()
+            photometric_loss = self._photometric_loss(
+                predicted,
+                sample.image,
+            )
             attributed = attribution.attribute_metric_map(
                 scene,
                 sample.camera,
@@ -393,7 +399,11 @@ class GaussianFastGS(BaseDensificationMethod):
             if densify:
                 importance_sum += attributed
             pruning_sum += photometric_loss * attributed
-        importance_score = importance_sum / float(len(probe_views))
+        importance_score = torch.div(
+            importance_sum,
+            float(len(probe_views)),
+            rounding_mode="floor",
+        )
         return importance_score, fastgs_normalize_score(pruning_sum)
 
     def probe_prediction(
@@ -423,8 +433,10 @@ class GaussianFastGS(BaseDensificationMethod):
             torch.sigmoid(scene.logit_opacity)
             < self.final_prune_opacity_threshold
         )
-        prune_mask |= pruning_score > 0.9
-        self.family_ops.prune(~prune_mask)
+        if pruning_score.numel() == prune_mask.numel():
+            prune_mask |= pruning_score > 0.9
+        if torch.any(prune_mask):
+            self.family_ops.prune(~prune_mask)
 
     def should_reset_opacity(self, step: int) -> bool:
         """Return whether FastGS should apply an opacity reset."""
@@ -441,10 +453,28 @@ class GaussianFastGS(BaseDensificationMethod):
     def should_final_prune(self, step: int) -> bool:
         """Return whether FastGS should apply final VCP pruning."""
         return (
-            step > self.final_prune_start_iter
+            self.final_prune_mode == "fastgs"
+            and step > self.final_prune_start_iter
             and step < self.final_prune_stop_iter
             and step % self.final_prune_every == 0
         )
+
+    def _photometric_loss(
+        self,
+        predicted: Tensor,
+        target: Tensor,
+    ) -> Tensor:
+        """Return FastGS' L1+DSSIM probe loss."""
+        predicted_f32 = predicted.float()
+        target_f32 = target.float()
+        l1_loss = (predicted_f32 - target_f32).abs().mean()
+        from ember_splatting_training.losses import ssim_score
+
+        one_minus_ssim = 1.0 - ssim_score(
+            predicted_f32[None, ...],
+            target_f32[None, ...],
+        )
+        return 0.8 * l1_loss + 0.2 * one_minus_ssim
 
     def reset_accumulators(self) -> None:
         """Drop accumulated FastGS signal buffers."""
@@ -691,9 +721,7 @@ class GaussianMipSplatting3DFilter(BaseDensificationMethod):
             or self.recompute_schedule.includes(step)
         )
         if should_recompute:
-            self._mip_splatting_3d_filter = self._compute_filter(
-                context, scene
-            )
+            self._mip_splatting_3d_filter = self._compute_filter(context, scene)
             self._scene_data_ptr = scene_data_ptr
         if self._mip_splatting_3d_filter is not None:
             self._clamp_log_scales(scene, self._mip_splatting_3d_filter)
@@ -820,6 +848,7 @@ class GaussianMipSplatting3DFilter(BaseDensificationMethod):
 
 
 __all__ = [
+    "FastGSFinalPruneMode",
     "GaussianFastGS",
     "GaussianMipSplatting3DFilter",
     "GaussianMortonOrdering",

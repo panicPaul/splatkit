@@ -17,10 +17,14 @@ register()
 
 
 def test_svraster_typed_backend_ref_builds_options() -> None:
-    options = SVRASTER_CORE.options(samples_per_voxel=2)
+    options = SVRASTER_CORE.options(
+        samples_per_voxel=2,
+        sort_rank_max_level=16,
+    )
 
     assert SVRASTER_CORE.serialized == "svraster.core"
     assert options.samples_per_voxel == 2
+    assert options.sort_rank_max_level == 16
 
 
 @pytest.mark.backend
@@ -61,6 +65,25 @@ def test_render_svraster_native_returns_depth_surface(
 
 @pytest.mark.backend
 @pytest.mark.cuda
+def test_render_svraster_native_accepts_narrow_sort_rank_cap(
+    cuda_sparse_voxel_scene,
+    cuda_camera,
+) -> None:
+    output = cast(
+        SVRasterRenderOutput,
+        render_svraster(
+            cuda_sparse_voxel_scene,
+            cuda_camera,
+            options=SVRASTER_CORE.options(sort_rank_max_level=16),
+        ),
+    )
+
+    assert output.render.shape == (1, 32, 32, 3)
+    assert torch.isfinite(output.render).all()
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
 def test_generic_render_dispatches_to_svraster_native(
     cuda_sparse_voxel_scene,
     cuda_camera,
@@ -92,6 +115,24 @@ def test_render_svraster_native_rejects_non_native_max_level(
 
     with pytest.raises(ValueError, match="MAX_NUM_LEVELS=21"):
         render_svraster(bad_scene, cuda_camera)
+
+
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_render_svraster_native_rejects_sort_rank_cap_below_scene_level(
+    cuda_sparse_voxel_scene,
+    cuda_camera,
+) -> None:
+    bad_scene = cuda_sparse_voxel_scene.with_fields(
+        octlevel=torch.full_like(cuda_sparse_voxel_scene.octlevel, 17)
+    )
+
+    with pytest.raises(ValueError, match="sort_rank_max_level"):
+        render_svraster(
+            bad_scene,
+            cuda_camera,
+            options=SVRASTER_CORE.options(sort_rank_max_level=16),
+        )
 
 
 def test_render_svraster_native_rejects_non_opencv_camera(

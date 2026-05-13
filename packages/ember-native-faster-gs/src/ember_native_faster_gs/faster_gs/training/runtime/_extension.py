@@ -6,16 +6,17 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ember_core.native.torch_extensions import load_torch_extension
+
 
 @lru_cache(maxsize=1)
 def load_extension() -> Any:
     """Compile and load the vendored FasterGS training extension."""
-    from torch.utils.cpp_extension import load
-
+    extension_name = "ember_faster_gs_training_native_ext"
     training_root = Path(__file__).resolve().parent.parent / "native"
     faster_gs_root = training_root.parent.parent
-    return load(
-        name="ember_faster_gs_training_native_ext",
+    return load_torch_extension(
+        name=extension_name,
         sources=[
             str(training_root / "bindings.cpp"),
             str(training_root / "adam" / "src" / "adam.cu"),

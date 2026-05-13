@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from torch.utils.cpp_extension import load
+from ember_core.native.torch_extensions import load_torch_extension
 
 
 def _cuda_include_paths() -> list[str]:
@@ -24,10 +24,11 @@ def _cuda_include_paths() -> list[str]:
 @lru_cache(maxsize=1)
 def load_extension() -> Any:
     """Compile and load the vendored SVRaster extension."""
+    extension_name = "ember_svraster_native_ext"
     native_root = Path(__file__).resolve().parent.parent / "native"
     source_root = native_root / "src"
-    return load(
-        name="ember_svraster_native_ext",
+    return load_torch_extension(
+        name=extension_name,
         sources=[
             str(native_root / "bindings.cpp"),
             str(source_root / "raster_state.cu"),

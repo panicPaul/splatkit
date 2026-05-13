@@ -71,7 +71,9 @@ def _as_paper_cameras(
                     camera_to_world=camera_to_world,
                     position=camera_to_world[:3, 3],
                     look_at=camera_to_world[:3, 2],
-                    pixel_size=2.0 * ((image_width * 0.5) / focal_x) / image_width,
+                    pixel_size=2.0
+                    * ((image_width * 0.5) / focal_x)
+                    / image_width,
                 )
             )
     return tuple(paper_cameras)
@@ -113,9 +115,9 @@ def _forward_scene_bound(
         _camera_look_at(cameras).mean(dim=0),
         dim=0,
     )
-    camera_extent = (
-        2.0 * (camera_positions - camera_center).norm(dim=-1).max().clamp_min(1e-6)
-    )
+    camera_extent = 2.0 * (camera_positions - camera_center).norm(
+        dim=-1
+    ).max().clamp_min(1e-6)
     scene_center = camera_center + mean_look_at * camera_extent
     inside_extent = (0.8 * forward_distance_scale * camera_extent).reshape(1)
     return scene_center, inside_extent
@@ -128,7 +130,10 @@ def _camera_median_scene_bound(
     scene_center = camera_positions.mean(dim=0)
     inside_extent = (
         2.0
-        * (camera_positions - scene_center).norm(dim=-1).median().clamp_min(1e-6)
+        * (camera_positions - scene_center)
+        .norm(dim=-1)
+        .median()
+        .clamp_min(1e-6)
     ).reshape(1)
     return scene_center, inside_extent
 
@@ -139,7 +144,8 @@ def _camera_max_scene_bound(
     camera_positions = _camera_positions(cameras)
     scene_center = camera_positions.mean(dim=0)
     inside_extent = (
-        2.0 * (camera_positions - scene_center).norm(dim=-1).max().clamp_min(1e-6)
+        2.0
+        * (camera_positions - scene_center).norm(dim=-1).max().clamp_min(1e-6)
     ).reshape(1)
     return scene_center, inside_extent
 
@@ -287,9 +293,9 @@ def _mark_max_sample_rate(
             voxel_centers=voxel_centers,
             voxel_lengths=voxel_lengths.reshape(-1),
         )
-        view_distance = ((voxel_centers - camera.position) * camera.look_at).sum(
-            dim=-1
-        )
+        view_distance = (
+            (voxel_centers - camera.position) * camera.look_at
+        ).sum(dim=-1)
         visible_mask = preprocess_result.n_duplicates > 0
         if near_plane > 0.0:
             visible_mask &= view_distance > near_plane
@@ -299,7 +305,9 @@ def _mark_max_sample_rate(
         sample_interval = (
             view_distance[visible_indices] * camera.pixel_size
         ).clamp_min(1e-12)
-        view_sample_rate = voxel_lengths.reshape(-1)[visible_indices] / sample_interval
+        view_sample_rate = (
+            voxel_lengths.reshape(-1)[visible_indices] / sample_interval
+        )
         sample_rate[visible_indices] = torch.maximum(
             sample_rate[visible_indices],
             view_sample_rate,
@@ -398,7 +406,9 @@ def _outside_octpaths(
         subdivide_mask = ranked_sample_rate >= threshold
         subdivide_mask &= can_subdivide
         if int(subdivide_mask.sum()) > 0:
-            quantile_threshold = ranked_sample_rate[subdivide_mask].quantile(0.9)
+            quantile_threshold = ranked_sample_rate[subdivide_mask].quantile(
+                0.9
+            )
             subdivide_mask &= ranked_sample_rate >= quantile_threshold
         if int(subdivide_mask.sum()) == 0:
             break
@@ -407,8 +417,12 @@ def _outside_octpaths(
             octree_levels[subdivide_mask],
             max_num_levels=max_num_levels,
         )
-        octree_paths = torch.cat([octree_paths[~subdivide_mask], child_paths], dim=0)
-        octree_levels = torch.cat([octree_levels[~subdivide_mask], child_levels], dim=0)
+        octree_paths = torch.cat(
+            [octree_paths[~subdivide_mask], child_paths], dim=0
+        )
+        octree_levels = torch.cat(
+            [octree_levels[~subdivide_mask], child_levels], dim=0
+        )
     return _filter_visible_octpaths(
         cameras,
         octree_paths=octree_paths,
@@ -447,7 +461,9 @@ def initialize_svraster_paper_scene(
 ) -> InitializedModel:
     """Initialize SVRaster's foreground grid and background shell from cameras."""
     if backend_name != "new_cuda":
-        raise ValueError("SVRaster paper initialization currently supports new_cuda.")
+        raise ValueError(
+            "SVRaster paper initialization currently supports new_cuda."
+        )
     target_device = device or torch.device("cpu")
     cameras = _training_cameras(
         scene_record,
@@ -482,21 +498,27 @@ def initialize_svraster_paper_scene(
         scene_center=scene_center,
         scene_extent=scene_extent,
         outside_level=outside_level,
-        minimum_voxels=round(int(inside_paths.shape[0]) * initial_outside_ratio),
+        minimum_voxels=round(
+            int(inside_paths.shape[0]) * initial_outside_ratio
+        ),
         max_level=min(outside_level + initial_inside_level, max_num_levels),
         max_num_levels=max_num_levels,
         near_plane=near_plane,
         device=target_device,
     )
     octree_paths = torch.cat([outside_paths, inside_paths], dim=0).contiguous()
-    octree_levels = torch.cat([outside_levels, inside_levels], dim=0).contiguous()
+    octree_levels = torch.cat(
+        [outside_levels, inside_levels], dim=0
+    ).contiguous()
     _grid_points_key, voxel_keys = svraster_build_grid_points_link(
         octree_paths,
         octree_levels,
         backend_name=None,
         max_num_levels=max_num_levels,
     )
-    num_grid_points = int(voxel_keys.max().item()) + 1 if voxel_keys.numel() else 0
+    num_grid_points = (
+        int(voxel_keys.max().item()) + 1 if voxel_keys.numel() else 0
+    )
     num_voxels = int(octree_paths.shape[0])
     sh_coefficients = (sh_degree + 1) ** 2 - 1
     scene = SparseVoxelScene(
@@ -552,6 +574,7 @@ def svraster_paper_training_backend_options(
     ascending_weight: float = 0.0,
     ascending_start_step: int = 0,
     color_concentration_weight: float = 0.01,
+    default_supersampling: float = 1.5,
     ss_aug_max: float = 1.5,
     ss_aug_start_step: int = 1000,
 ) -> dict[str, Any]:
@@ -566,9 +589,14 @@ def svraster_paper_training_backend_options(
         ),
         "color_concentration_weight": color_concentration_weight,
     }
-    if ss_aug_max > 1.0 and step > ss_aug_start_step:
-        rng = random.Random((0 if state is None else int(state.seed)) + step)
-        updates["supersampling"] = rng.uniform(1.0, ss_aug_max)
+    if step > ss_aug_start_step:
+        if ss_aug_max > 1.0:
+            rng = random.Random(
+                (0 if state is None else int(state.seed)) + step
+            )
+            updates["supersampling"] = rng.uniform(1.0, ss_aug_max)
+        else:
+            updates["supersampling"] = default_supersampling
     else:
         updates["supersampling"] = 1.0
     if batch is not None and color_concentration_weight > 0.0:
@@ -629,7 +657,9 @@ def svraster_paper_rgb_loss(
         getattr(render_output, "transmittance", None),
     )
     if raw_transmittance is not None and lambda_t_concentration > 0.0:
-        concentration_loss = _transmittance_concentration_loss(raw_transmittance)
+        concentration_loss = _transmittance_concentration_loss(
+            raw_transmittance
+        )
         loss = loss + lambda_t_concentration * concentration_loss
         metrics["transmittance_concentration_loss"] = float(
             concentration_loss.detach().item()
@@ -637,7 +667,9 @@ def svraster_paper_rgb_loss(
     if raw_transmittance is not None and lambda_t_inside > 0.0:
         inside_loss = raw_transmittance.square().mean()
         loss = loss + lambda_t_inside * inside_loss
-        metrics["transmittance_inside_loss"] = float(inside_loss.detach().item())
+        metrics["transmittance_inside_loss"] = float(
+            inside_loss.detach().item()
+        )
     return LossResult(loss=loss, metrics=metrics)
 
 

@@ -61,24 +61,24 @@ def test_nht_fast_gs_resolved_training_config_uses_hybrid_backend() -> None:
         training_config.densification.builders[0].kwargs["probe_view_count"]
         == 10
     )
-    assert training_config.densification.builders[0].kwargs[
-        "refine_every"
-    ] == 500
-    assert training_config.densification.builders[0].kwargs[
-        "start_iter"
-    ] == 500
-    assert training_config.densification.builders[0].kwargs[
-        "stop_iter"
-    ] == 15000
-    assert training_config.densification.builders[0].kwargs[
-        "loss_thresh"
-    ] == 0.06
-    assert training_config.densification.builders[0].kwargs[
-        "grad_abs_threshold"
-    ] == 0.0008
-    assert training_config.densification.builders[0].kwargs[
-        "dense_fraction"
-    ] == 0.001
+    assert (
+        training_config.densification.builders[0].kwargs["refine_every"] == 500
+    )
+    assert training_config.densification.builders[0].kwargs["start_iter"] == 500
+    assert (
+        training_config.densification.builders[0].kwargs["stop_iter"] == 15000
+    )
+    assert (
+        training_config.densification.builders[0].kwargs["loss_thresh"] == 0.06
+    )
+    assert (
+        training_config.densification.builders[0].kwargs["grad_abs_threshold"]
+        == 0.0008
+    )
+    assert (
+        training_config.densification.builders[0].kwargs["dense_fraction"]
+        == 0.001
+    )
     assert (
         training_config.densification.builders[0].kwargs[
             "extra_opacity_reset_iter"
@@ -94,6 +94,10 @@ def test_nht_fast_gs_resolved_training_config_uses_hybrid_backend() -> None:
             "scheduled_reset_opacity"
         ]
         == 0.01
+    )
+    assert (
+        training_config.densification.builders[0].kwargs["final_prune_mode"]
+        == "disabled"
     )
     assert (
         training_config.checkpoint.output_dir
@@ -126,6 +130,36 @@ def test_nht_fast_gs_script_loader_applies_preset_then_cli_overrides() -> None:
     assert (
         training_config.densification.builders[0].kwargs["probe_view_count"]
         == 3
+    )
+
+
+def test_nht_fast_gs_big_preset_uses_fastgs_big_densification() -> None:
+    module = load_nht_fast_gs_config_module()
+    base_config = load_nht_fast_gs_preset(module, "garden_nht_fast_gs")
+    big_config = load_nht_fast_gs_preset(module, "garden_big")
+
+    base_training_config = module.resolve_training_config(base_config)
+    big_training_config = module.resolve_training_config(big_config)
+    base_densifier = base_training_config.densification.builders[0]
+    big_densifier = big_training_config.densification.builders[0]
+
+    assert (
+        base_densifier.target
+        == "papers.nht_fast_gs.notebook.NHTFastGSDensification"
+    )
+    assert (
+        big_densifier.target
+        == "papers.nht_fast_gs.notebook.NHTFastGSDensification"
+    )
+    assert base_densifier.kwargs["refine_every"] == 500
+    assert base_densifier.kwargs["grad_abs_threshold"] == 0.0008
+    assert big_densifier.kwargs["refine_every"] == 100
+    assert big_densifier.kwargs["grad_abs_threshold"] == 0.0003
+    assert big_training_config.render.backend == "nht.3dgut_fast_gs"
+    assert (
+        big_training_config.checkpoint.output_dir
+        == REPO_ROOT
+        / "checkpoints/papers/nht_fast_gs/garden_big/nht.3dgut_fast_gs"
     )
 
 

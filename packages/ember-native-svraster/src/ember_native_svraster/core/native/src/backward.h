@@ -27,6 +27,7 @@ rasterize_voxels_backward(
     const torch::Tensor& w2c_matrix,
     const torch::Tensor& c2w_matrix,
     const float bg_color,
+    const int sort_rank_max_level,
 
     const torch::Tensor& octree_paths,
     const torch::Tensor& vox_centers,

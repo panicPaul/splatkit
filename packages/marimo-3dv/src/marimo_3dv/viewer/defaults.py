@@ -57,6 +57,12 @@ class ViewerRenderConfig(BaseModel):
     )
     interactive_max_side: int = Field(default=1980, ge=1)
     internal_render_max_side: int = Field(default=3840, ge=1)
+    interactive_backpressure: bool = Field(default=True)
+    interactive_max_fps: float = Field(default=12.0, gt=0.0)
+    interactive_min_fps: float = Field(default=2.0, gt=0.0)
+    interactive_latency_target_ms: float = Field(default=350.0, gt=0.0)
+    interactive_probe_interval_s: float = Field(default=10.0, gt=0.0)
+    interactive_reset_interval_s: float = Field(default=30.0, gt=0.0)
 
 
 class ViewerNavigationConfig(BaseModel):
@@ -177,6 +183,18 @@ def viewer_controls_config(
             internal_render_max_side=(
                 viewer_state.internal_render_max_side or 3840
             ),
+            interactive_backpressure=viewer_state.interactive_backpressure,
+            interactive_max_fps=viewer_state.interactive_max_fps,
+            interactive_min_fps=viewer_state.interactive_min_fps,
+            interactive_latency_target_ms=(
+                viewer_state.interactive_latency_target_ms
+            ),
+            interactive_probe_interval_s=(
+                viewer_state.interactive_probe_interval_s
+            ),
+            interactive_reset_interval_s=(
+                viewer_state.interactive_reset_interval_s
+            ),
         ),
         navigation=ViewerNavigationConfig(
             move_speed=viewer_state.keyboard_move_speed,
@@ -217,6 +235,20 @@ def apply_viewer_config(
     viewer_state.interactive_max_side = config.render.interactive_max_side
     viewer_state.internal_render_max_side = (
         config.render.internal_render_max_side
+    )
+    viewer_state.interactive_backpressure = (
+        config.render.interactive_backpressure
+    )
+    viewer_state.interactive_max_fps = config.render.interactive_max_fps
+    viewer_state.interactive_min_fps = config.render.interactive_min_fps
+    viewer_state.interactive_latency_target_ms = (
+        config.render.interactive_latency_target_ms
+    )
+    viewer_state.interactive_probe_interval_s = (
+        config.render.interactive_probe_interval_s
+    )
+    viewer_state.interactive_reset_interval_s = (
+        config.render.interactive_reset_interval_s
     )
     return (
         viewer_state.set_show_axes(config.overlays.show_axes)

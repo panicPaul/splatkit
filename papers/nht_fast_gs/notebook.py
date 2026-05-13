@@ -71,8 +71,6 @@ with app.setup:
     nht_feature_scene = nht.nht_feature_scene
     nht_decode_render = nht.nht_decode_render
     nht_rgb_l1_dssim_loss = nht.nht_rgb_l1_dssim_loss
-    nht_scene_load_config = nht.nht_scene_load_config
-    nht_prepared_frame_dataset_config = nht.nht_prepared_frame_dataset_config
     NHTDeferredShader = nht.NHTDeferredShader
     NHTColorRefineAndEMAHook = nht.NHTColorRefineAndEMAHook
     DEFAULTS_DIR = NOTEBOOK_DIR / "defaults"
@@ -82,6 +80,7 @@ with app.setup:
     NHTFastGSBackendName = Literal["nht.3dgut_fast_gs"]
     NHTFastGSDefaultName = Literal[
         "garden_nht_fast_gs",
+        "garden_big",
         "garden_debug_val",
     ]
     sys.modules.setdefault("papers.nht_fast_gs.notebook", sys.modules[__name__])
@@ -213,15 +212,88 @@ class NHTFastGSModelConfig(nht.NHTModelConfig):
 
 
 @app.class_definition
-class NHTFastGSRenderConfig(nht.NHTRenderConfig):
+class NHTFastGSRenderConfig(nht.NHTConfigBase):
     """Typed native NHT render pipeline config."""
 
     backend: NHTFastGSBackendName = "nht.3dgut_fast_gs"
+    ray_dir_scale: float | None = Field(default=None, gt=0.0)
+    center_ray_mode: bool = False
+
+    def build(
+        self,
+        context: ember.TrainingRunContext,
+        *,
+        shader: NHTFastGSShaderConfig,
+        mip_splatting_screen_filter: bool,
+    ) -> ember.RenderPipelineSpec:
+        """Build the runtime render pipeline spec."""
+        del context
+        ray_dir_scale = (
+            shader.ray_dir_scale()
+            if self.ray_dir_scale is None
+            else self.ray_dir_scale
+        )
+        return ember.RenderPipelineSpec(
+            backend=self.backend,
+            return_alpha=True,
+            return_depth=True,
+            feature_fn=ember.bound_callable(
+                target="papers.nht.notebook.nht_feature_scene",
+            ),
+            postprocess_fn=ember.bound_callable(
+                target="papers.nht.notebook.nht_decode_render",
+            ),
+            backend_options={
+                "ray_dir_scale": ray_dir_scale,
+                "center_ray_mode": self.center_ray_mode,
+                "mip_splatting_screen_filter": mip_splatting_screen_filter,
+            },
+        )
 
 
 @app.class_definition
-class NHTFastGSMipSplattingConfig(nht.NHTMipSplattingConfig):
-    """Mip-Splatting controls shared with NHT."""
+class NHTFastGSMipSplatting3DFilterConfig(nht.NHTConfigBase):
+    """Mip-Splatting 3D filter config."""
+
+    recompute_schedule: nht.NHTScheduleConfig = Field(
+        default_factory=lambda: nht.NHTScheduleConfig(
+            start_iteration=15_000,
+            end_iteration=29_899,
+            frequency=100,
+        )
+    )
+    near_plane: float | None = Field(default=0.2, gt=0.0)
+    filter_variance: float = Field(default=0.2, gt=0.0)
+    clipping_tolerance: float = Field(default=0.15, ge=0.0)
+
+    def build(
+        self,
+        context: ember.TrainingRunContext,
+    ) -> ember.CallableSpec:
+        """Build the runtime Mip-Splatting 3D filter spec."""
+        del context
+        return ember.bound_callable(
+            target="ember_splatting_training.GaussianMipSplatting3DFilter",
+            kwargs={
+                "recompute_schedule": self.recompute_schedule.model_dump(
+                    mode="python"
+                ),
+                "near_plane": self.near_plane,
+                "filter_variance": self.filter_variance,
+                "clipping_tolerance": self.clipping_tolerance,
+            },
+        )
+
+
+@app.class_definition
+class NHTFastGSMipSplattingConfig(nht.NHTConfigBase):
+    """Full Mip-Splatting controls for NHT-Fast-GS."""
+
+    enabled: bool = False
+    screen_filter_enabled: bool = True
+    three_dimensional_filter: NHTFastGSMipSplatting3DFilterConfig = Field(
+        default_factory=NHTFastGSMipSplatting3DFilterConfig
+    )
 
 
 @app.class_definition
@@ -256,6 +328,7 @@ class NHTFastGSDensificationConfig(nht.NHTConfigBase):
     final_prune_stop_iter: int = Field(default=30_000, ge=0)
     final_prune_every: int = Field(default=3_000, ge=1)
     final_prune_opacity_threshold: float = Field(default=0.1, gt=0.0, lt=1.0)
+    final_prune_mode: Literal["fastgs", "disabled"] = "disabled"
 
     def build(
         self,
@@ -425,6 +498,126 @@ def default_checkpoint_dir(
 
 
 @app.function
+def resolved_nht_fast_gs_scene_path(
+    config: NHTFastGSExperimentConfig,
+) -> Path:
+    """Resolve the configured scene path without substituting sample scenes."""
+    return config.scene.path.expanduser()
+
+
+@app.function
+def nht_fast_gs_resized_cache_enabled(
+    config: NHTFastGSExperimentConfig,
+) -> bool:
+    """Return whether NHT-Fast-GS should use a derived image cache."""
+    return (
+        config.data.cache_resized_images
+        and config.data.image_scale_factor != 1.0
+    )
+
+
+@app.function
+def nht_fast_gs_source_image_root(
+    config: NHTFastGSExperimentConfig,
+) -> Path:
+    """Return the full-resolution source image root."""
+    if config.scene.image_root is not None:
+        return config.scene.image_root.expanduser()
+    return resolved_nht_fast_gs_scene_path(config) / "images"
+
+
+@app.function
+def nht_fast_gs_resized_cache_parent(
+    config: NHTFastGSExperimentConfig,
+) -> Path:
+    """Return the reusable derived image cache parent for the scene."""
+    if config.data.resized_image_cache_root is not None:
+        return config.data.resized_image_cache_root.expanduser()
+    return (
+        resolved_nht_fast_gs_scene_path(config)
+        / "ember_cache"
+        / "resized_images"
+    )
+
+
+@app.function
+def nht_fast_gs_resized_cache_root(
+    config: NHTFastGSExperimentConfig,
+) -> Path:
+    """Return the derived resized image cache root for this config."""
+    scale_name = f"{config.data.image_scale_factor:.6f}".rstrip("0").rstrip(".")
+    scale_name = scale_name.replace(".", "p")
+    return nht_fast_gs_resized_cache_parent(config) / (
+        f"scale_{scale_name}_{config.data.interpolation}"
+    )
+
+
+@app.function
+def nht_scene_load_config(
+    config: NHTFastGSExperimentConfig,
+) -> ember.ColmapSceneConfig:
+    """Build the configured scene-record loader."""
+    source_pipes = (
+        (ember.HorizonAlignPipeConfig(),) if config.scene.align_horizon else ()
+    )
+    scene_path = resolved_nht_fast_gs_scene_path(config)
+    image_root = (
+        nht.materialize_nht_resized_image_cache(
+            source_root=nht_fast_gs_source_image_root(config),
+            cache_root=nht_fast_gs_resized_cache_root(config),
+            scale=config.data.image_scale_factor,
+            interpolation=config.data.interpolation,
+            max_caches=config.data.max_resized_image_caches,
+        )
+        if nht_fast_gs_resized_cache_enabled(config)
+        else (
+            config.scene.image_root.expanduser()
+            if config.scene.image_root is not None
+            else None
+        )
+    )
+    return ember.ColmapSceneConfig(
+        path=scene_path,
+        image_root=image_root,
+        undistort_output_dir=config.scene.undistort_output_dir,
+        source_pipes=source_pipes,
+    )
+
+
+@app.function
+def nht_prepared_frame_dataset_config(
+    config: NHTFastGSExperimentConfig,
+) -> ember.PreparedFrameDatasetConfig:
+    """Build the configured prepared-frame dataset options."""
+    return ember.PreparedFrameDatasetConfig(
+        camera_sensor_id=config.data.camera_sensor_id,
+        split=ember.SplitConfig(
+            target=config.data.split_target,
+            every_n=(
+                None
+                if config.data.split_target == "all"
+                else config.data.split_every_n
+            ),
+            train_ratio=None,
+        ),
+        materialization=ember.MaterializationConfig(
+            stage=config.data.materialization_stage,
+            mode=config.data.materialization_mode,
+            num_workers=config.data.materialization_num_workers,
+        ),
+        image_preparation=ember.ImagePreparationConfig(
+            resize_width_scale=(
+                None
+                if nht_fast_gs_resized_cache_enabled(config)
+                else config.data.image_scale_factor
+            ),
+            normalize=config.data.normalize_images,
+            interpolation=config.data.interpolation,
+        ),
+    )
+
+
+@app.function
 def nht_fast_gs_preset_catalog() -> ConfigPresetCatalog[
     NHTFastGSExperimentConfig
 ]:
@@ -436,6 +629,12 @@ def nht_fast_gs_preset_catalog() -> ConfigPresetCatalog[
                 name="garden_nht_fast_gs",
                 path=DEFAULTS_DIR / "garden_nht_fast_gs.json",
                 label="Garden NHT-Fast-GS",
+                base_dir=REPO_ROOT,
+            ),
+            "garden_big": ConfigPreset(
+                name="garden_big",
+                path=DEFAULTS_DIR / "garden_big.json",
+                label="Garden NHT-Fast-GS Big",
                 base_dir=REPO_ROOT,
             ),
             "garden_debug_val": ConfigPreset(

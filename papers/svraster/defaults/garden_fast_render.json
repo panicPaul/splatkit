@@ -1,5 +1,5 @@
 {
-  "preset": "garden_svraster",
+  "preset": "garden_fast_render",
   "scene": {
     "path": "dataset/mipnerf360/garden",
     "image_root": null,
@@ -39,7 +39,7 @@
       "pin_memory": true
     },
     "checkpoint": {
-      "output_dir": "checkpoints/papers/svraster/garden_svraster/svraster.core",
+      "output_dir": "checkpoints/papers/svraster/garden_fast_render/svraster.core",
       "export_ply": false,
       "overwrite": true
     },
@@ -50,7 +50,7 @@
       "sh_degree": 3,
       "initial_sh_degree": 3,
       "samples_per_voxel": 1,
-      "render_supersampling": 1.5,
+      "render_supersampling": 1.1,
       "ss_aug_max": 1.5,
       "white_background": false,
       "black_background": false
@@ -102,7 +102,7 @@
       "adapt_every": 1000,
       "prune_until": 18000,
       "prune_threshold_initial": 0.0001,
-      "prune_threshold_final": 0.05,
+      "prune_threshold_final": 0.15,
       "subdivide_until": 15000,
       "subdivide_all_until": 0,
       "subdivide_sample_threshold": 1.0,

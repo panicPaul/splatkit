@@ -46,12 +46,14 @@ Default JSON configs:
 
 - `garden_svraster`
 - `garden_fast_train`
+- `garden_fast_render`
 - `garden_debug_val`
 
 Stored at:
 
 - `papers/svraster/defaults/garden_svraster.json`
 - `papers/svraster/defaults/garden_fast_train.json`
+- `papers/svraster/defaults/garden_fast_render.json`
 - `papers/svraster/defaults/garden_debug_val.json`
 
 Backend choice:

@@ -71,7 +71,7 @@ def test_clear_completed_build_lock_removes_stale_lock(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ember_native_faster_gs import _torch_extensions
+    from ember_core.native import torch_extensions
 
     extension_name = "unit_ext"
     lock_path = tmp_path / "lock"
@@ -79,12 +79,12 @@ def test_clear_completed_build_lock_removes_stale_lock(
     lock_path.touch()
     extension_path.touch()
     monkeypatch.setattr(
-        _torch_extensions,
+        torch_extensions,
         "_get_build_directory",
         lambda name, verbose: str(tmp_path),
     )
 
-    _torch_extensions.clear_completed_build_lock(extension_name)
+    torch_extensions.clear_completed_build_lock(extension_name)
 
     assert not lock_path.exists()
 
@@ -93,19 +93,49 @@ def test_clear_completed_build_lock_keeps_active_build_lock(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ember_native_faster_gs import _torch_extensions
+    from ember_core.native import torch_extensions
 
     lock_path = tmp_path / "lock"
     lock_path.touch()
     monkeypatch.setattr(
-        _torch_extensions,
+        torch_extensions,
         "_get_build_directory",
         lambda name, verbose: str(tmp_path),
     )
 
-    _torch_extensions.clear_completed_build_lock("unit_ext")
+    torch_extensions.clear_completed_build_lock("unit_ext")
 
     assert lock_path.exists()
+
+
+def test_load_torch_extension_retries_missing_lock_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ember_core.native import torch_extensions
+
+    extension_name = "unit_ext"
+    lock_path = tmp_path / "lock"
+    calls = 0
+
+    def load_once_then_succeed(**kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        assert kwargs["name"] == extension_name
+        if calls == 1:
+            raise FileNotFoundError(2, "No such file or directory", lock_path)
+        return object()
+
+    monkeypatch.setattr(torch_extensions, "load", load_once_then_succeed)
+
+    result = torch_extensions.load_torch_extension(
+        name=extension_name,
+        sources=[],
+        build_directory=str(tmp_path),
+    )
+
+    assert result is not None
+    assert calls == 2
 
 
 @pytest.mark.backend
@@ -349,9 +379,7 @@ def test_fastgs_native_densification_radius_uses_preprocess_conic(
             ),
         ),
     )
-    sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(
-        cuda_scene
-    )
+    sh_coefficients_0, sh_coefficients_rest = _split_sh_coefficients(cuda_scene)
     camera_intrinsics = cuda_camera.get_intrinsics()[0]
     cam_to_world = cuda_camera.cam_to_world[0]
     preprocess_result = preprocess(

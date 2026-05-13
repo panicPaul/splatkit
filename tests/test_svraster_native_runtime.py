@@ -75,6 +75,7 @@ def test_render_matches_explicit_stage_composition(
         return_depth=True,
         return_normal=False,
         track_max_weight=False,
+        sort_rank_max_level=cuda_sparse_voxel_scene.max_num_levels,
         octree_paths=cuda_sparse_voxel_scene.octpath.reshape(-1),
         voxel_centers=cuda_sparse_voxel_scene.vox_center,
         voxel_lengths=cuda_sparse_voxel_scene.vox_size.reshape(-1),
@@ -214,6 +215,7 @@ def test_rasterize_backward_accepts_empty_voxel_gradients(
         return_depth=True,
         return_normal=False,
         track_max_weight=True,
+        sort_rank_max_level=runtime.utils.max_num_levels(),
         octree_paths=octree_paths,
         voxel_centers=voxel_centers,
         voxel_lengths=voxel_lengths,
@@ -231,6 +233,54 @@ def test_rasterize_backward_accepts_empty_voxel_gradients(
     assert voxel_colors.grad.shape == (0, 3)
     assert subdivision_priority.grad is not None
     assert subdivision_priority.grad.shape == (0, 1)
+
+
+@pytest.mark.cuda
+def test_render_backward_accepts_narrow_sort_rank_cap(
+    cuda_sparse_voxel_scene,
+    cuda_camera,
+) -> None:
+    width, height, focal_x, focal_y, center_x, center_y = (
+        _extract_camera_params(cuda_camera)
+    )
+    camera_to_world = cuda_camera.cam_to_world[0]
+    tanfovx = (width * 0.5) / focal_x
+    tanfovy = (height * 0.5) / focal_y
+    scene = cuda_sparse_voxel_scene.detached_copy()
+    scene.replace_fields_(
+        geo_grid_pts=cuda_sparse_voxel_scene.geo_grid_pts.detach()
+        .clone()
+        .requires_grad_(True),
+        sh0=cuda_sparse_voxel_scene.sh0.detach().clone().requires_grad_(True),
+        shs=cuda_sparse_voxel_scene.shs.detach().clone().requires_grad_(True),
+    )
+
+    result = runtime.render(
+        active_sh_degree=scene.active_sh_degree,
+        image_width=width,
+        image_height=height,
+        tanfovx=tanfovx,
+        tanfovy=tanfovy,
+        cx=center_x,
+        cy=center_y,
+        world_to_camera=torch.linalg.inv(camera_to_world),
+        camera_to_world=camera_to_world,
+        near=0.02,
+        background_color=0.0,
+        sort_rank_max_level=16,
+        octree_paths=scene.octpath.reshape(-1),
+        voxel_centers=scene.vox_center,
+        voxel_lengths=scene.vox_size.reshape(-1),
+        voxel_geometries=scene.voxel_geometries,
+        sh0=scene.sh0,
+        shs=scene.shs,
+        return_depth=True,
+    )
+    (result.color.sum() + result.depth.sum()).backward()
+
+    for grad in (scene.geo_grid_pts.grad, scene.sh0.grad, scene.shs.grad):
+        assert grad is not None
+        assert torch.isfinite(grad).all()
 
 
 @pytest.mark.cuda
@@ -324,6 +374,7 @@ def test_raw_ops_support_fake_tensor_mode(
             True,
             False,
             False,
+            runtime.utils.max_num_levels(),
             0.0,
             0.0,
             0.0,

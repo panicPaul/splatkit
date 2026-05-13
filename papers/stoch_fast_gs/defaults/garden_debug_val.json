@@ -65,7 +65,8 @@
       }
     },
     "densification": {
-      "probe_view_count": 2
+      "probe_view_count": 2,
+      "final_prune_mode": "disabled"
     },
     "checkpoint": {
       "output_dir": "checkpoints/papers/stoch_fast_gs/garden_debug_val/3dgrt.stoch_fast_gs",

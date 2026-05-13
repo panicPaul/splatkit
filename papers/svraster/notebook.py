@@ -33,6 +33,7 @@ with app.setup:
     SVRasterDefaultName = Literal[
         "garden_svraster",
         "garden_fast_train",
+        "garden_fast_render",
         "garden_debug_val",
     ]
     sys.modules.setdefault("papers.svraster.notebook", sys.modules[__name__])
@@ -153,9 +154,11 @@ class SVRasterModelConfig(SVRasterConfigBase):
 
     backend_name: Literal["new_cuda"] = "new_cuda"
     max_num_levels: int = Field(default=21, ge=1)
+    runtime_max_num_levels: int = Field(default=21, ge=1)
     sh_degree: int = Field(default=3, ge=0)
     initial_sh_degree: int = Field(default=3, ge=0)
     samples_per_voxel: int = Field(default=1, ge=1)
+    render_supersampling: float = Field(default=1.5, ge=1.0)
     ss_aug_max: float = Field(default=1.5, ge=1.0)
     white_background: bool = False
     black_background: bool = False
@@ -311,14 +314,17 @@ class SVRasterAdaptiveConfig(SVRasterConfigBase):
     subdivide_proportion: float = Field(default=0.05, ge=0.0, le=1.0)
     subdivide_max_voxels: int = Field(default=10_000_000, ge=1)
 
-    def build(self) -> ember.DensificationConfig:
+    def build(self, *, model: SVRasterModelConfig) -> ember.DensificationConfig:
         """Build the SVRaster adaptive pruning/subdivision config."""
         return ember.densification_config(
             ember.bound_callable(
                 target=(
                     "ember_svraster_training.SVRasterAdaptivePruneSubdivide"
                 ),
-                kwargs=self.model_dump(mode="python"),
+                kwargs={
+                    **self.model_dump(mode="python"),
+                    "max_num_levels": model.runtime_max_num_levels,
+                },
             )
         )
 
@@ -410,7 +416,10 @@ class SVRasterExperimentConfig(SVRasterConfigBase):
                     "samples_per_voxel": (
                         self.training.model.samples_per_voxel
                     ),
-                    "supersampling": 1.0,
+                    "sort_rank_max_level": (
+                        self.training.model.runtime_max_num_levels
+                    ),
+                    "supersampling": (self.training.model.render_supersampling),
                     "white_background": self.training.model.white_background,
                     "black_background": self.training.model.black_background,
                     "return_transmittance": (
@@ -438,13 +447,18 @@ class SVRasterExperimentConfig(SVRasterConfigBase):
                         "color_concentration_weight": (
                             self.training.loss.lambda_r_concentration
                         ),
+                        "default_supersampling": (
+                            self.training.model.render_supersampling
+                        ),
                         "ss_aug_max": self.training.model.ss_aug_max,
                     },
                 ),
             ),
             optimization=self.training.optimization.build(),
             loss=self.training.loss.build(),
-            densification=self.training.adaptive.build(),
+            densification=self.training.adaptive.build(
+                model=self.training.model
+            ),
             hooks=ember.HookConfig(builders=hooks),
             checkpoint=self.training.checkpoint,
         )
@@ -483,6 +497,12 @@ def svraster_preset_catalog() -> ConfigPresetCatalog[SVRasterExperimentConfig]:
                 name="garden_fast_train",
                 path=DEFAULTS_DIR / "garden_fast_train.json",
                 label="Garden fast train",
+                base_dir=REPO_ROOT,
+            ),
+            "garden_fast_render": ConfigPreset(
+                name="garden_fast_render",
+                path=DEFAULTS_DIR / "garden_fast_render.json",
+                label="Garden fast render",
                 base_dir=REPO_ROOT,
             ),
             "garden_debug_val": ConfigPreset(
@@ -597,7 +617,9 @@ def resolved_svraster_resized_cache_parent(
     """Return the resized-image cache parent for a config."""
     if config.data.resized_image_cache_root is not None:
         return config.data.resized_image_cache_root.expanduser()
-    return resolved_svraster_scene_path(config) / "ember_cache" / "resized_images"
+    return (
+        resolved_svraster_scene_path(config) / "ember_cache" / "resized_images"
+    )
 
 
 @app.function

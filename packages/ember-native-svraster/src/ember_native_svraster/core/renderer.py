@@ -51,6 +51,7 @@ class SVRasterCoreRenderOptions(RenderOptions):
     near_plane: float = 0.02
     color_mode: Literal["sh", "dontcare"] = "sh"
     samples_per_voxel: int = 1
+    sort_rank_max_level: int = 21
     supersampling: float = 1.0
     return_transmittance: bool = False
     track_max_weight: bool = False
@@ -121,6 +122,28 @@ def _validate_inputs(scene: SparseVoxelScene, camera: CameraState) -> None:
         )
 
 
+def _validate_sort_rank_max_level(
+    scene: SparseVoxelScene,
+    options: SVRasterCoreRenderOptions,
+) -> int:
+    native_max_num_levels = runtime_utils.max_num_levels()
+    sort_rank_max_level = int(options.sort_rank_max_level)
+    if sort_rank_max_level < 1 or sort_rank_max_level > native_max_num_levels:
+        raise ValueError(
+            "SVRaster sort_rank_max_level must be in "
+            f"[1, {native_max_num_levels}], got {sort_rank_max_level}."
+        )
+    if scene.octlevel.numel() > 0:
+        scene_max_level = int(scene.octlevel.max().item())
+        if scene_max_level > sort_rank_max_level:
+            raise ValueError(
+                "SVRaster sort_rank_max_level must be >= the scene's maximum "
+                f"octree level; got sort_rank_max_level={sort_rank_max_level} "
+                f"and max octlevel={scene_max_level}."
+            )
+    return sort_rank_max_level
+
+
 def _render_single_camera(
     scene: SparseVoxelScene,
     camera: CameraState,
@@ -148,7 +171,9 @@ def _render_single_camera(
         if ground_truth_color.ndim == 4:
             ground_truth_color = ground_truth_color[camera_index]
         if ground_truth_color.shape[-1] == 3:
-            ground_truth_color = ground_truth_color.permute(2, 0, 1).contiguous()
+            ground_truth_color = ground_truth_color.permute(
+                2, 0, 1
+            ).contiguous()
         if options.supersampling != 1.0:
             target_size = (
                 int(raster_settings["image_height"]),
@@ -186,6 +211,7 @@ def _render_single_camera(
         return_normal=return_normal,
         track_max_weight=options.track_max_weight,
         samples_per_voxel=options.samples_per_voxel,
+        sort_rank_max_level=options.sort_rank_max_level,
         subdivision_priority=scene.resolved_subdivision_priority,
         color_concentration_weight=options.color_concentration_weight,
         ascending_weight=options.ascending_weight,
@@ -243,7 +269,9 @@ def _render_single_camera(
         ).squeeze(0)
     else:
         depth = render_result.depth
-        normal = render_result.normal if render_result.normal.numel() > 0 else None
+        normal = (
+            render_result.normal if render_result.normal.numel() > 0 else None
+        )
     rgb = color.permute(1, 2, 0).contiguous().clamp(0.0, 1.0)
     if depth.ndim == 3 and depth.shape[0] == 1:
         depth = depth.squeeze(0)
@@ -253,7 +281,9 @@ def _render_single_camera(
         normal.permute(1, 2, 0).contiguous() if normal is not None else None,
         transmittance.squeeze(0),
         raw_transmittance.squeeze(0),
-        render_result.max_weight if render_result.max_weight.numel() > 0 else None,
+        render_result.max_weight
+        if render_result.max_weight.numel() > 0
+        else None,
     )
 
 
@@ -286,6 +316,7 @@ def render_svraster_core(
 
     _validate_inputs(scene, camera)
     resolved_options = options or SVRasterCoreRenderOptions()
+    _validate_sort_rank_max_level(scene, resolved_options)
     renders: list[Tensor] = []
     depths: list[Tensor] = []
     normals: list[Tensor] = []
