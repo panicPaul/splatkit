@@ -1,7 +1,8 @@
 # /// script
 # dependencies = [
 #     "marimo",
-#     "marimo-3dv[desktop] @ git+https://github.com/panicPaul/marimo-3dv@main",
+#     "matplotlib",
+#     "marimo-3dv[desktop] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/marimo-3dv",
 #     "marimo-config-gui @ git+https://github.com/panicPaul/ember@main#subdirectory=packages/marimo-config-gui",
 #     "torch @ https://download.pytorch.org/whl/cu130/torch-2.11.0%2Bcu130-cp314-cp314-manylinux_2_28_x86_64.whl",
 #     "ember-core[cu130] @ https://github.com/panicPaul/ember/archive/refs/heads/main.zip#subdirectory=packages/ember-core",
@@ -64,7 +65,7 @@ with app.setup:
         apply_viewer_pipeline_config,
         viewer_pipeline_controls_gui,
     )
-    from marimo_config_gui import (
+    from marimo_config_gui.api import (
         config_gui_panel,
         config_status_panel,
         create_config_state,
