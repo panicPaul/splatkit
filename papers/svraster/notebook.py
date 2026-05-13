@@ -152,7 +152,7 @@ class SVRasterModelConfig(SVRasterConfigBase):
     """SVRaster sparse-voxel model defaults."""
 
     backend_name: Literal["new_cuda"] = "new_cuda"
-    max_num_levels: int = Field(default=16, ge=1)
+    max_num_levels: int = Field(default=21, ge=1)
     sh_degree: int = Field(default=3, ge=0)
     initial_sh_degree: int = Field(default=3, ge=0)
     samples_per_voxel: int = Field(default=1, ge=1)

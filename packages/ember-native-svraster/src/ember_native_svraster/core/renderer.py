@@ -19,6 +19,7 @@ from ember_core.core.sparse_voxel import SUPPORTED_SVRASTER_BACKENDS
 from torch import Tensor
 
 from ember_native_svraster.core.runtime import render as render_runtime
+from ember_native_svraster.core.runtime import utils as runtime_utils
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,13 @@ def _validate_inputs(scene: SparseVoxelScene, camera: CameraState) -> None:
         )
     if scene.octpath.device.type != "cuda":
         raise ValueError("svraster.core requires scene tensors on CUDA.")
+    native_max_num_levels = runtime_utils.max_num_levels()
+    if scene.max_num_levels != native_max_num_levels:
+        raise ValueError(
+            "svraster.core requires SparseVoxelScene.max_num_levels to match "
+            f"the native backend MAX_NUM_LEVELS={native_max_num_levels}; "
+            f"got {scene.max_num_levels}."
+        )
     if camera.cam_to_world.device.type != "cuda":
         raise ValueError("svraster.core requires camera tensors on CUDA.")
     if camera.camera_convention != "opencv":

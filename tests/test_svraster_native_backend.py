@@ -82,6 +82,18 @@ def test_render_svraster_native_rejects_cpu_scene(
         render_svraster(cpu_sparse_voxel_scene, cpu_camera)
 
 
+@pytest.mark.backend
+@pytest.mark.cuda
+def test_render_svraster_native_rejects_non_native_max_level(
+    cuda_sparse_voxel_scene,
+    cuda_camera,
+) -> None:
+    bad_scene = cuda_sparse_voxel_scene.with_fields(max_num_levels=4)
+
+    with pytest.raises(ValueError, match="MAX_NUM_LEVELS=21"):
+        render_svraster(bad_scene, cuda_camera)
+
+
 def test_render_svraster_native_rejects_non_opencv_camera(
     cpu_sparse_voxel_scene,
     cpu_camera,

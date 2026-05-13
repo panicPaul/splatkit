@@ -8,6 +8,10 @@ from ember_core.core import (
     GaussianScene3D,
     SparseVoxelScene,
 )
+from ember_core.core.sparse_voxel import (
+    DEFAULT_SVRASTER_MAX_NUM_LEVELS,
+    svraster_build_grid_points_link,
+)
 
 
 @pytest.fixture
@@ -90,16 +94,32 @@ def cpu_scene_2d() -> GaussianScene2D:
 
 @pytest.fixture
 def cpu_sparse_voxel_scene() -> SparseVoxelScene:
+    max_num_levels = DEFAULT_SVRASTER_MAX_NUM_LEVELS
+    octpath = torch.tensor(
+        [[0], [4 << (3 * (max_num_levels - 1))]],
+        dtype=torch.int64,
+    )
+    octlevel = torch.tensor([[1], [1]], dtype=torch.int8)
+    _grid_points, vox_key = svraster_build_grid_points_link(
+        octpath,
+        octlevel,
+        backend_name=None,
+        max_num_levels=max_num_levels,
+    )
     return SparseVoxelScene(
         backend_name="new_cuda",
         active_sh_degree=0,
-        max_num_levels=4,
+        max_num_levels=max_num_levels,
         scene_center=torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32),
         scene_extent=torch.tensor([2.0], dtype=torch.float32),
         inside_extent=torch.tensor([1.0], dtype=torch.float32),
-        octpath=torch.tensor([[0], [4]], dtype=torch.int64),
-        octlevel=torch.tensor([[1], [1]], dtype=torch.int8),
-        geo_grid_pts=torch.full((12, 1), -10.0, dtype=torch.float32),
+        octpath=octpath,
+        octlevel=octlevel,
+        geo_grid_pts=torch.full(
+            (int(vox_key.max().item()) + 1, 1),
+            -10.0,
+            dtype=torch.float32,
+        ),
         sh0=torch.zeros((2, 3), dtype=torch.float32),
         shs=torch.zeros((2, 0, 3), dtype=torch.float32),
     )

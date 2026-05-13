@@ -45,7 +45,7 @@
     },
     "model": {
       "backend_name": "new_cuda",
-      "max_num_levels": 16,
+      "max_num_levels": 21,
       "sh_degree": 3,
       "initial_sh_degree": 3,
       "samples_per_voxel": 1,

@@ -404,6 +404,7 @@ def test_svraster_defaults_include_current_notebook_runtime_fields() -> None:
     assert debug.data.materialization_stage == "prepared"
     assert debug.data.materialization_mode == "eager"
     assert debug.data.materialization_num_workers == 8
+    assert debug.training.model.max_num_levels == 21
     assert debug.training.batching.num_workers == 8
     assert debug.training.batching.persistent_workers is True
     assert debug.training.batching.pin_memory is True

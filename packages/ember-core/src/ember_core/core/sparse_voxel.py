@@ -15,7 +15,7 @@ SVRasterBackendName = Literal[
     "new_cuda_spline",
 ]
 SUPPORTED_SVRASTER_BACKENDS = frozenset({"new_cuda"})
-DEFAULT_SVRASTER_MAX_NUM_LEVELS = 16
+DEFAULT_SVRASTER_MAX_NUM_LEVELS = 21
 _SUBTREE_SHIFTS = torch.tensor(
     [
         [0, 0, 0],
@@ -91,7 +91,11 @@ def svraster_octpath_to_ijk(
     """Decode octree paths into integer voxel coordinates at each voxel level."""
     if backend_name is not None:
         backend_utils = _get_backend_utils(backend_name)
-        if backend_utils is not None and octpath.device.type == "cuda":
+        if (
+            backend_utils is not None
+            and octpath.device.type == "cuda"
+            and max_num_levels == int(backend_utils.max_num_levels())
+        ):
             return backend_utils.octpath_2_ijk(
                 octpath.reshape(-1, 1),
                 octlevel.reshape(-1, 1).to(torch.int8),
@@ -156,11 +160,14 @@ def svraster_build_grid_points_link(
         backend_name=backend_name,
         max_num_levels=max_num_levels,
     )
-    finest_level = (
-        _get_backend_max_num_levels(backend_name, max_num_levels)
-        if backend_name is not None
-        else max_num_levels
-    )
+    finest_level = max_num_levels
+    if backend_name is not None:
+        backend_finest_level = _get_backend_max_num_levels(
+            backend_name,
+            max_num_levels,
+        )
+        if max_num_levels == backend_finest_level:
+            finest_level = backend_finest_level
     level_shift = (finest_level - octlevel.to(torch.int64)).reshape(-1, 1, 1)
     subtree_shifts = _SUBTREE_SHIFTS.to(octpath.device)
     base_grid_ijk = (ijk << level_shift.reshape(-1, 1)).reshape(-1, 1, 3)

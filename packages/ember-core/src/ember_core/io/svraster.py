@@ -9,7 +9,10 @@ import torch
 import yaml
 
 from ember_core.core.contracts import SparseVoxelScene
-from ember_core.core.sparse_voxel import SUPPORTED_SVRASTER_BACKENDS
+from ember_core.core.sparse_voxel import (
+    DEFAULT_SVRASTER_MAX_NUM_LEVELS,
+    SUPPORTED_SVRASTER_BACKENDS,
+)
 
 
 def _dequantize_entry(entry: Any) -> Any:
@@ -110,12 +113,17 @@ def load_svraster_checkpoint(
             "Only trilinear-geometry SV Raster checkpoints are supported; got "
             f"{geo_layout!r}."
         )
-    max_num_levels = 16
+    max_num_levels = DEFAULT_SVRASTER_MAX_NUM_LEVELS
     if config_path is not None:
         config = _load_yaml(config_path)
         model_config = config.get("model", {})
         if isinstance(model_config, dict):
-            max_num_levels = int(model_config.get("max_num_levels", 16))
+            max_num_levels = int(
+                model_config.get(
+                    "max_num_levels",
+                    DEFAULT_SVRASTER_MAX_NUM_LEVELS,
+                )
+            )
 
     return SparseVoxelScene(
         backend_name=backend_name,
