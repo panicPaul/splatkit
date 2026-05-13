@@ -91,6 +91,8 @@ def _copy_vendored_sources(stage_root: Path) -> None:
         source_path = source_root / relative_path
         destination_path = stage_root / relative_path
         if source_path.is_dir():
+            if destination_path.exists():
+                shutil.rmtree(destination_path)
             shutil.copytree(source_path, destination_path, dirs_exist_ok=True)
         else:
             destination_path.parent.mkdir(parents=True, exist_ok=True)
