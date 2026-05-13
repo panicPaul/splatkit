@@ -15,7 +15,7 @@ class ProjectionResult:
 
     radii: Int[Tensor, " num_cams num_splats 2"]
     projected_means: Float[Tensor, " num_cams num_splats 2"]
-    primitive_depths: Float[Tensor, " num_cams num_splats"]
+    primitive_depth: Float[Tensor, " num_cams num_splats"]
     conics: Float[Tensor, " num_cams num_splats 3"]
     mip_splatting_screen_filter_compensations: (
         Float[Tensor, " num_cams num_splats"] | None
@@ -31,19 +31,24 @@ class ProjectionResult:
         return (
             self.radii,
             self.projected_means,
-            self.primitive_depths,
+            self.primitive_depth,
             self.conics,
             self.mip_splatting_screen_filter_compensations,
         )
+
+    @property
+    def primitive_depths(self) -> Float[Tensor, " num_cams num_splats"]:
+        """Compatibility alias for earlier NHT runtime callers."""
+        return self.primitive_depth
 
 
 @dataclass(frozen=True)
 class IntersectionResult:
     """Output of the tile-intersection stage."""
 
-    tiles_per_gaussian: Int[Tensor, " num_cams num_splats"]
-    tile_intersection_ids: Int[Tensor, " num_intersections"]
-    flattened_gaussian_ids: Int[Tensor, " num_intersections"]
+    num_touched_tiles: Int[Tensor, " num_cams num_splats"]
+    intersection_ids: Int[Tensor, " num_intersections"]
+    instance_primitive_indices: Int[Tensor, " num_intersections"]
     tile_offsets: Int[Tensor, " num_cams tile_height tile_width"]
 
     @classmethod
@@ -54,11 +59,26 @@ class IntersectionResult:
     def as_tensors(self) -> tuple[Tensor, ...]:
         """Return the raw tensor tuple for stage composition."""
         return (
-            self.tiles_per_gaussian,
-            self.tile_intersection_ids,
-            self.flattened_gaussian_ids,
+            self.num_touched_tiles,
+            self.intersection_ids,
+            self.instance_primitive_indices,
             self.tile_offsets,
         )
+
+    @property
+    def tiles_per_gaussian(self) -> Int[Tensor, " num_cams num_splats"]:
+        """Compatibility alias for earlier NHT runtime callers."""
+        return self.num_touched_tiles
+
+    @property
+    def tile_intersection_ids(self) -> Int[Tensor, " num_intersections"]:
+        """Compatibility alias for earlier NHT runtime callers."""
+        return self.intersection_ids
+
+    @property
+    def flattened_gaussian_ids(self) -> Int[Tensor, " num_intersections"]:
+        """Compatibility alias for earlier NHT runtime callers."""
+        return self.instance_primitive_indices
 
 
 @dataclass(frozen=True)

@@ -49,13 +49,23 @@ class NHTFastGSRenderOutput(NHT3DGUTRenderOutput):
 
     radii: Int[Tensor, " num_cams num_splats 2"]
     projected_means: Float[Tensor, " num_cams num_splats 2"]
-    primitive_depths: Float[Tensor, " num_cams num_splats"]
+    primitive_depth: Float[Tensor, " num_cams num_splats"]
     conics: Float[Tensor, " num_cams num_splats 3"]
     tile_offsets: Int[Tensor, " num_cams tile_height tile_width"]
-    flattened_gaussian_ids: Int[Tensor, " num_intersections"]
+    instance_primitive_indices: Int[Tensor, " num_intersections"]
     mip_splatting_screen_filter_compensations: (
         Float[Tensor, " num_cams num_splats"] | None
     )
+
+    @property
+    def primitive_depths(self) -> Float[Tensor, " num_cams num_splats"]:
+        """Compatibility alias for earlier NHT FastGS outputs."""
+        return self.primitive_depth
+
+    @property
+    def flattened_gaussian_ids(self) -> Int[Tensor, " num_intersections"]:
+        """Compatibility alias for earlier NHT FastGS outputs."""
+        return self.instance_primitive_indices
 
 
 def _render_nht_result(
@@ -97,7 +107,7 @@ def _output_from_result(
     features = result.renders[..., :-1]
     depth = result.renders[..., -1]
     num_splats = int(scene.center_position.shape[0])
-    per_splat = result.intersections.tiles_per_gaussian.reshape(
+    per_splat = result.intersections.num_touched_tiles.reshape(
         -1,
         num_splats,
     ).sum(dim=0)
@@ -119,10 +129,12 @@ def _output_from_result(
         weights=weights,
         radii=result.projection.radii,
         projected_means=result.projection.projected_means,
-        primitive_depths=result.projection.primitive_depths,
+        primitive_depth=result.projection.primitive_depth,
         conics=result.projection.conics,
         tile_offsets=result.intersections.tile_offsets,
-        flattened_gaussian_ids=result.intersections.flattened_gaussian_ids,
+        instance_primitive_indices=(
+            result.intersections.instance_primitive_indices
+        ),
         mip_splatting_screen_filter_compensations=(
             result.projection.mip_splatting_screen_filter_compensations
         ),
@@ -146,9 +158,13 @@ def _max_screen_radii(output: object, scene: GaussianScene3D) -> Tensor:
             dtype=scene.center_position.dtype,
             device=scene.center_position.device,
         )
-    return radii.reshape(-1, radii.shape[-2], 2).amax(dim=(0, 2)).to(
-        dtype=scene.center_position.dtype,
-        device=scene.center_position.device,
+    return (
+        radii.reshape(-1, radii.shape[-2], 2)
+        .amax(dim=(0, 2))
+        .to(
+            dtype=scene.center_position.dtype,
+            device=scene.center_position.device,
+        )
     )
 
 
@@ -161,10 +177,24 @@ def _visible_weights(output: object, scene: GaussianScene3D) -> Tensor:
             dtype=scene.center_position.dtype,
             device=scene.center_position.device,
         )
-    return weights.detach().reshape(-1).to(
-        dtype=scene.center_position.dtype,
-        device=scene.center_position.device,
+    return (
+        weights.detach()
+        .reshape(-1)
+        .to(
+            dtype=scene.center_position.dtype,
+            device=scene.center_position.device,
+        )
     )
+
+
+def _instance_primitive_indices(output: object) -> Tensor:
+    indices = getattr(output, "instance_primitive_indices", None)
+    if isinstance(indices, Tensor):
+        return indices
+    legacy_indices = getattr(output, "flattened_gaussian_ids", None)
+    if isinstance(legacy_indices, Tensor):
+        return legacy_indices
+    raise ValueError("NHT-Fast-GS output is missing primitive instance ids.")
 
 
 def nht_fast_gs_metric_counts(
@@ -197,7 +227,7 @@ def nht_fast_gs_metric_counts(
         image_height=height,
         tile_size=tile_size,
         tile_offsets=output.tile_offsets,
-        flattened_gaussian_ids=output.flattened_gaussian_ids,
+        instance_primitive_indices=_instance_primitive_indices(output),
     )
     metric_flat = metric_map.reshape(-1).to(
         device=pixel_ids.device,
@@ -234,12 +264,16 @@ class NHTFastGSSignalProvider(GaussianFastGSSignalProvider):
         visibility = weights > 0
         raw_output = _raw_output(context.render_output)
         if hasattr(raw_output, "visibility"):
-            visibility |= raw_output.visibility.detach().reshape(-1).to(
-                device=scene.center_position.device
-            ) > 0
+            visibility |= (
+                raw_output.visibility.detach()
+                .reshape(-1)
+                .to(device=scene.center_position.device)
+                > 0
+            )
         visible_count = visibility.to(dtype=scene.center_position.dtype)
         camera_distance = (
-            scene.center_position.detach() - _camera_position(context.batch.camera)
+            scene.center_position.detach()
+            - _camera_position(context.batch.camera)
         ).norm(dim=-1)
         grad_sum = position_grad.detach().norm(dim=-1) * camera_distance
         grad_sum = grad_sum * visible_count

@@ -62,13 +62,13 @@ def rasterization_nht(
     metadata = {
         "camera_width": torch.as_tensor(width, device=means.device),
         "camera_height": torch.as_tensor(height, device=means.device),
-        "tiles_per_gauss": render_result.intersections.tiles_per_gaussian,
-        "isect_ids": render_result.intersections.tile_intersection_ids,
-        "flatten_ids": render_result.intersections.flattened_gaussian_ids,
+        "tiles_per_gauss": render_result.intersections.num_touched_tiles,
+        "isect_ids": render_result.intersections.intersection_ids,
+        "flatten_ids": render_result.intersections.instance_primitive_indices,
         "isect_offsets": render_result.intersections.tile_offsets,
         "radii": render_result.projection.radii,
         "means2d": render_result.projection.projected_means,
-        "depths": render_result.projection.primitive_depths,
+        "depths": render_result.projection.primitive_depth,
         "conics": render_result.projection.conics,
     }
     return render_result.renders, render_result.alphas, metadata

@@ -201,7 +201,7 @@ class _RasterizeFeatures(torch.autograd.Function):
         image_height: int,
         tile_size: int,
         tile_offsets: Tensor,
-        flattened_gaussian_ids: Tensor,
+        instance_primitive_indices: Tensor,
         camera_model: CameraModelName,
         center_ray_mode: bool,
         ray_direction_scale: float,
@@ -236,7 +236,7 @@ class _RasterizeFeatures(torch.autograd.Function):
                 None,
                 native_ftheta_parameters,
                 tile_offsets,
-                flattened_gaussian_ids,
+                instance_primitive_indices,
                 center_ray_mode,
                 ray_direction_scale,
             )
@@ -253,7 +253,7 @@ class _RasterizeFeatures(torch.autograd.Function):
             world_to_camera_matrices,
             camera_intrinsics,
             tile_offsets,
-            flattened_gaussian_ids,
+            instance_primitive_indices,
             rendered_alphas,
             last_gaussian_ids,
         )
@@ -285,7 +285,7 @@ class _RasterizeFeatures(torch.autograd.Function):
             world_to_camera_matrices,
             camera_intrinsics,
             tile_offsets,
-            flattened_gaussian_ids,
+            instance_primitive_indices,
             rendered_alphas,
             last_gaussian_ids,
         ) = context.saved_tensors
@@ -323,7 +323,7 @@ class _RasterizeFeatures(torch.autograd.Function):
             None,
             context.native_ftheta_parameters,
             tile_offsets,
-            flattened_gaussian_ids,
+            instance_primitive_indices,
             rendered_alphas,
             last_gaussian_ids,
             grad_feature_channels,
@@ -377,7 +377,7 @@ class _RasterizeDepth(torch.autograd.Function):
         image_height: int,
         tile_size: int,
         tile_offsets: Tensor,
-        flattened_gaussian_ids: Tensor,
+        instance_primitive_indices: Tensor,
         camera_model: CameraModelName,
     ) -> tuple[Tensor, Tensor]:
         native_camera_model = camera_model_type(camera_model)
@@ -410,7 +410,7 @@ class _RasterizeDepth(torch.autograd.Function):
                 None,
                 native_ftheta_parameters,
                 tile_offsets,
-                flattened_gaussian_ids,
+                instance_primitive_indices,
             )
         )
 
@@ -425,7 +425,7 @@ class _RasterizeDepth(torch.autograd.Function):
             world_to_camera_matrices,
             camera_intrinsics,
             tile_offsets,
-            flattened_gaussian_ids,
+            instance_primitive_indices,
             rendered_alphas,
             last_gaussian_ids,
         )
@@ -457,7 +457,7 @@ class _RasterizeDepth(torch.autograd.Function):
             world_to_camera_matrices,
             camera_intrinsics,
             tile_offsets,
-            flattened_gaussian_ids,
+            instance_primitive_indices,
             rendered_alphas,
             last_gaussian_ids,
         ) = context.saved_tensors
@@ -490,7 +490,7 @@ class _RasterizeDepth(torch.autograd.Function):
             None,
             context.native_ftheta_parameters,
             tile_offsets,
-            flattened_gaussian_ids,
+            instance_primitive_indices,
             rendered_alphas,
             last_gaussian_ids,
             grad_rendered_depths.contiguous(),
@@ -535,14 +535,21 @@ def rasterize_features(
     image_height: int,
     tile_size: int,
     tile_offsets: Tensor,
-    flattened_gaussian_ids: Tensor,
     camera_model: CameraModelName,
     center_ray_mode: bool,
     ray_direction_scale: float,
+    instance_primitive_indices: Tensor | None = None,
+    flattened_gaussian_ids: Tensor | None = None,
     backgrounds: Tensor | None = None,
     masks: Tensor | None = None,
 ) -> FeatureRasterizationResult:
     """Rasterize NHT features and appended ray-direction channels."""
+    if instance_primitive_indices is None:
+        if flattened_gaussian_ids is None:
+            raise TypeError(
+                "rasterize_features requires instance_primitive_indices."
+            )
+        instance_primitive_indices = flattened_gaussian_ids
     original_output_channel_count = (
         int(features.shape[-1]) // feature_divisor()
     ) * encoding_expansion_factor()
@@ -565,7 +572,7 @@ def rasterize_features(
         image_height,
         tile_size,
         tile_offsets.contiguous(),
-        flattened_gaussian_ids.contiguous(),
+        instance_primitive_indices.contiguous(),
         camera_model,
         center_ray_mode,
         ray_direction_scale,
@@ -599,12 +606,19 @@ def rasterize_depth(
     image_height: int,
     tile_size: int,
     tile_offsets: Tensor,
-    flattened_gaussian_ids: Tensor,
     camera_model: CameraModelName,
+    instance_primitive_indices: Tensor | None = None,
+    flattened_gaussian_ids: Tensor | None = None,
     backgrounds: Tensor | None = None,
     masks: Tensor | None = None,
 ) -> DepthRasterizationResult:
     """Rasterize eval3d depth features."""
+    if instance_primitive_indices is None:
+        if flattened_gaussian_ids is None:
+            raise TypeError(
+                "rasterize_depth requires instance_primitive_indices."
+            )
+        instance_primitive_indices = flattened_gaussian_ids
     padded_depth_features, padded_backgrounds, padding_channel_count = (
         _pad_depth_channels(depth_features, backgrounds)
     )
@@ -624,7 +638,7 @@ def rasterize_depth(
         image_height,
         tile_size,
         tile_offsets.contiguous(),
-        flattened_gaussian_ids.contiguous(),
+        instance_primitive_indices.contiguous(),
         camera_model,
     )
     if padding_channel_count > 0:
@@ -642,12 +656,19 @@ def rasterize_gaussian_indices(
     image_height: int,
     tile_size: int,
     tile_offsets: Tensor,
-    flattened_gaussian_ids: Tensor,
     range_start: int = 0,
     range_end: int = 2**31 - 1,
+    instance_primitive_indices: Tensor | None = None,
+    flattened_gaussian_ids: Tensor | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Return Gaussian and pixel ids for native 3DGS pixel contributors."""
-    return backend().rasterize_to_indices_3dgs(
+    if instance_primitive_indices is None:
+        if flattened_gaussian_ids is None:
+            raise TypeError(
+                "rasterize_gaussian_indices requires instance_primitive_indices."
+            )
+        instance_primitive_indices = flattened_gaussian_ids
+    return backend().rasterize_to_indices_fwd(
         int(range_start),
         int(range_end),
         transmittances.contiguous(),
@@ -658,5 +679,5 @@ def rasterize_gaussian_indices(
         int(image_height),
         int(tile_size),
         tile_offsets.contiguous(),
-        flattened_gaussian_ids.contiguous(),
+        instance_primitive_indices.contiguous(),
     )

@@ -87,7 +87,7 @@ def _runtime_key(config: NHTRasterizerBuildConfig) -> str:
 
 def _copy_vendored_sources(stage_root: Path) -> None:
     source_root = _native_root()
-    for relative_path in ("bindings.cpp", "upstream"):
+    for relative_path in ("bindings.cpp", "stages.h", "upstream"):
         source_path = source_root / relative_path
         destination_path = stage_root / relative_path
         if source_path.is_dir():
@@ -113,8 +113,6 @@ def _stage_runtime_sources(config: NHTRasterizerBuildConfig) -> Path:
 def _source_files(stage_root: Path) -> list[str]:
     upstream_source_root = stage_root / "upstream" / "csrc"
     return [
-        str(upstream_source_root / "CameraWrappers.cu"),
-        str(upstream_source_root / "ExternalDistortionWrappers.cu"),
         str(upstream_source_root / "Intersect.cpp"),
         str(upstream_source_root / "IntersectTile.cu"),
         str(upstream_source_root / "Projection.cpp"),

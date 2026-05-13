@@ -7,7 +7,7 @@
 #include <torch/extension.h>
 
 #include "Cameras.h"
-#include "Ops.h"
+#include "stages.h"
 #include "upstream/csrc/Config.h"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, module) {
@@ -63,22 +63,27 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, module) {
         .def_readwrite("max_angle", &FThetaCameraDistortionParameters::max_angle)
         .def_readwrite("linear_cde", &FThetaCameraDistortionParameters::linear_cde);
 
-    module.def("project_3dgut_fwd", &gsplat::projection_ut_3dgs_fused);
-    module.def("intersect_tiles_fwd", &gsplat::intersect_tile);
-    module.def("intersect_offsets_fwd", &gsplat::intersect_offset);
+    // Expose only the stage surface used by the Python runtime.
+    module.def("project_fwd", &ember_native_nht::nht_rasterizer::project_fwd);
+    module.def("intersect_fwd", &ember_native_nht::nht_rasterizer::intersect_fwd);
+    module.def(
+        "intersect_offsets_fwd",
+        &ember_native_nht::nht_rasterizer::intersect_offsets_fwd);
     module.def(
         "rasterize_features_fwd",
-        &gsplat::rasterize_to_pixels_from_world_nht_3dgs_fwd);
+        &ember_native_nht::nht_rasterizer::rasterize_features_fwd);
     module.def(
         "rasterize_features_bwd",
-        &gsplat::rasterize_to_pixels_from_world_nht_3dgs_bwd);
+        &ember_native_nht::nht_rasterizer::rasterize_features_bwd);
     module.def(
         "rasterize_depth_fwd",
-        &gsplat::rasterize_to_pixels_from_world_3dgs_fwd);
+        &ember_native_nht::nht_rasterizer::rasterize_depth_fwd);
     module.def(
         "rasterize_depth_bwd",
-        &gsplat::rasterize_to_pixels_from_world_3dgs_bwd);
-    module.def("rasterize_to_indices_3dgs", &gsplat::rasterize_to_indices_3dgs);
+        &ember_native_nht::nht_rasterizer::rasterize_depth_bwd);
+    module.def(
+        "rasterize_to_indices_fwd",
+        &ember_native_nht::nht_rasterizer::rasterize_to_indices_fwd);
 
     module.attr("encoding_expansion_factor") = ENCF;
     module.attr("num_encoding_frequencies") = ENCF;

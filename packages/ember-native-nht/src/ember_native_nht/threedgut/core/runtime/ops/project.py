@@ -35,7 +35,7 @@ def project(
     camera_model: CameraModelName,
 ) -> ProjectionResult:
     """Run the 3DGUT unscented-transform projection stage."""
-    raw_outputs = backend().project_3dgut_fwd(
+    raw_outputs = backend().project_fwd(
         center_positions.contiguous(),
         quaternions.contiguous(),
         scales.contiguous(),

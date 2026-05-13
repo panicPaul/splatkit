@@ -16,20 +16,25 @@ def intersect(
     *,
     projected_means: Tensor,
     radii: Tensor,
-    primitive_depths: Tensor,
     num_cameras: int,
     image_width: int,
     image_height: int,
     tile_size: int,
+    primitive_depth: Tensor | None = None,
+    primitive_depths: Tensor | None = None,
 ) -> IntersectionResult:
     """Map projected Gaussians to sorted tile intersections."""
+    if primitive_depth is None:
+        if primitive_depths is None:
+            raise TypeError("intersect requires primitive_depth.")
+        primitive_depth = primitive_depths
     tile_width = math.ceil(image_width / float(tile_size))
     tile_height = math.ceil(image_height / float(tile_size))
-    tiles_per_gaussian, tile_intersection_ids, flattened_gaussian_ids = (
-        backend().intersect_tiles_fwd(
+    num_touched_tiles, intersection_ids, instance_primitive_indices = (
+        backend().intersect_fwd(
             projected_means.contiguous(),
             radii.contiguous(),
-            primitive_depths.contiguous(),
+            primitive_depth.contiguous(),
             None,
             None,
             num_cameras,
@@ -41,16 +46,16 @@ def intersect(
         )
     )
     tile_offsets = backend().intersect_offsets_fwd(
-        tile_intersection_ids.contiguous(),
+        intersection_ids.contiguous(),
         num_cameras,
         tile_width,
         tile_height,
     )
     return parse_intersection_outputs(
         (
-            tiles_per_gaussian,
-            tile_intersection_ids,
-            flattened_gaussian_ids,
+            num_touched_tiles,
+            intersection_ids,
+            instance_primitive_indices,
             tile_offsets,
         )
     )

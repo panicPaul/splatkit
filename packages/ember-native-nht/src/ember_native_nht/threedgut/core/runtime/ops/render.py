@@ -103,7 +103,7 @@ def render(
     intersections = intersect(
         projected_means=projection.projected_means,
         radii=projection.radii,
-        primitive_depths=projection.primitive_depths,
+        primitive_depth=projection.primitive_depth,
         num_cameras=num_cameras,
         image_width=image_width,
         image_height=image_height,
@@ -122,7 +122,7 @@ def render(
         image_height=image_height,
         tile_size=tile_size,
         tile_offsets=intersections.tile_offsets,
-        flattened_gaussian_ids=intersections.flattened_gaussian_ids,
+        instance_primitive_indices=intersections.instance_primitive_indices,
         camera_model=camera_model,
         center_ray_mode=center_ray_mode,
         ray_direction_scale=ray_direction_scale,
@@ -136,7 +136,7 @@ def render(
             center_positions=center_positions,
             quaternions=quaternions,
             scales=scales,
-            depth_features=projection.primitive_depths[..., None],
+            depth_features=projection.primitive_depth[..., None],
             opacities=tiled_opacities,
             world_to_camera_matrices=world_to_camera_matrices,
             camera_intrinsics=camera_intrinsics,
@@ -144,7 +144,7 @@ def render(
             image_height=image_height,
             tile_size=tile_size,
             tile_offsets=intersections.tile_offsets,
-            flattened_gaussian_ids=intersections.flattened_gaussian_ids,
+            instance_primitive_indices=intersections.instance_primitive_indices,
             camera_model=camera_model,
         )
         rendered_depths = depth_result.depths
