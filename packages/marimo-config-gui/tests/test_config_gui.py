@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from enum import Enum, Flag, IntFlag, auto
 from pathlib import Path
 from typing import Any, Literal
@@ -156,6 +157,14 @@ class _UnionFieldDefaultRoot(BaseModel):
     item: _UnionA | _UnionB = Field(_UnionA())
 
 
+class _UnionDefaultBRoot(BaseModel):
+    item: _UnionA | _UnionB = Field(default_factory=_UnionB)
+
+
+class _FrozenUnionRoot(BaseModel):
+    item: _UnionA | _UnionB = Field(default_factory=_UnionB, frozen=True)
+
+
 class ResNet50(BaseModel):
     model_config = ConfigDict(title="ResNet-50")
 
@@ -202,6 +211,34 @@ class _LabelPrecedenceRoot(BaseModel):
     )
     plain_model: PlainRuntimeConfig = Field(default_factory=PlainRuntimeConfig)
     plain_value: int = 0
+
+
+class _FrozenNestedModel(BaseModel):
+    editable: int = 1
+    locked: int = Field(2, frozen=True)
+
+
+class _FrozenRootModel(BaseModel):
+    title: str = Field("locked", frozen=True)
+    count: int = 1
+    nested: _FrozenNestedModel = Field(default_factory=_FrozenNestedModel)
+
+
+class _FrozenConfigModel(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    title: str = "locked"
+    count: int = 1
+
+
+@dataclass(frozen=True)
+class _DataclassConfig:
+    enabled: bool = True
+    interval: int = 10
+
+
+class _DataclassRootModel(BaseModel):
+    viewer: _DataclassConfig = Field(default_factory=_DataclassConfig)
 
 
 @pytest.fixture
@@ -1371,6 +1408,89 @@ def test_form_generation_can_exclude_top_level_fields() -> None:
     assert generated.value == _RequiredModel(title="kept", count=3)
 
 
+def test_frozen_primitive_field_renders_disabled_control() -> None:
+    generated = PydanticGui(_FrozenRootModel, include_json_editor=False)
+
+    assert generated.elements["title"]._args.args["disabled"] is True
+    assert generated.elements["count"]._args.args["disabled"] is False
+
+
+def test_config_gui_serializes_dataclass_config_defaults(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_DataclassRootModel, background=None)
+
+    assert '"viewer": {' in config_gui.json_editor().value
+    assert '"enabled": true' in config_gui.json_editor().value
+    assert config_gui.validated_config() == _DataclassRootModel()
+
+
+def test_config_gui_rejects_json_changes_to_frozen_field(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_FrozenRootModel, background=None)
+    config_gui.gui_panel()
+
+    config_gui._convert_value(
+        {
+            CONFIG_JSON_VIEW_KEY: (
+                '{"title": "changed", "count": 1, '
+                '"nested": {"editable": 1, "locked": 2}}'
+            )
+        }
+    )
+
+    assert config_gui.is_valid() is False
+    assert config_gui.validation_error() == "title: field is frozen."
+
+
+def test_config_gui_rejects_json_changes_to_nested_frozen_field(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_FrozenRootModel, background=None)
+    config_gui.gui_panel()
+
+    config_gui._convert_value(
+        {
+            CONFIG_JSON_VIEW_KEY: (
+                '{"title": "locked", "count": 1, '
+                '"nested": {"editable": 1, "locked": 99}}'
+            )
+        }
+    )
+
+    assert config_gui.is_valid() is False
+    assert config_gui.validation_error() == "nested.locked: field is frozen."
+
+
+def test_config_gui_all_model_fields_freeze_with_config_dict(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_FrozenConfigModel, background=None)
+    config_gui.gui_panel()
+
+    config_gui._convert_value(
+        {CONFIG_JSON_VIEW_KEY: '{"title": "locked", "count": 2}'}
+    )
+
+    assert config_gui.is_valid() is False
+    assert config_gui.validation_error() == "count: field is frozen."
+
+
+def test_config_gui_rejects_json_changes_to_frozen_union_field(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_FrozenUnionRoot, background=None)
+    config_gui.gui_panel()
+
+    config_gui._convert_value(
+        {CONFIG_JSON_VIEW_KEY: '{"item": {"__kind__": "_UnionA", "value": 1}}'}
+    )
+
+    assert config_gui.is_valid() is False
+    assert config_gui.validation_error() == "item: field is frozen."
+
+
 def test_nested_models_use_accordion_until_flat_level() -> None:
     collapsed = PydanticGui(
         _NestedRootModel,
@@ -1468,6 +1588,60 @@ def test_config_gui_builds_model_union_field_default(
     config_gui = create_config_gui(_UnionFieldDefaultRoot, background=None)
 
     assert type(config_gui.gui_panel()).__name__ == "PydanticGui"
+
+
+def test_config_gui_preserves_model_union_default_branch(
+    notebook_runtime: None,
+) -> None:
+    config_gui = create_config_gui(_UnionDefaultBRoot, background=None)
+
+    assert config_gui.validated_config() == _UnionDefaultBRoot(item=_UnionB())
+    assert config_gui._payload["item"]["__kind__"] == "_UnionB"
+
+
+def test_script_config_gui_preserves_model_union_default_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgui.mo, "running_in_notebook", lambda: False)
+
+    config_gui = create_config_gui(
+        _UnionDefaultBRoot,
+        background=None,
+        script_args=[],
+    )
+
+    assert config_gui.validated_config() == _UnionDefaultBRoot(item=_UnionB())
+    assert config_gui._payload["item"]["__kind__"] == "_UnionB"
+
+
+def test_preset_selector_preserves_model_union_default_branch(
+    notebook_runtime: None,
+    tmp_path: Path,
+) -> None:
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text("{}")
+    catalog = ConfigPresetCatalog(
+        model_cls=_UnionDefaultBRoot,
+        presets={
+            "demo": ConfigPreset(
+                name="demo",
+                path=preset_path,
+                base_dir=tmp_path,
+            )
+        },
+        default="demo",
+        preset_field=None,
+    )
+
+    config_gui = create_config_gui(
+        _UnionDefaultBRoot,
+        presets=catalog,
+        background=None,
+    )
+    config_gui.preset_selector()._on_change("demo")
+
+    assert config_gui.validated_config() == _UnionDefaultBRoot(item=_UnionB())
+    assert config_gui._payload["item"]["__kind__"] == "_UnionB"
 
 
 def test_union_branch_labels_use_model_titles() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, cast
 
@@ -704,6 +705,7 @@ class PydanticGui(
         nested_models_flat_after_level: int | None = None,
         exclude_fields: set[str] | frozenset[str] = frozenset(),
         current_level: int = 0,
+        force_frozen: bool = False,
         on_change: Any | None = None,
     ) -> None:
         self._model_cls = model_cls
@@ -714,6 +716,7 @@ class PydanticGui(
         self._nested_models_flat_after_level = nested_models_flat_after_level
         self._exclude_fields = frozenset(exclude_fields)
         self._current_level = current_level
+        self._force_frozen = force_frozen
         self._last_active_tab = FORM_TAB if include_json_editor else ""
         self._last_json_error: str | None = None
         self._initial_payload = _resolve_initial_payload(model_cls, value)
@@ -726,6 +729,7 @@ class PydanticGui(
             nested_models_multiple_open=nested_models_multiple_open,
             nested_models_flat_after_level=nested_models_flat_after_level,
             current_level=current_level,
+            force_frozen=force_frozen,
         )
         self._field_specs = field_specs
         self._field_elements = field_elements
@@ -801,6 +805,7 @@ class PydanticGui(
             nested_models_flat_after_level=self._nested_models_flat_after_level,
             exclude_fields=self._exclude_fields,
             current_level=self._current_level,
+            force_frozen=self._force_frozen,
             on_change=self._on_change,
         )
 
@@ -825,7 +830,12 @@ class PydanticGui(
             self._model_cls,
             payload,
         )
-        current_error = json_error or validation_error
+        frozen_error = _frozen_payload_error(
+            self._model_cls,
+            self._initial_payload,
+            payload,
+        )
+        current_error = json_error or frozen_error or validation_error
 
         if self._include_json_editor:
             if (
@@ -977,6 +987,13 @@ class PydanticGui(
         )
         if json_error is not None:
             return json_error
+        frozen_error = _frozen_payload_error(
+            self._model_cls,
+            self._initial_payload,
+            payload,
+        )
+        if frozen_error is not None:
+            return frozen_error
 
         _, error = _validate_payload_with_error(self._model_cls, payload)
         return error
@@ -1188,6 +1205,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
         force_direct_json: bool = False,
         render_mode: Literal["hybrid", "json"] = "json",
         current_level: int = 0,
+        force_frozen: bool = False,
         on_change: Any | None = None,
     ) -> None:
         self._model_cls = model_cls
@@ -1197,6 +1215,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
         self._force_direct_json = force_direct_json
         self._render_mode = render_mode
         self._current_level = current_level
+        self._force_frozen = force_frozen
         self._initial_payload = _resolve_initial_payload(model_cls, value)
         self._last_payload = self._initial_payload
         self._last_error: str | None = None
@@ -1217,6 +1236,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
                 show_copy_button=True,
                 debounce=False,
                 label="",
+                disabled=force_frozen,
             )
             self._editor = editor
             self._elements[DIRECT_JSON_EDITOR_KEY] = editor
@@ -1235,6 +1255,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
                 nested_models_flat_after_level=nested_models_flat_after_level,
                 gui_mode=render_mode,
                 current_level=current_level,
+                force_frozen=force_frozen,
             )
             self._elements.update(child_elements)
             self._composite_mode = len(self._direct_field_names) != len(
@@ -1278,6 +1299,7 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
             force_direct_json=self._force_direct_json,
             render_mode=self._render_mode,
             current_level=self._current_level,
+            force_frozen=self._force_frozen,
             on_change=self._on_change,
         )
 
@@ -1332,6 +1354,14 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
         if error is not None:
             return None
         self._last_payload = payload
+        frozen_error = _frozen_payload_error(
+            self._model_cls,
+            self._initial_payload,
+            payload,
+        )
+        if frozen_error is not None:
+            self._last_error = frozen_error
+            return None
         model_value, validation_error = _validate_payload_with_error(
             self._model_cls,
             payload,
@@ -1368,6 +1398,13 @@ class PydanticJsonGui(UIElement[Any, ModelT | None], Generic[ModelT]):
             payload, error = _json_text_to_payload(editor_value)
         if error is not None:
             return error
+        frozen_error = _frozen_payload_error(
+            self._model_cls,
+            self._initial_payload,
+            payload,
+        )
+        if frozen_error is not None:
+            return frozen_error
         _, validation_error = _validate_payload_with_error(
             self._model_cls,
             payload,
@@ -1546,6 +1583,7 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
             model_cls,
             _resolve_initial_payload(model_cls, value),
         )
+        self._initial_payload = deepcopy(self._payload)
         self._json_text = _payload_to_json(self._payload)
         self._error: str | None = None
         self._validated_config = self._validate_payload(self._payload)
@@ -1798,6 +1836,7 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
 
         validated = self._validate_payload(next_payload)
         if validated is None:
+            self._validated_config = None
             return
 
         self._payload = next_payload
@@ -1820,6 +1859,14 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
             self._sync_form_controls(payload)
 
     def _validate_payload(self, payload: dict[str, Any]) -> ModelT | None:
+        frozen_error = _frozen_payload_error(
+            self._model_cls,
+            self._initial_payload,
+            payload,
+        )
+        if frozen_error is not None:
+            self._error = frozen_error
+            return None
         value, error = _validate_payload_with_error(self._model_cls, payload)
         self._error = error
         if value is None:
@@ -1951,6 +1998,12 @@ def _resolve_initial_payload(*args: Any, **kwargs: Any) -> Any:
 
 def _validate_payload_with_error(*args: Any, **kwargs: Any) -> Any:
     from marimo_config_gui.widgets import _validate_payload_with_error as impl
+
+    return impl(*args, **kwargs)
+
+
+def _frozen_payload_error(*args: Any, **kwargs: Any) -> Any:
+    from marimo_config_gui.widgets import _frozen_payload_error as impl
 
     return impl(*args, **kwargs)
 

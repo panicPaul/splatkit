@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from marimo_config_gui.widgets import (
     _order_payload_for_model,
+    _resolve_initial_payload,
     _resolve_materialized_payload,
 )
 
@@ -453,7 +454,7 @@ def payload_for_config(config: BaseModel | dict[str, Any]) -> dict[str, Any]:
     if isinstance(config, BaseModel):
         return _order_payload_for_model(
             type(config),
-            config.model_dump(mode="json"),
+            _resolve_initial_payload(type(config), config),
         )
     return dict(config)
 

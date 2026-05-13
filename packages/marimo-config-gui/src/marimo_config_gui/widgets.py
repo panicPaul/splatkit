@@ -7,7 +7,7 @@ import json
 import math
 import operator
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum, Flag
 from functools import reduce
 from pathlib import Path
@@ -93,6 +93,7 @@ class _FieldSpec:
     render_mode: RenderMode
     flat: bool
     widget_mode: WidgetMode
+    is_frozen: bool
 
     def label(self) -> str:
         return field_label(self.name, self.info, self.effective_annotation)
@@ -192,6 +193,7 @@ def _build_model_gui(
     nested_models_multiple_open: bool,
     nested_models_flat_after_level: int | None,
     current_level: int,
+    force_frozen: bool = False,
 ) -> tuple[
     dict[str, _FieldSpec], dict[str, UIElement[Any, Any]], UIElement[Any, Any]
 ]:
@@ -203,7 +205,13 @@ def _build_model_gui(
     for name, info in model_cls.model_fields.items():
         if name in exclude_fields:
             continue
-        spec = _make_field_spec(model_cls, name, info, gui_mode="form")
+        spec = _make_field_spec(
+            model_cls,
+            name,
+            info,
+            gui_mode="form",
+            force_frozen=force_frozen,
+        )
         field_value = payload[name]
         element = _build_field_element(
             spec,
@@ -278,6 +286,7 @@ def _build_model_config_gui(
     nested_models_flat_after_level: int | None,
     gui_mode: Literal["hybrid", "json"],
     current_level: int,
+    force_frozen: bool = False,
 ) -> tuple[
     dict[str, _FieldSpec],
     list[str],
@@ -294,7 +303,13 @@ def _build_model_config_gui(
 
     direct_payload: dict[str, Any] = {}
     for name, info in model_cls.model_fields.items():
-        spec = _make_field_spec(model_cls, name, info, gui_mode=gui_mode)
+        spec = _make_field_spec(
+            model_cls,
+            name,
+            info,
+            gui_mode=gui_mode,
+            force_frozen=force_frozen,
+        )
         field_specs[name] = spec
         field_names.append(name)
         if _field_uses_direct_json_editor(spec, gui_mode=gui_mode):
@@ -332,6 +347,9 @@ def _build_model_config_gui(
             show_copy_button=True,
             debounce=False,
             label="",
+            disabled=all(
+                field_specs[name].is_frozen for name in direct_field_names
+            ),
         )
         elements[DIRECT_JSON_EDITOR_KEY] = editor
         direct_controls.append(editor)
@@ -447,6 +465,7 @@ def _build_concrete_config_field_element(
             force_direct_json=spec.force_json_editor,
             render_mode=gui_mode,
             current_level=current_level + 1,
+            force_frozen=spec.is_frozen,
         )
 
     if spec.is_model_union:
@@ -496,6 +515,7 @@ def _build_union_field_element(
             nested_models_multiple_open=nested_models_multiple_open,
             nested_models_flat_after_level=nested_models_flat_after_level,
             current_level=current_level + 1,
+            force_frozen=spec.is_frozen,
         )
         for index, model_cls in enumerate(branch_models)
     )
@@ -532,6 +552,7 @@ def _build_union_json_field_element(
             nested_models_flat_after_level=nested_models_flat_after_level,
             render_mode=gui_mode,
             current_level=current_level + 1,
+            force_frozen=spec.is_frozen,
         )
         for index, model_cls in enumerate(branch_models)
     )
@@ -631,10 +652,14 @@ def _build_concrete_field_element(
         )
 
     if annotation is bool:
-        return mo.ui.checkbox(value=bool(value), label=label)
+        return mo.ui.checkbox(
+            value=bool(value),
+            label=label,
+            disabled=spec.is_frozen,
+        )
 
     if annotation is str:
-        return mo.ui.text(value=str(value), label=label)
+        return mo.ui.text(value=str(value), label=label, disabled=spec.is_frozen)
 
     if annotation is Path:
         return mo.ui.file_browser(
@@ -651,6 +676,7 @@ def _build_concrete_field_element(
             value,
             label,
             prefer_slider=spec.widget_mode == "slider",
+            disabled=spec.is_frozen,
         )
 
     if _is_literal_type(annotation):
@@ -688,6 +714,7 @@ def _build_concrete_field_element(
                 nested_models_flat_after_level=nested_models_flat_after_level,
                 force_direct_json=True,
                 current_level=current_level + 1,
+                force_frozen=spec.is_frozen,
             )
         return PydanticGui(
             annotation,
@@ -697,6 +724,7 @@ def _build_concrete_field_element(
             nested_models_multiple_open=nested_models_multiple_open,
             nested_models_flat_after_level=nested_models_flat_after_level,
             current_level=current_level + 1,
+            force_frozen=spec.is_frozen,
         )
 
     if _is_model_tuple_type(annotation):
@@ -720,13 +748,20 @@ def _build_concrete_field_element(
                 include_json_editor=False,
                 nested_models_flat_after_level=nested_models_flat_after_level,
                 current_level=current_level + 1,
+                force_frozen=spec.is_frozen,
             )
             for index, model_type in enumerate(model_types)
         )
         return ModelTupleGui(spec, children)
 
     if _is_array_annotation(annotation):
-        return _build_array_element(annotation, spec.info, value, label)
+        return _build_array_element(
+            annotation,
+            spec.info,
+            value,
+            label,
+            disabled=spec.is_frozen,
+        )
 
     if _is_dict_type(annotation):
         return mo.ui.code_editor(
@@ -735,6 +770,7 @@ def _build_concrete_field_element(
             show_copy_button=True,
             debounce=False,
             label=label,
+            disabled=spec.is_frozen,
         )
 
     if _is_primitive_list_type(annotation) or _is_json_sequence_type(
@@ -746,9 +782,14 @@ def _build_concrete_field_element(
             show_copy_button=True,
             debounce=False,
             label=label,
+            disabled=spec.is_frozen,
         )
 
-    return mo.ui.text(value=_text_value(value), label=label)
+    return mo.ui.text(
+        value=_text_value(value),
+        label=label,
+        disabled=spec.is_frozen,
+    )
 
 
 def _build_primitive_tuple_element(
@@ -775,6 +816,7 @@ def _build_primitive_tuple_element(
                     ),
                     labels[index],
                     prefer_slider=spec.widget_mode == "slider",
+                    disabled=spec.is_frozen,
                 )
             )
         else:
@@ -784,6 +826,7 @@ def _build_primitive_tuple_element(
                         _default_primitive_item_value(item_type, item_value)
                     ),
                     label=labels[index],
+                    disabled=spec.is_frozen,
                 )
             )
     return PrimitiveTupleGui(spec, item_types, tuple(children))
@@ -811,6 +854,7 @@ def _build_numeric_element(
     label: str,
     *,
     prefer_slider: bool,
+    disabled: bool = False,
 ) -> UIElement[Any, Any]:
     bounds = _numeric_bounds(info)
     if prefer_slider and bounds.lower is not None and bounds.upper is not None:
@@ -831,6 +875,7 @@ def _build_numeric_element(
             step=step,
             value=value,
             label=label,
+            disabled=disabled,
         )
 
     step = bounds.step
@@ -842,6 +887,7 @@ def _build_numeric_element(
         step=step,
         value=value,
         label=label,
+        disabled=disabled,
     )
 
 
@@ -850,6 +896,8 @@ def _build_array_element(
     info: FieldInfo,
     value: Any,
     label: str,
+    *,
+    disabled: bool = False,
 ) -> UIElement[Any, Any]:
     matrix_value = _normalize_matrix_value(annotation, value)
     total_cells = _matrix_total_cells(matrix_value)
@@ -866,6 +914,7 @@ def _build_array_element(
         max_value=max_value,
         step=step,
         label=label,
+        disabled=disabled,
     )
 
 
@@ -1015,7 +1064,11 @@ def _resolve_initial_payload(
 ) -> dict[str, Any]:
     raw: dict[str, Any]
     if isinstance(value, BaseModel):
-        raw = value.model_dump()
+        raw = {
+            name: getattr(value, name)
+            for name in model_cls.model_fields
+            if hasattr(value, name)
+        }
     elif isinstance(value, dict):
         raw = dict(value)
     else:
@@ -1157,6 +1210,78 @@ def _validate_payload_with_error(
             return None, _format_validation_error(exc)
         return None, str(exc)
     return value, None
+
+
+def _frozen_payload_error(
+    model_cls: type[BaseModel],
+    initial_payload: dict[str, Any],
+    payload: dict[str, Any],
+) -> str | None:
+    return _frozen_payload_error_at(model_cls, initial_payload, payload, "")
+
+
+def _frozen_payload_error_at(
+    model_cls: type[BaseModel],
+    initial_payload: dict[str, Any],
+    payload: dict[str, Any],
+    field_prefix: str,
+) -> str | None:
+    for name, info in model_cls.model_fields.items():
+        path = name if not field_prefix else f"{field_prefix}.{name}"
+        spec = _make_field_spec(model_cls, name, info, gui_mode="form")
+        initial_value = initial_payload.get(name)
+        next_value = payload.get(name)
+        if spec.is_frozen:
+            if _jsonify(initial_value) != _jsonify(next_value):
+                return f"{path}: field is frozen."
+            continue
+        if (
+            spec.is_nested_model
+            and isinstance(initial_value, dict)
+            and isinstance(next_value, dict)
+        ):
+            error = _frozen_payload_error_at(
+                spec.effective_annotation,
+                initial_value,
+                next_value,
+                path,
+            )
+            if error is not None:
+                return error
+            continue
+        if (
+            spec.is_model_union
+            and isinstance(initial_value, dict)
+            and isinstance(next_value, dict)
+        ):
+            error = _frozen_union_payload_error(
+                spec.effective_annotation,
+                initial_value,
+                next_value,
+                path,
+            )
+            if error is not None:
+                return error
+    return None
+
+
+def _frozen_union_payload_error(
+    annotation: Any,
+    initial_payload: dict[str, Any],
+    payload: dict[str, Any],
+    field_prefix: str,
+) -> str | None:
+    branch_models = _union_model_types(annotation)
+    initial_index = _union_branch_index_from_kind(branch_models, initial_payload)
+    next_index = _union_branch_index_from_kind(branch_models, payload)
+    if initial_index is None or initial_index != next_index:
+        return None
+    return _frozen_payload_error_at(
+        branch_models[initial_index],
+        _strip_union_kind(initial_payload),
+        _strip_union_kind(payload),
+        field_prefix,
+    )
 
 
 def _numeric_bounds(info: FieldInfo) -> _NumericBounds:
@@ -1346,6 +1471,7 @@ def _make_field_spec(
     info: FieldInfo,
     *,
     gui_mode: ConfigGuiMode = "form",
+    force_frozen: bool = False,
 ) -> _FieldSpec:
     annotation = info.annotation
     optional = _is_optional_type(annotation)
@@ -1363,7 +1489,20 @@ def _make_field_spec(
         render_mode=field_config.render,
         flat=field_config.flat,
         widget_mode=field_config.widget,
+        is_frozen=force_frozen
+        or _model_is_frozen(model_cls)
+        or _field_is_frozen(info),
     )
+
+
+def _model_is_frozen(model_cls: type[BaseModel] | None) -> bool:
+    if model_cls is None:
+        return False
+    return bool(model_cls.model_config.get("frozen", False))
+
+
+def _field_is_frozen(info: FieldInfo) -> bool:
+    return bool(getattr(info, "frozen", False))
 
 
 def _default_value_for_annotation(
@@ -2197,6 +2336,11 @@ def _validation_output_for_form(form: Any) -> Any:
 def _jsonify(value: Any) -> Any:
     if isinstance(value, BaseModel):
         return _jsonify(value.model_dump())
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: _jsonify(getattr(value, field.name))
+            for field in fields(value)
+        }
     if isinstance(value, dict):
         return {key: _jsonify(item) for key, item in value.items()}
     if isinstance(value, list):
