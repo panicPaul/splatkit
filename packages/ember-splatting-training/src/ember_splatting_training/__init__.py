@@ -23,6 +23,7 @@ __all__ = [
     "TrainingViewerHandle",
     "TrainingViewerHook",
     "TrainingViewerSnapshot",
+    "TrainingViserViewerConfig",
     "active_sh_bases_for_step",
     "add_noise",
     "checkpoint_logs_dir",
@@ -83,6 +84,7 @@ def __getattr__(name: str) -> object:
             | "TrainingViewerHandle"
             | "TrainingViewerHook"
             | "TrainingViewerSnapshot"
+            | "TrainingViserViewerConfig"
             | "create_training_viewer"
         ):
             from ember_splatting_training import training_viewer

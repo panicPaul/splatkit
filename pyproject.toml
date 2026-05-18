@@ -13,6 +13,7 @@ dependencies = [
     "ember-core[all]",
     "marimo-config-gui>=0.0.2",
     "marimo-3dv[desktop]>=0.1.3",
+    "marimo-viser>=0.0.1a0",
     # Non editable dependencies
     "marimo>=0.23.2",
     "ruff>=0.15.10",
@@ -139,6 +140,7 @@ tinycudann = [
 [tool.uv.sources]
 marimo-config-gui = { path = "packages/marimo-config-gui", editable = true }
 marimo-3dv = { path = "packages/marimo-3dv", editable = true }
+marimo-viser = { path = "packages/marimo-viser", editable = true }
 ember-core = { path = "packages/ember-core", editable = true }
 ember-splatting-training = { path = "packages/ember-splatting-training", editable = true }
 ember-svraster-training = { path = "packages/ember-svraster-training", editable = true }
@@ -356,6 +358,7 @@ ember-core = { path = "packages/ember-core", editable = true }
 ember-splatting-training = { path = "packages/ember-splatting-training", editable = true }
 ember-svraster-training = { path = "packages/ember-svraster-training", editable = true }
 marimo-3dv = { path = "packages/marimo-3dv", editable = true }
+marimo-viser = { path = "packages/marimo-viser", editable = true }
 ember-native-nht = { path = "packages/ember-native-nht", editable = true }
 diff-gaussian-rasterization = { path = "third_party/diff-gaussian-rasterization", editable = true }
 "diff-gaussian-rasterization-fastgs" = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }

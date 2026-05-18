@@ -8,6 +8,7 @@ from typing import Literal
 from ember_core.core.contracts import CameraState
 
 ViewerMode = Literal["auto", "force_on", "force_off"]
+ViewerBackend = Literal["marimo_3dv", "viser"]
 
 
 @dataclass

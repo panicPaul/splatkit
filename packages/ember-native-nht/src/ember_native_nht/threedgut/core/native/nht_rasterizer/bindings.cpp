@@ -86,6 +86,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, module) {
         &ember_native_nht::nht_rasterizer::rasterize_to_indices_fwd);
 
     module.attr("encoding_expansion_factor") = ENCF;
+    // Compatibility name: this is encoded channels per base feature
+    // (sin/cos), not the number of frequency bands.
     module.attr("num_encoding_frequencies") = ENCF;
     module.attr("feature_divisor") = VERTEX_PER_PRIM;
 }

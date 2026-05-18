@@ -139,6 +139,18 @@ When a notebook defines presets with `ConfigPresetCatalog`, select them with
 python notebook.py --preset garden --runtime.device cuda
 ```
 
+In notebook mode, render the selector from the same owning GUI. Selecting a
+preset updates the owner, so downstream cells that call
+`config_gui.validated_config()` rerun without reading `preset_selector.value`:
+
+```python
+with app.setup:
+    config_gui = create_config_gui(Config, presets=preset_catalog)
+
+preset_selector = config_gui.preset_selector(label="Preset")
+config = config_gui.validated_config()
+```
+
 Config overlay files can be declared by the notebook or passed on the command
 line. They are sparse JSON objects merged left-to-right before explicit CLI
 field overrides:
@@ -326,6 +338,8 @@ class Config(BaseModel):
   `mo.hstack([config_gui.gui_panel(), config_gui.json_editor()])` while keeping
   JSON and form controls synchronized.
 - Use `config_gui.stacked()` for the default wrapped layout.
+- If presets are available, render `config_gui.preset_selector(...)` from the
+  same owner and keep dependent cells on `config_gui.validated_config()`.
 - Keep config state creation in `app.setup` when the config should behave the
   same in notebook mode and script mode.
 - Treat `config_gui.validated_config()` as `Config`; invalid JSON or failed

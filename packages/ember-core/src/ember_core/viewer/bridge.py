@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from ember_core.core.contracts import CameraState
-from ember_core.viewer.contracts import ViewerMode, ViewerState
+from ember_core.viewer.contracts import ViewerBackend, ViewerMode, ViewerState
 
 
 @dataclass(frozen=True)
@@ -126,16 +126,48 @@ def launch_viewer(
     *,
     state: ViewerState,
     controls: Any | None = None,
+    backend: ViewerBackend = "marimo_3dv",
+    viser_server_config: Any | None = None,
+    viser_render_config: Any | None = None,
 ) -> Any:
     """Launch the configured viewer backend using ember-core camera states."""
     import marimo as mo
-    from marimo_3dv.viewer import Viewer as NativeViewer
 
     if not resolve_viewer_mode(
         state.viewer_mode,
         running_in_notebook=mo.running_in_notebook(),
     ):
         return None
+
+    if backend == "viser":
+        from marimo_viser import ViserViewer, ViserViewerState
+
+        selected_camera = select_viewer_camera(state.camera)
+
+        def viser_render_fn(
+            camera: CameraState,
+            _render_state: Any,
+        ) -> Any:
+            return render_fn(camera)
+
+        return ViserViewer(
+            viser_render_fn,
+            state=ViserViewerState(
+                camera=selected_camera,
+                camera_convention=selected_camera.camera_convention,
+                training_active=state.training_active,
+                interaction_active=state.interaction_active,
+            ),
+            server_config=viser_server_config,
+            render_config=viser_render_config,
+            mode="rendering",
+            title=state.title,
+        )
+
+    if backend != "marimo_3dv":
+        raise ValueError(f"Unsupported viewer backend {backend!r}.")
+
+    from marimo_3dv.viewer import Viewer as NativeViewer
 
     native_state = _to_native_viewer_state(state)
 

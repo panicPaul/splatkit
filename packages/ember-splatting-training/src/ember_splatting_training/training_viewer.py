@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 import marimo as mo
 import torch
-from ember_core.core.contracts import Scene
+from ember_core.core.contracts import CameraState, Scene
 from ember_core.data import PreparedFrameDataset
 from ember_core.training import (
     TrainingConfig,
@@ -22,7 +22,7 @@ from ember_core.training import (
     build_training_render_fn,
     run_training,
 )
-from ember_core.viewer import ViewerState, launch_viewer, select_viewer_camera
+from ember_core.viewer import ViewerState, launch_viewer
 from jaxtyping import UInt8
 from torch import Tensor
 
@@ -79,11 +79,68 @@ def _bind_viewer_close_to_training(handle: TrainingViewerHandle) -> None:
     viewer.close = close_with_training_cancel
 
 
+TrainingViewerBackend = Literal["marimo_3dv", "viser"]
+
+
+@dataclass(frozen=True)
+class TrainingViserViewerConfig:
+    """Viser runtime controls for the optional training viewer backend."""
+
+    host: str = "127.0.0.1"
+    port: int = 8080
+    iframe_url: str | None = None
+    public_url: str | None = None
+    iframe_height: str = "640px"
+    ssh_host: str | None = None
+    ssh_user: str | None = None
+    ssh_port: int = 22
+    local_forward_host: str = "127.0.0.1"
+    local_forward_port: int | None = None
+    verbose: bool = False
+    viewer_res: int = 1024
+    render_width: int = 1920
+    render_height: int = 1080
+    move_jpeg_quality: int = 40
+    static_jpeg_quality: int = 70
+    settle_seconds: float = 0.2
+    move_pause_seconds: float = 0.1
+    train_util: float = 0.9
+
+    def __post_init__(self) -> None:
+        """Validate Viser viewer controls."""
+        if not 0 <= self.port <= 65535:
+            raise ValueError("port must be in range [0, 65535].")
+        if self.ssh_port < 1 or self.ssh_port > 65535:
+            raise ValueError("ssh_port must be in range [1, 65535].")
+        if (
+            self.local_forward_port is not None
+            and not 1 <= self.local_forward_port <= 65535
+        ):
+            raise ValueError(
+                "local_forward_port must be in range [1, 65535] or None."
+            )
+        if self.viewer_res < 64:
+            raise ValueError("viewer_res must be at least 64.")
+        if self.render_width < 1 or self.render_height < 1:
+            raise ValueError("render dimensions must be positive.")
+        if not 1 <= self.move_jpeg_quality <= 100:
+            raise ValueError("move_jpeg_quality must be in range [1, 100].")
+        if not 1 <= self.static_jpeg_quality <= 100:
+            raise ValueError("static_jpeg_quality must be in range [1, 100].")
+        if self.settle_seconds < 0.0:
+            raise ValueError("settle_seconds must be non-negative.")
+        if self.move_pause_seconds < 0.0:
+            raise ValueError("move_pause_seconds must be non-negative.")
+        if not 0.0 <= self.train_util <= 1.0:
+            raise ValueError("train_util must be in range [0, 1].")
+
+
 @dataclass(frozen=True)
 class TrainingViewerConfig:
     """Runtime controls for a live training viewer."""
 
     enabled: bool = True
+    viewer_backend: TrainingViewerBackend = "marimo_3dv"
     update_every_steps: int = 500
     min_update_seconds: float = 2.0
     pause_on_interaction: bool = True
@@ -95,6 +152,9 @@ class TrainingViewerConfig:
     show_progress: bool = True
     progress_every_steps: int = 10
     wait_for_render: bool = False
+    viser: TrainingViserViewerConfig = field(
+        default_factory=TrainingViserViewerConfig
+    )
 
     def __post_init__(self) -> None:
         """Validate runtime viewer controls."""
@@ -114,6 +174,8 @@ class TrainingViewerConfig:
             raise ValueError("max_pause_seconds must be non-negative or None.")
         if self.interaction_boost_seconds < 0.0:
             raise ValueError("interaction_boost_seconds must be non-negative.")
+        if self.viewer_backend not in {"marimo_3dv", "viser"}:
+            raise ValueError("viewer_backend must be 'marimo_3dv' or 'viser'.")
 
 
 TrainingViewerStatus = Literal[
@@ -154,7 +216,9 @@ class TrainingViewerHandle:
     viewer: Any | None = None
     _training_config: TrainingConfig | None = field(default=None, repr=False)
     _state: TrainState | None = field(default=None, repr=False)
-    _render_state: TrainState | None = field(default=None, init=False, repr=False)
+    _render_state: TrainState | None = field(
+        default=None, init=False, repr=False
+    )
     _render_fn: Any | None = field(default=None, init=False, repr=False)
     _progress_context: Any | None = field(default=None, init=False, repr=False)
     _progress_bar: Any | None = field(default=None, init=False, repr=False)
@@ -166,8 +230,12 @@ class TrainingViewerHandle:
     _lock: threading.RLock = field(
         default_factory=threading.RLock, init=False, repr=False
     )
-    _thread: threading.Thread | None = field(default=None, init=False, repr=False)
-    _status: TrainingViewerStatus = field(default="idle", init=False, repr=False)
+    _thread: threading.Thread | None = field(
+        default=None, init=False, repr=False
+    )
+    _status: TrainingViewerStatus = field(
+        default="idle", init=False, repr=False
+    )
     _result: TrainingResult | None = field(default=None, init=False, repr=False)
     _error_text: str | None = field(default=None, init=False, repr=False)
     _latest_metrics: dict[str, float] = field(
@@ -195,7 +263,9 @@ class TrainingViewerHandle:
         if not self._running_in_notebook:
             return ()
         has_viewer_hook = self.viewer is not None and self.config.enabled
-        has_progress_hook = self._running_in_notebook and self.config.show_progress
+        has_progress_hook = (
+            self._running_in_notebook and self.config.show_progress
+        )
         if not has_viewer_hook and not has_progress_hook:
             return ()
         return (TrainingViewerHook(self),)
@@ -205,6 +275,9 @@ class TrainingViewerHandle:
         """Return whether the browser viewer is currently being moved."""
         if self.viewer is None:
             return False
+        interaction_active = getattr(self.viewer, "interaction_active", None)
+        if interaction_active is not None:
+            return bool(interaction_active)
         try:
             return bool(self.viewer.anywidget().interaction_active)
         except Exception:
@@ -227,7 +300,9 @@ class TrainingViewerHandle:
                 self._max_steps = self._training_config.runtime.max_steps
             if self._render_fn is None:
                 if self._training_config is None:
-                    raise RuntimeError("Training viewer has no training config.")
+                    raise RuntimeError(
+                        "Training viewer has no training config."
+                    )
                 self._render_fn = build_training_render_fn(
                     self._training_config,
                     state,
@@ -443,7 +518,8 @@ class TrainingViewerHandle:
         is_final_step = next_step >= self._training_config.runtime.max_steps
         if (
             not is_final_step
-            and next_step - self._progress_step < self.config.progress_every_steps
+            and next_step - self._progress_step
+            < self.config.progress_every_steps
         ):
             return
         increment = next_step - self._progress_step
@@ -552,7 +628,18 @@ class TrainingViewerHandle:
             self._last_render_step = state.step
             self._last_render_at = now
         self.update_render_snapshot(state)
-        self.viewer.rerender(wait=self.config.wait_for_render)
+        if self.config.viewer_backend == "viser":
+            render_state = getattr(self.viewer, "render_state", None)
+            if (
+                render_state is not None
+                and self._iterations_per_second is not None
+            ):
+                render_state.num_train_rays_per_sec = (
+                    self._iterations_per_second
+                )
+            self.viewer.update(state.step, num_train_rays_per_step=1)
+        else:
+            self.viewer.rerender(wait=self.config.wait_for_render)
 
 
 class TrainingViewerHook:
@@ -582,6 +669,7 @@ def create_training_viewer(
     training_config: TrainingConfig,
     *,
     config: TrainingViewerConfig | None = None,
+    initial_camera: CameraState | None = None,
     title: str = "Training viewer",
 ) -> TrainingViewerHandle:
     """Create a live training viewer handle for notebook runtimes."""
@@ -599,19 +687,91 @@ def create_training_viewer(
     if not viewer_config.enabled or not running_in_notebook:
         return handle
 
-    first_index = frame_dataset.indices[0]
-    first_frame = frame_dataset.camera_stream.frames[first_index]
-    initial_camera = select_viewer_camera(
-        frame_dataset.camera_stream.camera,
-        index=first_frame.camera_index,
+    resolved_initial_camera = (
+        initial_camera
+        if initial_camera is not None
+        else _initial_training_viewer_camera(frame_dataset)
     )
-    viewer_state = ViewerState(camera=initial_camera, title=title)
-    handle.viewer = launch_viewer(
-        handle.render,
-        state=viewer_state,
-    )
+    if viewer_config.viewer_backend == "viser":
+        handle.viewer = _launch_viser_training_viewer(
+            handle,
+            initial_camera=resolved_initial_camera,
+            title=title,
+        )
+    else:
+        viewer_state = ViewerState(
+            camera=resolved_initial_camera,
+            title=title,
+        )
+        handle.viewer = launch_viewer(
+            handle.render,
+            state=viewer_state,
+        )
     _bind_viewer_close_to_training(handle)
     return handle
+
+
+def _initial_training_viewer_camera(
+    frame_dataset: PreparedFrameDataset,
+) -> CameraState:
+    """Return the first prepared camera used by the training viewer."""
+    if len(frame_dataset) == 0:
+        raise ValueError("Training viewer requires a non-empty frame dataset.")
+    return frame_dataset.prepared_camera(0)
+
+
+def _launch_viser_training_viewer(
+    handle: TrainingViewerHandle,
+    *,
+    initial_camera: CameraState,
+    title: str,
+) -> Any:
+    """Launch the optional Viser training viewer backend."""
+    from marimo_viser import (
+        ViserRenderConfig,
+        ViserServerConfig,
+        ViserViewer,
+        ViserViewerState,
+    )
+
+    config = handle.config.viser
+
+    def render(camera: CameraState, _render_state: Any) -> Tensor:
+        return handle.render(camera)
+
+    return ViserViewer(
+        render,
+        state=ViserViewerState(
+            camera=initial_camera,
+            camera_convention=initial_camera.camera_convention,
+            training_active=True,
+        ),
+        server_config=ViserServerConfig(
+            host=config.host,
+            port=config.port,
+            iframe_url=config.iframe_url,
+            public_url=config.public_url,
+            iframe_height=config.iframe_height,
+            ssh_host=config.ssh_host,
+            ssh_user=config.ssh_user,
+            ssh_port=config.ssh_port,
+            local_forward_host=config.local_forward_host,
+            local_forward_port=config.local_forward_port,
+            verbose=config.verbose,
+        ),
+        render_config=ViserRenderConfig(
+            viewer_res=config.viewer_res,
+            render_width=config.render_width,
+            render_height=config.render_height,
+            move_jpeg_quality=config.move_jpeg_quality,
+            static_jpeg_quality=config.static_jpeg_quality,
+            settle_seconds=config.settle_seconds,
+            move_pause_seconds=config.move_pause_seconds,
+            train_util=config.train_util,
+        ),
+        mode="training",
+        title=title,
+    )
 
 
 def _placeholder_image(camera: Any) -> UInt8[Tensor, " height width 3"]:
@@ -622,6 +782,9 @@ def _placeholder_image(camera: Any) -> UInt8[Tensor, " height width 3"]:
 
 def _primitive_count(state: TrainState) -> int | None:
     scene = getattr(state.model, "scene", None)
+    num_primitives = getattr(scene, "num_primitives", None)
+    if isinstance(num_primitives, int):
+        return num_primitives
     center_position = getattr(scene, "center_position", None)
     if isinstance(center_position, Tensor) and center_position.ndim > 0:
         return int(center_position.shape[0])
@@ -717,5 +880,6 @@ __all__ = [
     "TrainingViewerHandle",
     "TrainingViewerHook",
     "TrainingViewerSnapshot",
+    "TrainingViserViewerConfig",
     "create_training_viewer",
 ]

@@ -2,6 +2,158 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+export function createInteractiveRevisionScheduler({
+  currentCameraStateJson,
+  sendInteractiveCameraStateJson,
+  sendNoninteractiveCameraStateJson,
+  sendSettledCameraStateJson,
+  interactiveBackpressureEnabled,
+  interactiveFrameIntervalMs,
+  now,
+  setTimer,
+  clearTimer,
+  resetAdaptiveFpsIfStale,
+}) {
+  let pendingInteractiveCameraJson = null;
+  let pendingSettledRender = false;
+  let interactiveInFlightRevision = null;
+  let interactiveFlushTimeoutId = null;
+  let lastInteractiveSendAtMs = 0.0;
+
+  function clearInteractiveFlushTimer() {
+    if (interactiveFlushTimeoutId !== null) {
+      clearTimer(interactiveFlushTimeoutId);
+      interactiveFlushTimeoutId = null;
+    }
+  }
+
+  function noteInteractiveSend(revision) {
+    if (revision === null || revision === undefined) {
+      return;
+    }
+    interactiveInFlightRevision = Number(revision);
+    lastInteractiveSendAtMs = now();
+  }
+
+  function sendPendingInteractiveCameraState() {
+    clearInteractiveFlushTimer();
+    if (
+      pendingInteractiveCameraJson === null
+      || interactiveInFlightRevision !== null
+    ) {
+      return;
+    }
+    const nextJson = pendingInteractiveCameraJson;
+    pendingInteractiveCameraJson = null;
+    noteInteractiveSend(sendInteractiveCameraStateJson(nextJson));
+  }
+
+  function scheduleInteractiveFlush() {
+    if (
+      pendingInteractiveCameraJson === null
+      || interactiveInFlightRevision !== null
+      || pendingSettledRender
+    ) {
+      return;
+    }
+    if (!interactiveBackpressureEnabled()) {
+      sendPendingInteractiveCameraState();
+      return;
+    }
+    const delayMs = Math.max(
+      0.0,
+      lastInteractiveSendAtMs + interactiveFrameIntervalMs() - now(),
+    );
+    clearInteractiveFlushTimer();
+    if (delayMs <= 0.0) {
+      sendPendingInteractiveCameraState();
+      return;
+    }
+    interactiveFlushTimeoutId = setTimer(() => {
+      interactiveFlushTimeoutId = null;
+      sendPendingInteractiveCameraState();
+    }, delayMs);
+  }
+
+  function requestInteractiveCameraState() {
+    const nextJson = currentCameraStateJson();
+    if (!interactiveBackpressureEnabled()) {
+      sendInteractiveCameraStateJson(nextJson);
+      return;
+    }
+    resetAdaptiveFpsIfStale(now());
+    pendingInteractiveCameraJson = nextJson;
+    scheduleInteractiveFlush();
+  }
+
+  function requestCameraState() {
+    sendNoninteractiveCameraStateJson(currentCameraStateJson());
+  }
+
+  function requestSettledRender() {
+    const nextJson = currentCameraStateJson();
+    if (
+      interactiveBackpressureEnabled()
+      && interactiveInFlightRevision !== null
+    ) {
+      pendingInteractiveCameraJson = nextJson;
+      pendingSettledRender = true;
+      return;
+    }
+    clearInteractiveFlushTimer();
+    pendingInteractiveCameraJson = null;
+    pendingSettledRender = false;
+    sendSettledCameraStateJson(nextJson);
+  }
+
+  function completeRevision(revision) {
+    if (
+      interactiveInFlightRevision !== null
+      && revision >= interactiveInFlightRevision
+    ) {
+      interactiveInFlightRevision = null;
+    }
+    if (interactiveInFlightRevision !== null) {
+      return;
+    }
+    if (pendingSettledRender) {
+      requestSettledRender();
+      return;
+    }
+    scheduleInteractiveFlush();
+  }
+
+  function beginInteraction() {
+    resetAdaptiveFpsIfStale(now());
+    pendingSettledRender = false;
+  }
+
+  function onConfigChanged() {
+    scheduleInteractiveFlush();
+  }
+
+  function stateForTesting() {
+    return {
+      pendingInteractiveCameraJson,
+      pendingSettledRender,
+      interactiveInFlightRevision,
+      interactiveFlushTimeoutId,
+      lastInteractiveSendAtMs,
+    };
+  }
+
+  return {
+    beginInteraction,
+    clearInteractiveFlushTimer,
+    completeRevision,
+    onConfigChanged,
+    requestCameraState,
+    requestInteractiveCameraState,
+    requestSettledRender,
+    stateForTesting,
+  };
+}
+
 function normalize(vec) {
   const length = Math.hypot(vec[0], vec[1], vec[2]);
   if (length < 1e-8) {
@@ -382,11 +534,6 @@ function render({ model, el }) {
   let bestClockSyncRttMs = null;
   let backendClockOffsetMs = null;
   const pendingClockSyncPings = new Map();
-  let pendingInteractiveCameraJson = null;
-  let pendingSettledRender = false;
-  let interactiveInFlightRevision = null;
-  let interactiveFlushTimeoutId = null;
-  let lastInteractiveSendAtMs = 0.0;
   let lastAdaptiveProbeAtMs = performance.now();
   let lastAdaptiveSampleAtMs = null;
   let effectiveInteractiveMaxFps = Number(model.get("interactive_max_fps")) || 12.0;
@@ -758,101 +905,13 @@ function render({ model, el }) {
     }
     const nextRevision = model.get("_camera_revision") + 1;
     revisionSentAtMs.set(nextRevision, performance.now());
-    if (interactive) {
-      interactiveInFlightRevision = nextRevision;
-      lastInteractiveSendAtMs = performance.now();
-    }
     model.set("camera_state_json", nextJson);
     model.set("_camera_revision", nextRevision);
     model.save_changes();
     return nextRevision;
   }
 
-  function clearInteractiveFlushTimer() {
-    if (interactiveFlushTimeoutId !== null) {
-      clearTimeout(interactiveFlushTimeoutId);
-      interactiveFlushTimeoutId = null;
-    }
-  }
-
-  function sendPendingInteractiveCameraState() {
-    clearInteractiveFlushTimer();
-    if (
-      pendingInteractiveCameraJson === null
-      || interactiveInFlightRevision !== null
-    ) {
-      return;
-    }
-    const nextJson = pendingInteractiveCameraJson;
-    pendingInteractiveCameraJson = null;
-    sendCameraStateJson(nextJson, { interactive: true });
-  }
-
-  function scheduleInteractiveFlush() {
-    if (
-      pendingInteractiveCameraJson === null
-      || interactiveInFlightRevision !== null
-      || pendingSettledRender
-    ) {
-      return;
-    }
-    const config = interactiveFpsConfig();
-    if (!config.backpressure) {
-      sendPendingInteractiveCameraState();
-      return;
-    }
-    const nowMs = performance.now();
-    const frameIntervalMs = 1000.0 / Math.max(
-      config.minFps,
-      effectiveInteractiveMaxFps,
-    );
-    const delayMs = Math.max(
-      0.0,
-      lastInteractiveSendAtMs + frameIntervalMs - nowMs,
-    );
-    clearInteractiveFlushTimer();
-    if (delayMs <= 0.0) {
-      sendPendingInteractiveCameraState();
-      return;
-    }
-    interactiveFlushTimeoutId = setTimeout(() => {
-      interactiveFlushTimeoutId = null;
-      sendPendingInteractiveCameraState();
-    }, delayMs);
-  }
-
-  function requestInteractiveCameraState() {
-    const nextJson = serializedCurrentCameraState();
-    const config = interactiveFpsConfig();
-    if (!config.backpressure) {
-      sendCameraStateJson(nextJson, { interactive: true });
-      return;
-    }
-    resetAdaptiveFpsIfStale(performance.now());
-    pendingInteractiveCameraJson = nextJson;
-    scheduleInteractiveFlush();
-  }
-
-  function requestCameraState() {
-    sendCameraStateJson(
-      serializedCurrentCameraState(),
-      { interactive: false },
-    );
-  }
-
-  function requestSettledRender() {
-    const nextJson = serializedCurrentCameraState();
-    if (
-      Boolean(model.get("interactive_backpressure"))
-      && interactiveInFlightRevision !== null
-    ) {
-      pendingInteractiveCameraJson = nextJson;
-      pendingSettledRender = true;
-      return;
-    }
-    clearInteractiveFlushTimer();
-    pendingInteractiveCameraJson = null;
-    pendingSettledRender = false;
+  function sendSettledCameraStateJson(nextJson) {
     const nextRevision = model.get("_camera_revision") + 1;
     revisionSentAtMs.set(nextRevision, performance.now());
     model.set("camera_state_json", nextJson);
@@ -860,23 +919,51 @@ function render({ model, el }) {
     model.set("_camera_revision", nextRevision);
     model.save_changes();
     interactionActive = false;
+    return nextRevision;
+  }
+
+  function interactiveFrameIntervalMs() {
+    const config = interactiveFpsConfig();
+    return 1000.0 / Math.max(
+      config.minFps,
+      effectiveInteractiveMaxFps,
+    );
+  }
+
+  const interactiveScheduler = createInteractiveRevisionScheduler({
+    currentCameraStateJson: serializedCurrentCameraState,
+    sendInteractiveCameraStateJson: (nextJson) =>
+      sendCameraStateJson(nextJson, { interactive: true }),
+    sendNoninteractiveCameraStateJson: (nextJson) =>
+      sendCameraStateJson(nextJson, { interactive: false }),
+    sendSettledCameraStateJson,
+    interactiveBackpressureEnabled: () =>
+      Boolean(model.get("interactive_backpressure")),
+    interactiveFrameIntervalMs,
+    now: () => performance.now(),
+    setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimer: (timerId) => clearTimeout(timerId),
+    resetAdaptiveFpsIfStale,
+  });
+
+  function clearInteractiveFlushTimer() {
+    interactiveScheduler.clearInteractiveFlushTimer();
+  }
+
+  function requestInteractiveCameraState() {
+    interactiveScheduler.requestInteractiveCameraState();
+  }
+
+  function requestCameraState() {
+    interactiveScheduler.requestCameraState();
+  }
+
+  function requestSettledRender() {
+    interactiveScheduler.requestSettledRender();
   }
 
   function flushAfterInteractiveFrame(revision) {
-    if (
-      interactiveInFlightRevision !== null
-      && revision >= interactiveInFlightRevision
-    ) {
-      interactiveInFlightRevision = null;
-    }
-    if (interactiveInFlightRevision !== null) {
-      return;
-    }
-    if (pendingSettledRender) {
-      requestSettledRender();
-      return;
-    }
-    scheduleInteractiveFlush();
+    interactiveScheduler.completeRevision(revision);
   }
 
   function scheduleSettledRender() {
@@ -899,8 +986,7 @@ function render({ model, el }) {
       clearTimeout(settleTimeoutId);
       settleTimeoutId = null;
     }
-    resetAdaptiveFpsIfStale(performance.now());
-    pendingSettledRender = false;
+    interactiveScheduler.beginInteraction();
     if (interactionActive) {
       return;
     }
@@ -1168,6 +1254,7 @@ function render({ model, el }) {
       return;
     }
     revisionSentAtMs.delete(revision);
+    flushAfterInteractiveFrame(revision);
   }
 
   function handleFramePacket(rawPacket, messageReceivedAtMs) {
@@ -1493,7 +1580,7 @@ function render({ model, el }) {
   };
   const onInteractiveBackpressureConfigChange = () => {
     setEffectiveInteractiveMaxFps(effectiveInteractiveMaxFps);
-    scheduleInteractiveFlush();
+    interactiveScheduler.onConfigChanged();
   };
   const onShowAxesChange = () => {
     drawAxesGizmo();

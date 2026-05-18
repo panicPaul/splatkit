@@ -12,6 +12,7 @@ from ember_core.core.contracts import (
     GaussianScene3D,
     RenderOptions,
     RenderOutput,
+    Scene,
 )
 from ember_core.core.families import GAUSSIAN
 from ember_core.core.products import SCREEN_SPACE_DENSIFICATION_SIGNALS
@@ -63,6 +64,7 @@ from ember_splatting_training.training_viewer import (
     TrainingViewerConfig,
     TrainingViewerHandle,
     TrainingViewerHook,
+    TrainingViserViewerConfig,
     create_training_viewer,
 )
 from ember_splatting_training.typed_recipes import FastGSDensificationRecipe
@@ -1178,6 +1180,56 @@ class _RecordingViewer:
         self.wait_values.append(wait)
 
 
+class _CountingFrameDataset:
+    def __init__(self, *, raw_camera: CameraState, sample_camera: CameraState):
+        self.indices = [0]
+        self.camera_stream = SimpleNamespace(
+            frames=[SimpleNamespace(camera_index=0)],
+            camera=raw_camera,
+        )
+        self.sample_camera = sample_camera
+        self.len_count = 0
+        self.getitem_count = 0
+        self.prepared_camera_count = 0
+
+    def __len__(self) -> int:
+        self.len_count += 1
+        return 1
+
+    def __getitem__(self, index: int) -> SimpleNamespace:
+        self.getitem_count += 1
+        assert index == 0
+        return SimpleNamespace(camera=self.sample_camera)
+
+    def prepared_camera(self, index: int) -> CameraState:
+        self.prepared_camera_count += 1
+        assert index == 0
+        return self.sample_camera
+
+
+class _NonIndexableFrameDataset:
+    def __len__(self) -> int:
+        raise AssertionError("dataset should not be measured")
+
+    def __getitem__(self, index: int) -> SimpleNamespace:
+        del index
+        raise AssertionError("dataset should not be indexed")
+
+
+def _viewer_test_camera(width: int, height: int) -> CameraState:
+    return CameraState(
+        width=torch.tensor([width], dtype=torch.int64),
+        height=torch.tensor([height], dtype=torch.int64),
+        fov_degrees=torch.tensor([50.0], dtype=torch.float32),
+        cam_to_world=torch.eye(4, dtype=torch.float32)[None],
+        camera_convention="opencv",
+    )
+
+
+def _training_config_stub() -> SimpleNamespace:
+    return SimpleNamespace(runtime=SimpleNamespace(max_steps=1))
+
+
 def test_training_viewer_rerender_is_nonblocking_by_default() -> None:
     viewer = _RecordingViewer()
     handle = TrainingViewerHandle(
@@ -1216,6 +1268,173 @@ def test_training_viewer_is_noop_outside_notebook(
     assert handle.viewer is None
     assert handle.runtime_hooks() == ()
     assert handle.start_training(object(), object()) is False
+
+
+def test_training_viewer_uses_prepared_dataset_camera(monkeypatch) -> None:
+    raw_camera = _viewer_test_camera(1024, 768)
+    prepared_camera = _viewer_test_camera(128, 96)
+    frame_dataset = _CountingFrameDataset(
+        raw_camera=raw_camera,
+        sample_camera=prepared_camera,
+    )
+    captured: dict[str, object] = {}
+
+    class FakeViewer:
+        interaction_active = False
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def rerender(self, *, wait: bool = False) -> None:
+            del wait
+
+        def close(self) -> None:
+            self.closed = True
+
+    def fake_launch_viewer(render_fn, *, state):
+        del render_fn
+        captured["state"] = state
+        return FakeViewer()
+
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.launch_viewer",
+        fake_launch_viewer,
+    )
+
+    handle = create_training_viewer(frame_dataset, _training_config_stub())
+
+    initial_camera = captured["state"].camera
+    assert int(initial_camera.width[0]) == 128
+    assert int(initial_camera.height[0]) == 96
+    assert frame_dataset.len_count == 1
+    assert frame_dataset.prepared_camera_count == 1
+    assert frame_dataset.getitem_count == 0
+    handle.close()
+
+
+def test_training_viewer_initial_camera_overrides_dataset(monkeypatch) -> None:
+    explicit_camera = _viewer_test_camera(320, 180)
+    frame_dataset = _NonIndexableFrameDataset()
+    captured: dict[str, object] = {}
+
+    class FakeViewer:
+        interaction_active = False
+
+        def rerender(self, *, wait: bool = False) -> None:
+            del wait
+
+        def close(self) -> None:
+            pass
+
+    def fake_launch_viewer(render_fn, *, state):
+        del render_fn
+        captured["state"] = state
+        return FakeViewer()
+
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.launch_viewer",
+        fake_launch_viewer,
+    )
+
+    handle = create_training_viewer(
+        frame_dataset,
+        _training_config_stub(),
+        initial_camera=explicit_camera,
+    )
+
+    initial_camera = captured["state"].camera
+    assert int(initial_camera.width[0]) == 320
+    assert int(initial_camera.height[0]) == 180
+    handle.close()
+
+
+def test_training_viewer_disabled_does_not_index_dataset(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+
+    handle = create_training_viewer(
+        _NonIndexableFrameDataset(),
+        _training_config_stub(),
+        config=TrainingViewerConfig(enabled=False),
+    )
+
+    assert handle.viewer is None
+    handle.close()
+
+
+def test_training_viewer_rejects_empty_dataset(monkeypatch) -> None:
+    class EmptyFrameDataset:
+        def __len__(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+
+    with pytest.raises(ValueError, match="non-empty frame dataset"):
+        create_training_viewer(EmptyFrameDataset(), _training_config_stub())
+
+
+def test_training_viewer_can_launch_viser_backend(monkeypatch) -> None:
+    import marimo_viser
+
+    frame_dataset = _CountingFrameDataset(
+        raw_camera=_viewer_test_camera(800, 600),
+        sample_camera=_viewer_test_camera(80, 60),
+    )
+    captured: dict[str, object] = {}
+
+    class FakeViserViewer:
+        interaction_active = False
+
+        def __init__(self, render_fn, *, state, **kwargs) -> None:
+            del render_fn
+            captured["state"] = state
+            captured["kwargs"] = kwargs
+            self.closed = False
+
+        def rerender(self, *, wait: bool = False) -> None:
+            del wait
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(marimo_viser, "ViserViewer", FakeViserViewer)
+
+    handle = create_training_viewer(
+        frame_dataset,
+        _training_config_stub(),
+        config=TrainingViewerConfig(
+            viewer_backend="viser",
+            viser=TrainingViserViewerConfig(port=18080, viewer_res=512),
+        ),
+    )
+
+    assert isinstance(handle.viewer, FakeViserViewer)
+    assert captured["state"].camera.camera_convention == "opencv"
+    assert int(captured["state"].camera.width[0]) == 80
+    assert int(captured["state"].camera.height[0]) == 60
+    assert frame_dataset.prepared_camera_count == 1
+    assert frame_dataset.getitem_count == 0
+    assert captured["kwargs"]["mode"] == "training"
+    assert captured["kwargs"]["server_config"].port == 18080
+    assert captured["kwargs"]["render_config"].viewer_res == 512
+    handle.close()
 
 
 def test_training_viewer_progress_hook_does_not_require_viewer() -> None:
@@ -1330,6 +1549,41 @@ def test_training_viewer_snapshot_reports_throughput_and_eta() -> None:
     assert snapshot.iterations_per_second == pytest.approx(4.0, abs=1e-3)
     assert snapshot.elapsed_seconds == pytest.approx(2.0, abs=0.1)
     assert snapshot.eta_seconds == pytest.approx(1.75, abs=1e-3)
+
+
+def test_training_viewer_snapshot_reports_scene_num_primitives() -> None:
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(enabled=False, show_progress=False),
+        _training_config=SimpleNamespace(runtime=SimpleNamespace(max_steps=10)),
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=_NumPrimitiveScene(7),
+            modules={},
+            parameters={},
+        ),
+        step=1,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+
+    handle.update_progress(state, {"loss": 1.0})
+
+    snapshot = handle.snapshot()
+    assert snapshot.primitive_count == 7
+
+
+class _NumPrimitiveScene(Scene):
+    def __init__(self, num_primitives: int) -> None:
+        super().__init__()
+        self.num_primitives = num_primitives
+
+    @property
+    def scene_family(self):
+        return GAUSSIAN
+
+    def _validate(self) -> None:
+        pass
 
 
 def test_training_viewer_start_training_rejects_duplicate_runs(

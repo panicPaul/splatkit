@@ -21,6 +21,7 @@ from marimo_config_gui.api import load_script_config
 from marimo_config_gui.elements import (
     CONFIG_FORM_VIEW_KEY,
     CONFIG_JSON_VIEW_KEY,
+    CONFIG_PRESET_VIEW_KEY,
     PydanticGui,
 )
 from marimo_config_gui.presets import load_json_config, load_preset_config
@@ -1293,6 +1294,136 @@ def test_config_preset_selector_updates_form_and_json(
     assert form_gui_state()["preset"] == "quality"
     assert form_gui_state()["title"] == "quality"
     assert '"preset": "quality"' in json_gui_state()
+
+
+def test_config_gui_preset_selector_is_owned_child_view(
+    notebook_runtime: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    base_path = tmp_path / "base.json"
+    quality_path = tmp_path / "quality.json"
+    base_path.write_text(
+        '{"preset": "base", "title": "base", "count": 1, "path": "base"}'
+    )
+    quality_path.write_text(
+        '{"preset": "quality", "title": "quality", "count": 2, "path": "q"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "base": ConfigPreset(
+                name="base",
+                path=base_path,
+                label="Base preset",
+                base_dir=tmp_path,
+            ),
+            "quality": ConfigPreset(
+                name="quality",
+                path=quality_path,
+                label="Quality preset",
+                base_dir=tmp_path,
+            ),
+        },
+        default="base",
+    )
+    config_gui = create_config_gui(
+        _PresetModel,
+        presets=catalog,
+        background=None,
+    )
+    selector = config_gui.preset_selector(label="Preset")
+    sent_messages: list[dict[str, object]] = []
+
+    def _record_owner_message(
+        message: dict[str, object], buffers: object
+    ) -> None:
+        del buffers
+        sent_messages.append(message)
+
+    monkeypatch.setattr(config_gui, "_send_message", _record_owner_message)
+
+    selector._on_change("quality")
+
+    assert config_gui.elements[CONFIG_PRESET_VIEW_KEY] is selector
+    assert selector._lens.parent_id == config_gui._id
+    assert selector._lens.key == CONFIG_PRESET_VIEW_KEY
+    assert selector.value == "quality"
+    assert config_gui.validated_config().title == "quality"
+    assert sent_messages[-1]["type"] == "marimo-ui-value-update"
+    owner_value = sent_messages[-1]["value"]
+    assert isinstance(owner_value, dict)
+    assert CONFIG_PRESET_VIEW_KEY in owner_value
+    assert owner_value[CONFIG_PRESET_VIEW_KEY] == ["Quality preset"]
+    assert owner_value[CONFIG_FORM_VIEW_KEY]["title"] == "quality"
+    assert '"title": "quality"' in owner_value[CONFIG_JSON_VIEW_KEY]
+
+
+def test_config_gui_preset_child_value_updates_owner_config(
+    notebook_runtime: None,
+    tmp_path: Path,
+) -> None:
+    base_path = tmp_path / "base.json"
+    quality_path = tmp_path / "quality.json"
+    base_path.write_text(
+        '{"preset": "base", "title": "base", "count": 1, "path": "base"}'
+    )
+    quality_path.write_text(
+        '{"preset": "quality", "title": "quality", "count": 2, "path": "q"}'
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=_PresetModel,
+        presets={
+            "base": ConfigPreset(
+                name="base",
+                path=base_path,
+                label="Base preset",
+                base_dir=tmp_path,
+            ),
+            "quality": ConfigPreset(
+                name="quality",
+                path=quality_path,
+                label="Quality preset",
+                base_dir=tmp_path,
+            ),
+        },
+        default="base",
+    )
+    config_gui = create_config_gui(
+        _PresetModel,
+        presets=catalog,
+        background=None,
+    )
+    config_gui.preset_selector(label="Preset")
+
+    config_gui._convert_value({CONFIG_PRESET_VIEW_KEY: ["Quality preset"]})
+
+    assert config_gui.validated_config().title == "quality"
+    assert config_gui.validated_config().count == 2
+    assert (
+        config_gui._current_frontend_value()[CONFIG_FORM_VIEW_KEY]["title"]
+        == "quality"
+    )
+    assert config_gui._current_frontend_value()[CONFIG_PRESET_VIEW_KEY] == [
+        "Quality preset"
+    ]
+
+
+def test_preset_notebooks_depend_on_config_gui_owner() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    notebook_paths = sorted((repo_root / "papers").glob("*/notebook.py"))
+    preset_notebooks = [
+        path
+        for path in notebook_paths
+        if "config_gui.preset_selector" in path.read_text()
+    ]
+
+    assert preset_notebooks
+    for path in preset_notebooks:
+        source = path.read_text()
+        assert "preset_selector.value" not in source, path
+        assert "_ = preset_selector.value" not in source, path
+        assert "config_gui.validated_config()" in source, path
 
 
 def test_form_generation_keeps_path_and_enum_widgets() -> None:

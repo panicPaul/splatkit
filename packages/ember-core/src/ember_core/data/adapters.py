@@ -287,7 +287,7 @@ class PreparedFrameDataset(Dataset[PreparedFrameSample]):
         """Return the prepared camera for an indexed frame without loading RGB."""
         source_index = self.indices[index]
         frame = self.camera_stream.frames[source_index]
-        camera = _select_camera(self.camera_stream.camera, source_index)
+        camera = _select_camera(self.camera_stream.camera, frame.camera_index)
         original_width = frame.width
         original_height = frame.height
         resized_width, resized_height = resolve_resize_shape(

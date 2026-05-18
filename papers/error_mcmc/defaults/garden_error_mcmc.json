@@ -1,0 +1,121 @@
+{
+  "preset": "garden_error_mcmc",
+  "scene": {
+    "path": "dataset/mipnerf360/garden",
+    "image_root": null,
+    "undistort_output_dir": null,
+    "align_horizon": true
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 0.25,
+    "cache_resized_images": true,
+    "resized_image_cache_root": null,
+    "max_resized_image_caches": 4,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 0,
+      "max_steps": 30000
+    },
+    "batching": {
+      "batch_size": 1,
+      "shuffle": true,
+      "num_workers": 8,
+      "persistent_workers": true,
+      "pin_memory": true
+    },
+    "initialization": {
+      "sh_degree": 3,
+      "use_mcmc": true,
+      "default_color": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "render": {
+      "backend": "faster_gs.fastgs",
+      "near_plane": 0.2,
+      "far_plane": 10000.0,
+      "compact_box_scale": 0.5,
+      "background_color": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "return_alpha": false
+    },
+    "optimization": {
+      "center_position_lr_init": 0.00016,
+      "center_position_lr_final": 0.0000016,
+      "center_position_lr_max_steps": 30000,
+      "center_position_lr_step_offset": 1,
+      "lowfeature_lr": 0.0025,
+      "highfeature_lr": 0.02,
+      "opacity_lr": 0.05,
+      "scaling_lr": 0.005,
+      "rotation_lr": 0.001,
+      "adam_eps": 1e-15
+    },
+    "loss": {
+      "lambda_l1": 0.8,
+      "lambda_dssim": 0.2,
+      "lambda_opacity_regularization": 0.01,
+      "lambda_scale_regularization": 0.01
+    },
+    "densification": {
+      "error_mcmc": {
+        "refine_every": 100,
+        "start_iter": 600,
+        "stop_iter": 24900,
+        "min_opacity": 0.005,
+        "max_primitives": 1000000,
+        "cap_growth_factor": 1.05,
+        "inject_position_noise": true,
+        "noise_lr_scale": 500000.0,
+        "loss_thresh": 0.06,
+        "probe_view_count": 32,
+        "score_aggregation": "topk_mean",
+        "score_top_k": 3,
+        "opacity_floor": 0.05,
+        "opacity_power": 0.5,
+        "normalize_error_score": false
+      },
+      "morton": {
+        "schedule": {
+          "start_iteration": 0,
+          "end_iteration": 25000,
+          "frequency": 5000
+        }
+      },
+      "final_cleanup": {
+        "min_opacity": 0.00392156862745098
+      }
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/error_mcmc/garden_error_mcmc/faster_gs.fastgs",
+      "export_ply": true
+    },
+    "mip_splatting": {
+      "enabled": true,
+      "screen_filter_enabled": true,
+      "three_dimensional_filter": {
+        "recompute_schedule": {
+          "start_iteration": 25000,
+          "end_iteration": 29899,
+          "frequency": 100
+        },
+        "near_plane": 0.2
+      }
+    }
+  }
+}

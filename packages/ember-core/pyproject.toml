@@ -46,10 +46,12 @@ training = []
 eval = []
 viewer = [
     "marimo-3dv>=0.1.3",
+    "marimo-viser>=0.0.1a0",
 ]
 all = [
     "huggingface_hub>=0.34.0",
     "marimo-3dv>=0.1.3",
+    "marimo-viser>=0.0.1a0",
     "opencv-python-headless>=4.10.0",
     "Pillow>=11.0.0",
 ]
@@ -74,6 +76,7 @@ conflicts = [
 
 [tool.uv.sources]
 marimo-3dv = { path = "../../packages/marimo-3dv", editable = true }
+marimo-viser = { path = "../../packages/marimo-viser", editable = true }
 torch = [
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },

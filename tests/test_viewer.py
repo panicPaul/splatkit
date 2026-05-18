@@ -5,6 +5,7 @@ from ember_core.viewer import (
     ViewerState,
     camera_from_viewer_payload,
     camera_to_viewer_payload,
+    launch_viewer,
     resolve_viewer_mode,
     select_viewer_camera,
 )
@@ -63,3 +64,36 @@ def test_viewer_state_tracks_training_flags() -> None:
     state.set_training_active(True).set_interaction_active(True)
     assert state.training_active
     assert state.interaction_active
+
+
+def test_launch_viser_backend_passes_ember_camera(monkeypatch) -> None:
+    import marimo as mo
+    import marimo_viser
+
+    camera = CameraState(
+        width=torch.tensor([80], dtype=torch.int64),
+        height=torch.tensor([60], dtype=torch.int64),
+        fov_degrees=torch.tensor([50.0], dtype=torch.float32),
+        cam_to_world=torch.eye(4, dtype=torch.float32)[None],
+        camera_convention="opencv",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeViserViewer:
+        def __init__(self, render_fn, *, state, **kwargs) -> None:
+            del kwargs
+            captured["state"] = state
+            captured["rendered"] = render_fn(state.camera, object())
+
+    monkeypatch.setattr(mo, "running_in_notebook", lambda: True)
+    monkeypatch.setattr(marimo_viser, "ViserViewer", FakeViserViewer)
+
+    viewer = launch_viewer(
+        lambda rendered_camera: rendered_camera,
+        state=ViewerState(camera=camera),
+        backend="viser",
+    )
+
+    assert isinstance(viewer, FakeViserViewer)
+    assert isinstance(captured["rendered"], CameraState)
+    assert captured["state"].camera.camera_convention == "opencv"

@@ -544,12 +544,22 @@ def _():
 
         Passing a `ConfigPresetCatalog` to `create_config_gui(...)` uses the
         catalog default in notebook mode and enables `--preset` in script mode.
+        Render the selector from the same owner; dependent cells should read
+        `gui.validated_config()`, not the selector value.
 
         ```python
         gui = create_config_gui(Config, presets=preset_catalog)
+        preset_selector = gui.preset_selector(label="Preset")
+        config = gui.validated_config()
         ```
         """
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(preset_gui):
+    preset_gui.preset_selector(label="Example preset")
     return
 
 

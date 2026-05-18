@@ -374,6 +374,126 @@ def test_torch_frame_dataset_resizes_and_collates(tmp_path: Path) -> None:
     assert batch.camera.intrinsics.shape == (2, 3, 3)
 
 
+def test_prepared_frame_dataset_prepared_camera_matches_sample_without_rgb() -> (
+    None
+):
+    class CountingImageSource:
+        def __init__(self) -> None:
+            self.load_count = 0
+            self.images = {
+                "frame_0": np.full((12, 16, 3), 32, dtype=np.uint8),
+                "frame_1": np.full((12, 16, 3), 64, dtype=np.uint8),
+                "frame_2": np.full((12, 16, 3), 128, dtype=np.uint8),
+            }
+
+        def load_rgb(self, frame: DatasetFrame) -> np.ndarray:
+            self.load_count += 1
+            return self.images[frame.frame_id]
+
+    frames = (
+        DatasetFrame(
+            frame_id="frame_0",
+            sensor_id="camera",
+            camera_index=2,
+            width=16,
+            height=12,
+            timestamp_us=0,
+        ),
+        DatasetFrame(
+            frame_id="frame_1",
+            sensor_id="camera",
+            camera_index=0,
+            width=16,
+            height=12,
+            timestamp_us=1,
+        ),
+        DatasetFrame(
+            frame_id="frame_2",
+            sensor_id="camera",
+            camera_index=1,
+            width=16,
+            height=12,
+            timestamp_us=2,
+        ),
+    )
+    transforms = torch.eye(4, dtype=torch.float32).repeat(3, 1, 1)
+    transforms[:, 0, 3] = torch.tensor([0.0, 10.0, 20.0])
+    image_source = CountingImageSource()
+    scene_record = SceneRecord(
+        sensors=(
+            CameraSensorDataset(
+                sensor_id="camera",
+                kind="camera",
+                frames=frames,
+                timestamps_us=(0, 1, 2),
+                camera=CameraState(
+                    width=torch.tensor([16, 16, 16], dtype=torch.int64),
+                    height=torch.tensor([12, 12, 12], dtype=torch.int64),
+                    fov_degrees=torch.tensor(
+                        [40.0, 50.0, 60.0],
+                        dtype=torch.float32,
+                    ),
+                    cam_to_world=transforms,
+                    intrinsics=torch.tensor(
+                        [
+                            [
+                                [10.0, 0.0, 8.0],
+                                [0.0, 10.0, 6.0],
+                                [0.0, 0.0, 1.0],
+                            ],
+                            [
+                                [20.0, 0.0, 8.0],
+                                [0.0, 20.0, 6.0],
+                                [0.0, 0.0, 1.0],
+                            ],
+                            [
+                                [30.0, 0.0, 8.0],
+                                [0.0, 30.0, 6.0],
+                                [0.0, 0.0, 1.0],
+                            ],
+                        ],
+                        dtype=torch.float32,
+                    ),
+                ),
+                image_source=image_source,
+            ),
+        ),
+        source_format="ncore",
+        default_camera_sensor_id="camera",
+    )
+    frame_dataset = PreparedFrameDataset(
+        scene_record,
+        preparation=ImagePreparationSpec(
+            resize=ResizeSpec(width_target=8),
+            normalize=False,
+        ),
+        materialization_mode="lazy",
+    )
+
+    prepared_camera = frame_dataset.prepared_camera(0)
+
+    assert image_source.load_count == 0
+    sample = frame_dataset[0]
+    assert image_source.load_count == 1
+    assert int(prepared_camera.width[0]) == 8
+    assert int(prepared_camera.height[0]) == 6
+    assert float(prepared_camera.cam_to_world[0, 0, 3]) == 20.0
+    torch.testing.assert_close(prepared_camera.width, sample.camera.width)
+    torch.testing.assert_close(prepared_camera.height, sample.camera.height)
+    torch.testing.assert_close(
+        prepared_camera.fov_degrees,
+        sample.camera.fov_degrees,
+    )
+    torch.testing.assert_close(
+        prepared_camera.cam_to_world,
+        sample.camera.cam_to_world,
+    )
+    torch.testing.assert_close(
+        prepared_camera.get_intrinsics(),
+        sample.camera.get_intrinsics(),
+    )
+
+
 def test_materialization_config_rejects_single_worker() -> None:
     with pytest.raises(ValueError, match="0, None, or >= 2"):
         MaterializationConfig(num_workers=1)

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 CONFIG_FORM_VIEW_KEY = "__config_form__"
 CONFIG_JSON_VIEW_KEY = "__config_json__"
+CONFIG_PRESET_VIEW_KEY = "__config_preset__"
 DEFAULT_BACKGROUND = object()
 ConfigBackground = (
     Literal["neutral", "warn", "success", "info", "danger"]
@@ -1572,17 +1573,22 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
         self._model_cls = model_cls
         self._background = background
         self._presets = presets
+        self._preset_option_label_by_name: dict[str, str] = {}
         self._preset_selector: UIElement[Any, Any] | None = None
+        initial_payload = _order_payload_for_model(
+            model_cls,
+            _resolve_initial_payload(model_cls, value),
+        )
+        self._selected_preset_name = self._preset_name_from_payload(
+            initial_payload
+        )
         self._label = label
         self._nested_models_multiple_open = nested_models_multiple_open
         self._nested_models_flat_after_level = nested_models_flat_after_level
         self._exclude_fields = frozenset(exclude_fields)
         self._path_defaults = tuple(path_defaults)
         self._path_base_dir = path_base_dir
-        self._payload = _order_payload_for_model(
-            model_cls,
-            _resolve_initial_payload(model_cls, value),
-        )
+        self._payload = initial_payload
         self._initial_payload = deepcopy(self._payload)
         self._json_text = _payload_to_json(self._payload)
         self._error: str | None = None
@@ -1645,16 +1651,28 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
         )
 
     def _current_frontend_value(self) -> dict[str, JSONType]:
-        return {
+        value = {
             CONFIG_FORM_VIEW_KEY: _current_element_frontend_value(self._form),
             CONFIG_JSON_VIEW_KEY: _current_element_frontend_value(
                 self._json_editor
             ),
         }
+        if self._preset_selector is not None:
+            value[CONFIG_PRESET_VIEW_KEY] = _current_element_frontend_value(
+                self._preset_selector
+            )
+        return value
 
     def _convert_value(self, value: dict[str, JSONType]) -> ModelT | None:
         if not getattr(self, "_initialized", False):
             return self._validated_config
+        if CONFIG_PRESET_VIEW_KEY in value:
+            preset_name = self._preset_name_from_frontend(
+                value[CONFIG_PRESET_VIEW_KEY]
+            )
+            if preset_name != self._selected_preset_name:
+                self._apply_preset_name(preset_name, sync_selector=True)
+                return self._validated_config
         if CONFIG_FORM_VIEW_KEY in value:
             self._apply_form_update(value[CONFIG_FORM_VIEW_KEY])
         if CONFIG_JSON_VIEW_KEY in value:
@@ -1698,21 +1716,19 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
                 preset.label or preset.name: name
                 for name, preset in presets.presets.items()
             }
-            option_label_by_name = {
+            self._preset_option_label_by_name = {
                 name: option_label for option_label, name in options.items()
             }
-            current_value = self._payload.get(presets.preset_field or "preset")
-            if current_value not in presets.presets:
-                current_value = presets.default
-            current_label = option_label_by_name[current_value]
+            current_label = self._preset_option_label_by_name[
+                self._selected_preset_name or presets.default
+            ]
 
             def _on_change(name: str) -> None:
-                config = _load_preset_config(presets, name)
-                next_payload = _order_payload_for_model(
-                    self._model_cls,
-                    _payload_for_config(config),
+                self._apply_preset_name(
+                    name,
+                    sync_selector=True,
+                    notify_owner=True,
                 )
-                self._replace_payload(next_payload)
 
             self._preset_selector = mo.ui.dropdown(
                 options=options,
@@ -1720,6 +1736,12 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
                 label=label,
                 on_change=_on_change,
             )
+            self._elements[CONFIG_PRESET_VIEW_KEY] = self._preset_selector
+            self._preset_selector._register_as_view(
+                parent=self,
+                key=CONFIG_PRESET_VIEW_KEY,
+            )
+            self._value_frontend = self._current_frontend_value()
         return self._with_background(self._preset_selector, background)
 
     def stacked(
@@ -1850,13 +1872,20 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
         payload: dict[str, Any],
         *,
         sync_form: bool = True,
+        selected_preset_name: str | None = None,
     ) -> None:
         self._payload = payload
+        self._selected_preset_name = (
+            selected_preset_name
+            if selected_preset_name is not None
+            else self._preset_name_from_payload(payload)
+        )
         self._json_text = _payload_to_json(payload)
         self._validated_config = self._validate_payload(payload)
         self._sync_json_editor(self._json_text)
         if sync_form:
             self._sync_form_controls(payload)
+        self._sync_preset_selector()
 
     def _validate_payload(self, payload: dict[str, Any]) -> ModelT | None:
         frozen_error = _frozen_payload_error(
@@ -1917,6 +1946,63 @@ class ConfigGui(UIElement[dict[str, JSONType], ModelT | None], Generic[ModelT]):
         _set_local_frontend_value(self._form, frontend_value)
         self._form._last_payload = payload
         self._form._sync_field_controls(payload, force=True)
+
+    def _sync_preset_selector(self) -> None:
+        if self._preset_selector is None or self._selected_preset_name is None:
+            return
+        frontend_label = self._preset_option_label_by_name.get(
+            self._selected_preset_name,
+            self._selected_preset_name,
+        )
+        self._sync_elements([(self._preset_selector, [frontend_label])])
+
+    def _sync_owner_frontend_value(self) -> None:
+        frontend_value = self._current_frontend_value()
+        self._value_frontend = frontend_value
+        self._value = self._validated_config
+        _send_frontend_value_update(self, frontend_value)
+
+    def _apply_preset_name(
+        self,
+        name: str,
+        *,
+        sync_selector: bool = False,
+        notify_owner: bool = False,
+    ) -> None:
+        if self._presets is None:
+            raise ValueError("ConfigGui has no preset catalog.")
+        if name not in self._presets.presets:
+            raise ValueError(f"Unknown config preset: {name!r}.")
+        config = _load_preset_config(self._presets, name)
+        next_payload = _order_payload_for_model(
+            self._model_cls,
+            _payload_for_config(config),
+        )
+        self._replace_payload(next_payload, selected_preset_name=name)
+        if sync_selector:
+            self._sync_preset_selector()
+        if notify_owner:
+            self._sync_owner_frontend_value()
+
+    def _preset_name_from_payload(
+        self,
+        payload: dict[str, Any],
+    ) -> str | None:
+        if self._presets is None:
+            return None
+        preset_field = self._presets.preset_field
+        if preset_field is not None:
+            preset_name = str(payload.get(preset_field, ""))
+            if preset_name in self._presets.presets:
+                return preset_name
+        return self._presets.default
+
+    def _preset_name_from_frontend(self, frontend_value: JSONType) -> str:
+        if self._preset_selector is None:
+            return str(frontend_value)
+        if self._preset_selector._value_frontend == frontend_value:
+            return str(self._preset_selector.value)
+        return str(self._preset_selector._convert_value(frontend_value))
 
     def _sync_elements(
         self,
