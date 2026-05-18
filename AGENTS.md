@@ -20,6 +20,34 @@
 - When annotating a single dimension with `jaxtyping`, leave a single space in
   the dimension spec to avoid confusion with forward annotations.
 - For mojo code: read https://docs.modular.com/llms-python.txt for MAX Python API documentation
+- In this repo, `vendored` and `native` are distinct:
+  - `third_party/*` submodules are pinned upstream references. Use them for
+    parity checks, source reading, and tests, but do not make Ember runtime
+    packages depend on importing them.
+  - `native` means self-contained Ember-owned runtime code. Production code in
+    `packages/ember-native-*` must not import upstream package names from
+    `third_party/*`, and native package metadata must not depend on upstream
+    submodule packages.
+  - If upstream code is copied or ported into a native package, keep the
+    license/provenance clear and rewrite imports to package-local
+    `ember_native_*` modules. Tests may still compare against `third_party`
+    reference implementations.
+  - Native backend runtime code must be stage based. Follow the FasterGS and
+    Stoch3DGS pattern: package-local typed runtime stage wrappers, thin
+    `torch.library.custom_op` registration, explicit forward/backward stage
+    boundaries, and separate C++/CUDA/Mojo/OptiX implementation files under the
+    native package. Keep public render helpers as composition over those stages,
+    not as monolithic upstream object wrappers.
+  - Native C++/CUDA/Mojo/OptiX code should use full descriptive variable names.
+    Prefer the same names across Python stage result types, custom-op schemas,
+    pybind wrappers, and native kernels whenever the tensors represent the same
+    concept. Match naming patterns already used by other native packages, such
+    as FasterGS stage tensors, instead of introducing local abbreviations.
+  - Native implementation files should include short comments around meaningful
+    code blocks: validation, allocation/scratch setup, stage input packing,
+    kernel launches, reductions/scans/sorts, backward-gradient assembly, and
+    output packing. Avoid line-by-line narration, but make each block's role
+    clear enough to compare against upstream and neighboring native backends.
 
 Examples:
 

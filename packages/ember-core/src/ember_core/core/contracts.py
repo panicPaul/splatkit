@@ -9,7 +9,7 @@ from typing import Any, ClassVar, Literal, NamedTuple, Self, cast
 
 import torch
 from beartype import beartype
-from jaxtyping import Float, Int
+from jaxtyping import Float, Int, UInt
 from torch import Tensor, nn
 
 from ember_core.core.keys import SceneFamilyKey
@@ -393,6 +393,329 @@ class GaussianScene2D(GaussianScene):
     def spatial_dims(self) -> int:
         """Return the Gaussian scale dimensionality."""
         return 2
+
+
+class RadFoamScene(Scene):
+    """Canonical Radiant Foam scene contract."""
+
+    min_points: ClassVar[int] = 32
+    parameter_field_names: ClassVar[tuple[str, ...]] = (
+        "primal_points",
+        "density",
+        "att_dc",
+        "att_sh",
+    )
+    buffer_field_names: ClassVar[tuple[str, ...]] = (
+        "point_adjacency",
+        "point_adjacency_offsets",
+    )
+    metadata_field_names: ClassVar[tuple[str, ...]] = (
+        "sh_degree",
+        "activation_scale",
+    )
+    topology_field_names: ClassVar[tuple[str, ...]] = (
+        "primal_points",
+        "density",
+        "att_dc",
+        "att_sh",
+        "point_adjacency",
+        "point_adjacency_offsets",
+    )
+
+    def __init__(
+        self,
+        *,
+        primal_points: Float[Tensor, "num_points 3"],
+        density: Float[Tensor, "num_points 1"],
+        att_dc: Float[Tensor, "num_points 3"],
+        att_sh: Float[Tensor, "num_points sh_coeffs"],
+        point_adjacency: (
+            Int[Tensor, " num_adjacency"]
+            | UInt[Tensor, " num_adjacency"]
+        ),
+        point_adjacency_offsets: (
+            Int[Tensor, " adjacency_offsets"]
+            | UInt[Tensor, " adjacency_offsets"]
+        ),
+        sh_degree: int,
+        activation_scale: float = 1.0,
+    ) -> None:
+        super().__init__()
+        self.sh_degree = sh_degree
+        self.activation_scale = activation_scale
+        self.register_parameter(
+            "primal_points",
+            self._to_parameter(primal_points),
+        )
+        self.register_parameter("density", self._to_parameter(density))
+        self.register_parameter("att_dc", self._to_parameter(att_dc))
+        self.register_parameter("att_sh", self._to_parameter(att_sh))
+        self.register_buffer("point_adjacency", point_adjacency)
+        self.register_buffer(
+            "point_adjacency_offsets",
+            point_adjacency_offsets,
+        )
+        self._validate()
+
+    @property
+    def scene_family(self) -> SceneFamily:
+        """Return the Radiant Foam scene family tag."""
+        return "radfoam"
+
+    @staticmethod
+    def _to_parameter(value: Tensor) -> nn.Parameter:
+        if isinstance(value, nn.Parameter):
+            return value
+        return nn.Parameter(value, requires_grad=value.requires_grad)
+
+    def _validate(self) -> None:
+        if self.sh_degree < 0:
+            raise ValueError("RadFoamScene.sh_degree must be non-negative.")
+        if self.activation_scale <= 0.0:
+            raise ValueError(
+                "RadFoamScene.activation_scale must be positive."
+            )
+        if self.primal_points.ndim != 2 or self.primal_points.shape[-1] != 3:
+            raise ValueError(
+                "RadFoamScene.primal_points must have shape "
+                f"(num_points, 3); got {tuple(self.primal_points.shape)}."
+            )
+        num_points = int(self.primal_points.shape[0])
+        if num_points < self.min_points:
+            raise ValueError(
+                "RadFoamScene.primal_points must contain at least "
+                f"{self.min_points} points for RADFOAM topology; got "
+                f"{num_points}."
+            )
+        if self.density.shape != (num_points, 1):
+            raise ValueError(
+                "RadFoamScene.density must have shape "
+                f"({num_points}, 1); got {tuple(self.density.shape)}."
+            )
+        if self.att_dc.shape != (num_points, 3):
+            raise ValueError(
+                "RadFoamScene.att_dc must have shape "
+                f"({num_points}, 3); got {tuple(self.att_dc.shape)}."
+            )
+        expected_sh_coeffs = 3 * ((1 + self.sh_degree) ** 2 - 1)
+        if self.att_sh.shape != (num_points, expected_sh_coeffs):
+            raise ValueError(
+                "RadFoamScene.att_sh must have shape "
+                f"({num_points}, {expected_sh_coeffs}); got "
+                f"{tuple(self.att_sh.shape)}."
+            )
+        if self.point_adjacency.ndim != 1:
+            raise ValueError(
+                "RadFoamScene.point_adjacency must be rank 1; got "
+                f"{tuple(self.point_adjacency.shape)}."
+            )
+        if self.point_adjacency_offsets.shape != (num_points + 1,):
+            raise ValueError(
+                "RadFoamScene.point_adjacency_offsets must have shape "
+                f"({num_points + 1},); got "
+                f"{tuple(self.point_adjacency_offsets.shape)}."
+            )
+        if self.point_adjacency.dtype not in (
+            torch.int32,
+            torch.int64,
+            torch.uint32,
+        ):
+            raise ValueError(
+                "RadFoamScene.point_adjacency must have int32, int64, or "
+                f"uint32 dtype; got {self.point_adjacency.dtype}."
+            )
+        if self.point_adjacency_offsets.dtype not in (
+            torch.int32,
+            torch.int64,
+            torch.uint32,
+        ):
+            raise ValueError(
+                "RadFoamScene.point_adjacency_offsets must have int32, "
+                f"int64, or uint32 dtype; got "
+                f"{self.point_adjacency_offsets.dtype}."
+            )
+
+
+class PowerFoamScene(Scene):
+    """Canonical PowerFoam scene contract."""
+
+    parameter_field_names: ClassVar[tuple[str, ...]] = (
+        "points",
+        "radii",
+        "quaternions",
+        "density",
+        "texel_sites",
+        "texel_sv_axis",
+        "texel_sv_rgb",
+        "texel_height",
+    )
+    buffer_field_names: ClassVar[tuple[str, ...]] = (
+        "adjacency",
+        "adjacency_offsets",
+    )
+    metadata_field_names: ClassVar[tuple[str, ...]] = (
+        "sv_dof",
+        "num_texel_sites",
+        "render_objective",
+        "attr_dtype",
+    )
+    topology_field_names: ClassVar[tuple[str, ...]] = (
+        "points",
+        "radii",
+        "quaternions",
+        "density",
+        "texel_sites",
+        "texel_sv_axis",
+        "texel_sv_rgb",
+        "texel_height",
+        "adjacency",
+        "adjacency_offsets",
+    )
+
+    def __init__(
+        self,
+        *,
+        points: Float[Tensor, "num_points 3"],
+        radii: Float[Tensor, " num_points"],
+        quaternions: Float[Tensor, "num_points 4"],
+        density: Float[Tensor, " num_points"],
+        texel_sites: Float[Tensor, "num_points num_texel_sites 2"],
+        texel_sv_axis: Float[
+            Tensor,
+            "num_points num_texel_sites sv_axis_coeffs",
+        ],
+        texel_sv_rgb: Float[
+            Tensor,
+            "num_points num_texel_sites sv_rgb_coeffs",
+        ],
+        texel_height: Float[Tensor, "num_points num_texel_sites"],
+        adjacency: Int[Tensor, " num_adjacency"] | UInt[Tensor, " num_adjacency"],
+        adjacency_offsets: (
+            Int[Tensor, " adjacency_offsets"]
+            | UInt[Tensor, " adjacency_offsets"]
+        ),
+        sv_dof: int,
+        num_texel_sites: int,
+        render_objective: Literal["volume", "surface"] = "volume",
+        attr_dtype: Literal["float", "half"] = "float",
+    ) -> None:
+        super().__init__()
+        self.sv_dof = sv_dof
+        self.num_texel_sites = num_texel_sites
+        self.render_objective = render_objective
+        self.attr_dtype = attr_dtype
+        self.register_parameter("points", self._to_parameter(points))
+        self.register_parameter("radii", self._to_parameter(radii))
+        self.register_parameter("quaternions", self._to_parameter(quaternions))
+        self.register_parameter("density", self._to_parameter(density))
+        self.register_parameter("texel_sites", self._to_parameter(texel_sites))
+        self.register_parameter(
+            "texel_sv_axis",
+            self._to_parameter(texel_sv_axis),
+        )
+        self.register_parameter(
+            "texel_sv_rgb",
+            self._to_parameter(texel_sv_rgb),
+        )
+        self.register_parameter(
+            "texel_height",
+            self._to_parameter(texel_height),
+        )
+        self.register_buffer("adjacency", adjacency)
+        self.register_buffer("adjacency_offsets", adjacency_offsets)
+        self._validate()
+
+    @property
+    def scene_family(self) -> SceneFamily:
+        """Return the PowerFoam method tag."""
+        return "powerfoam"
+
+    @staticmethod
+    def _to_parameter(value: Tensor) -> nn.Parameter:
+        if isinstance(value, nn.Parameter):
+            return value
+        return nn.Parameter(value, requires_grad=value.requires_grad)
+
+    def _validate(self) -> None:
+        if self.sv_dof <= 0:
+            raise ValueError("PowerFoamScene.sv_dof must be positive.")
+        if self.num_texel_sites <= 0:
+            raise ValueError(
+                "PowerFoamScene.num_texel_sites must be positive."
+            )
+        if self.points.ndim != 2 or self.points.shape[-1] != 3:
+            raise ValueError(
+                "PowerFoamScene.points must have shape "
+                f"(num_points, 3); got {tuple(self.points.shape)}."
+            )
+        num_points = int(self.points.shape[0])
+        if self.radii.shape != (num_points,):
+            raise ValueError(
+                "PowerFoamScene.radii must have shape "
+                f"({num_points},); got {tuple(self.radii.shape)}."
+            )
+        if self.quaternions.shape != (num_points, 4):
+            raise ValueError(
+                "PowerFoamScene.quaternions must have shape "
+                f"({num_points}, 4); got {tuple(self.quaternions.shape)}."
+            )
+        if self.density.shape != (num_points,):
+            raise ValueError(
+                "PowerFoamScene.density must have shape "
+                f"({num_points},); got {tuple(self.density.shape)}."
+            )
+        expected_texel_shape = (num_points, self.num_texel_sites)
+        if self.texel_sites.shape != (*expected_texel_shape, 2):
+            raise ValueError(
+                "PowerFoamScene.texel_sites must have shape "
+                f"({num_points}, {self.num_texel_sites}, 2); got "
+                f"{tuple(self.texel_sites.shape)}."
+            )
+        expected_sv_shape = (*expected_texel_shape, 3 * self.sv_dof)
+        if self.texel_sv_axis.shape != expected_sv_shape:
+            raise ValueError(
+                "PowerFoamScene.texel_sv_axis must have shape "
+                f"{expected_sv_shape}; got {tuple(self.texel_sv_axis.shape)}."
+            )
+        if self.texel_sv_rgb.shape != expected_sv_shape:
+            raise ValueError(
+                "PowerFoamScene.texel_sv_rgb must have shape "
+                f"{expected_sv_shape}; got {tuple(self.texel_sv_rgb.shape)}."
+            )
+        if self.texel_height.shape != expected_texel_shape:
+            raise ValueError(
+                "PowerFoamScene.texel_height must have shape "
+                f"{expected_texel_shape}; got {tuple(self.texel_height.shape)}."
+            )
+        if self.adjacency.ndim != 1:
+            raise ValueError(
+                "PowerFoamScene.adjacency must be rank 1; got "
+                f"{tuple(self.adjacency.shape)}."
+            )
+        if self.adjacency_offsets.shape != (num_points + 1,):
+            raise ValueError(
+                "PowerFoamScene.adjacency_offsets must have shape "
+                f"({num_points + 1},); got "
+                f"{tuple(self.adjacency_offsets.shape)}."
+            )
+        if self.adjacency.dtype not in (
+            torch.int32,
+            torch.int64,
+            torch.uint32,
+        ):
+            raise ValueError(
+                "PowerFoamScene.adjacency must have int32, int64, or "
+                f"uint32 dtype; got {self.adjacency.dtype}."
+            )
+        if self.adjacency_offsets.dtype not in (
+            torch.int32,
+            torch.int64,
+            torch.uint32,
+        ):
+            raise ValueError(
+                "PowerFoamScene.adjacency_offsets must have int32, int64, "
+                f"or uint32 dtype; got {self.adjacency_offsets.dtype}."
+            )
 
 
 class SparseVoxelScene(Scene):

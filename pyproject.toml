@@ -31,6 +31,8 @@ native-faster-gs = ["ember-native-faster-gs"]
 native-faster-gs-mojo = ["ember-native-faster-gs-mojo"]
 native-3dgrt = ["ember-native-3dgrt"]
 native-nht = ["ember-native-nht"]
+native-powerfoam = ["ember-native-powerfoam"]
+native-radfoam = ["ember-native-radfoam"]
 native-svraster = ["ember-native-svraster"]
 svraster-adapter = ["new-svraster-cuda"]
 svraster-training = ["ember-svraster-training"]
@@ -43,6 +45,8 @@ all-native = [
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
     "ember-native-nht",
+    "ember-native-powerfoam",
+    "ember-native-radfoam",
     "ember-native-svraster",
 ]
 all-unrestricted = [
@@ -52,6 +56,8 @@ all-unrestricted = [
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
     "ember-native-nht",
+    "ember-native-powerfoam",
+    "ember-native-radfoam",
 ]
 all = [
     "ember-adapter-backends[all]",
@@ -61,6 +67,8 @@ all = [
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
     "ember-native-nht",
+    "ember-native-powerfoam",
+    "ember-native-radfoam",
     "ember-native-svraster",
 ]
 cu128 = ["torch>=2.11.0"]
@@ -73,6 +81,8 @@ cu128-dev = [
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
     "ember-native-nht",
+    "ember-native-powerfoam",
+    "ember-native-radfoam",
     "ember-native-svraster",
     "torch>=2.11.0",
 ]
@@ -84,6 +94,8 @@ cu130-dev = [
     "ember-native-faster-gs-mojo",
     "ember-native-3dgrt",
     "ember-native-nht",
+    "ember-native-powerfoam",
+    "ember-native-radfoam",
     "ember-native-svraster",
     "torch>=2.11.0",
 ]
@@ -135,6 +147,8 @@ ember-native-faster-gs = { path = "packages/ember-native-faster-gs", editable = 
 ember-native-faster-gs-mojo = { path = "packages/ember-native-faster-gs-mojo", editable = true }
 ember-native-3dgrt = { path = "packages/ember-native-3dgrt", editable = true }
 ember-native-nht = { path = "packages/ember-native-nht", editable = true }
+ember-native-powerfoam = { path = "packages/ember-native-powerfoam", editable = true }
+ember-native-radfoam = { path = "packages/ember-native-radfoam", editable = true }
 ember-native-svraster = { path = "packages/ember-native-svraster", editable = true }
 diff-gaussian-rasterization-fastgs = { path = "third_party/FastGS/submodules/diff-gaussian-rasterization_fastgs", editable = true }
 fused_ssim = { git = "https://github.com/rahul-goel/fused-ssim", rev = "328dc9836f513d00c4b5bc38fe30478b4435cbb5" }
@@ -169,6 +183,10 @@ explicit = true
 [tool.ruff]
 line-length = 80
 exclude = ['third_party/*', '.agents/*', '.claude/*']
+extend-exclude = [
+  "packages/ember-native-powerfoam/src/ember_native_powerfoam/powerfoam/native/warp",
+  "packages/ember-native-radfoam/src/ember_native_radfoam/radfoam/native",
+]
 
 
 [tool.ruff.lint] # Mostly just copied over from mojo

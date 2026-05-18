@@ -1,0 +1,114 @@
+{
+  "preset": "garden_base",
+  "scene": {
+    "path": "dataset/mipnerf360/garden",
+    "image_root": null,
+    "undistort_output_dir": null,
+    "align_horizon": true
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 0.125,
+    "cache_resized_images": true,
+    "resized_image_cache_root": null,
+    "max_resized_image_caches": 4,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 0,
+      "max_steps": 30000
+    },
+    "batching": {
+      "batch_size": 1,
+      "shuffle": true,
+      "num_workers": 8,
+      "persistent_workers": true,
+      "pin_memory": true
+    },
+    "initialization": {
+      "init_type": "sfm",
+      "init_points": 100000,
+      "render_objective": "volume",
+      "sv_dof": 8,
+      "num_texel_sites": 8,
+      "attr_dtype": "float",
+      "seed": 0
+    },
+    "render": {
+      "backend": "powerfoam.rasterize",
+      "render_objective": null,
+      "density_beta": 100.0,
+      "radii_beta": 100.0,
+      "background_color": [0.0, 0.0, 0.0],
+      "return_alpha": true,
+      "return_depth": false,
+      "return_normals": false,
+      "clamp_output": false,
+      "disable_coop_prim_load": false,
+      "disable_coop_adj_load": false,
+      "is_pinhole": true
+    },
+    "optimization": {
+      "optimizer": "torch.optim.Adam",
+      "points_lr_init": 0.001,
+      "points_lr_final": 0.0001,
+      "density_lr_init": 1.0,
+      "density_lr_final": 1.0,
+      "radii_lr_init": 0.0001,
+      "radii_lr_final": 0.00001,
+      "quaternions_lr_init": 0.1,
+      "quaternions_lr_final": 0.01,
+      "texel_sites_lr_init": 0.01,
+      "texel_sites_lr_final": 0.001,
+      "texel_sv_axis_lr_init": 0.01,
+      "texel_sv_axis_lr_final": 0.001,
+      "texel_sv_rgb_lr_init": 0.002,
+      "texel_sv_rgb_lr_final": 0.0002,
+      "texel_height_lr_init": 0.01,
+      "texel_height_lr_final": 0.001,
+      "density_warmup_steps": 1000,
+      "radii_warmup_steps": 1000,
+      "texel_height_warmup_steps": 2000,
+      "adam_eps": 1e-15
+    },
+    "loss": {
+      "rgb": 1.0,
+      "ssim": 0.2,
+      "normal": 0.1,
+      "contribution": 0.1,
+      "interpenetration": 0.0001
+    },
+    "densification": {
+      "enabled": true,
+      "resample_every": 100,
+      "resample_offset": 99,
+      "densify_from": 1000,
+      "densify_until": 24000,
+      "final_points": 1200000,
+      "stop_fraction": 0.95,
+      "adjacency_max_interval": 20,
+      "stats_epsilon": 0.00001,
+      "sort_after_resample": true
+    },
+    "profiler": {
+      "enabled": false,
+      "log_every": 10,
+      "cuda_memory": true,
+      "sync_timing": false,
+      "output_path": null
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/powerfoam/garden_base",
+      "export_ply": false,
+      "overwrite": false
+    }
+  }
+}

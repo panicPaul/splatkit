@@ -1,0 +1,90 @@
+{
+  "preset": "garden_base",
+  "scene": {
+    "path": "dataset/mipnerf360/garden",
+    "image_root": null,
+    "undistort_output_dir": null,
+    "align_horizon": true
+  },
+  "data": {
+    "camera_sensor_id": null,
+    "image_scale_factor": 0.25,
+    "cache_resized_images": true,
+    "resized_image_cache_root": null,
+    "max_resized_image_caches": 4,
+    "split_target": "train",
+    "split_every_n": 8,
+    "materialization_stage": "prepared",
+    "materialization_mode": "eager",
+    "materialization_num_workers": 8,
+    "normalize_images": true,
+    "interpolation": "bicubic"
+  },
+  "training": {
+    "runtime": {
+      "device": "cuda",
+      "seed": 0,
+      "max_steps": 30000
+    },
+    "batching": {
+      "batch_size": 1,
+      "shuffle": true,
+      "num_workers": 8,
+      "persistent_workers": true,
+      "pin_memory": true
+    },
+    "initialization": {
+      "sh_degree": 3,
+      "init_points": 131072,
+      "random_points": 5000,
+      "point_cloud_sample_ratio": 0.9,
+      "activation_scale": 1.0,
+      "jitter_std": 0.01,
+      "random_point_scale": 10.0,
+      "seed": 0
+    },
+    "render": {
+      "backend": "radfoam.core",
+      "weight_threshold": 0.001,
+      "max_intersections": 1024,
+      "density_beta": 10.0,
+      "background_color": [0.0, 0.0, 0.0],
+      "return_alpha": false,
+      "return_depth": false,
+      "clamp_output": false
+    },
+    "optimization": {
+      "optimizer": "torch.optim.Adam",
+      "points_lr_init": 0.03,
+      "points_lr_final": 0.0003,
+      "points_lr_max_steps": null,
+      "density_lr_init": 0.01,
+      "density_lr_final": 0.001,
+      "attributes_lr_init": 0.01,
+      "attributes_lr_final": 0.001,
+      "sh_factor": 0.2,
+      "adam_eps": 1e-15
+    },
+    "loss": {
+      "loss_type": "l1"
+    },
+    "densification": {
+      "enabled": true,
+      "refine_every": 100,
+      "start_iter": 0,
+      "stop_iter": -1
+    },
+    "profiler": {
+      "enabled": false,
+      "log_every": 10,
+      "cuda_memory": true,
+      "sync_timing": false,
+      "output_path": null
+    },
+    "checkpoint": {
+      "output_dir": "checkpoints/papers/radfoam/garden_base",
+      "export_ply": false,
+      "overwrite": false
+    }
+  }
+}
