@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import ember_core.data.adapters as data_adapters
+import ember_splatting_training.training_viewer as training_viewer_module
 import pytest
 import torch
 from ember_core.core.contracts import (
@@ -17,6 +19,7 @@ from ember_core.core.contracts import (
 from ember_core.core.families import GAUSSIAN
 from ember_core.core.products import SCREEN_SPACE_DENSIFICATION_SIGNALS
 from ember_core.core.registry import BACKEND_REGISTRY, register_backend
+from ember_core.data import DatasetFrame, PreparedFrameSample
 from ember_core.densification.contracts import DensificationContext, Schedule
 from ember_core.densification.families import GaussianFamilyOps
 from ember_core.initialization import InitializedModel
@@ -37,6 +40,7 @@ from ember_core.training.config import (
 )
 from ember_core.training.protocols import TrainState
 from ember_core.training.runtime import OptimizerBinding, build_optimizer_set
+from ember_core.viewer import Marimo3DVViewerConfig
 from ember_native_faster_gs.faster_gs.renderer import (
     FasterGSNativeRenderOptions,
 )
@@ -60,12 +64,20 @@ from ember_splatting_training.recipes import (
 )
 from ember_splatting_training.stages import GAUSSIAN_ACCUMULATE_SCREEN_STATS
 from ember_splatting_training.training_viewer import (
+    TrainingPreparationSnapshot,
     TrainingViewerCancelled,
     TrainingViewerConfig,
+    TrainingViewerErrorMap,
     TrainingViewerHandle,
     TrainingViewerHook,
+    TrainingViewInspectorConfig,
+    TrainingViewMapSpec,
     TrainingViserViewerConfig,
+    create_training_preparation,
+    create_training_run,
     create_training_viewer,
+    training_preparation_outputs,
+    viridis_error_map,
 )
 from ember_splatting_training.typed_recipes import FastGSDensificationRecipe
 from torch.optim import Optimizer
@@ -1108,7 +1120,223 @@ def test_splatting_training_package_exports() -> None:
     splatting_training = pytest.importorskip("ember_splatting_training")
     assert hasattr(splatting_training, "FusedAdam")
     assert hasattr(splatting_training, "GaussianMCMC")
+    assert hasattr(splatting_training, "create_training_preparation")
+    assert hasattr(splatting_training, "create_training_run")
+    assert hasattr(splatting_training, "create_training_view_inspector")
     assert hasattr(splatting_training, "create_training_viewer")
+    assert hasattr(splatting_training, "render_training_preparation_status")
+    assert hasattr(splatting_training, "training_inspector_spinner")
+    assert hasattr(splatting_training, "training_preparation_outputs")
+
+
+def test_training_viewer_default_snapshot_cadence_is_100() -> None:
+    assert TrainingViewerConfig().update_every_steps == 100
+
+
+def test_training_view_inspector_config_validates_l1_range() -> None:
+    config = TrainingViewInspectorConfig()
+
+    assert config.l1_range == (0.0, 0.25)
+    with pytest.raises(ValueError, match="l1_range must lie"):
+        TrainingViewInspectorConfig(l1_range=(0.0, 2.0))
+
+
+class _NoValueElement:
+    def __init__(self, element_id: str, frontend_value: object, value: object):
+        self._id = element_id
+        self._value_frontend = frontend_value
+        self._converted_value = value
+        self.registered_parent = None
+        self.registered_key = None
+
+    @property
+    def value(self) -> object:
+        raise AssertionError("TrainingViewInspector must not read child .value")
+
+    def _convert_value(self, value: object) -> object:
+        del value
+        return self._converted_value
+
+    def _register_as_view(self, *, parent: object, key: str) -> None:
+        self.registered_parent = parent
+        self.registered_key = key
+
+
+def test_training_view_inspector_initializes_without_child_value_reads() -> (
+    None
+):
+    validation = _NoValueElement("validation", ["Validation"], "val:0:0")
+    show_validation = _NoValueElement("show-validation", 0, 0)
+    training = _NoValueElement("training", ["Training"], "train:0:0")
+    show_training = _NoValueElement("show-training", 0, 0)
+    l1_range = _NoValueElement("l1-range", [0.0, 0.25], [0.0, 0.25])
+    controls = training_viewer_module.TrainingViewInspectorControls(
+        view=object(),
+        validation_view_selector=validation,
+        show_validation_view_button=show_validation,
+        training_view_selector=training,
+        show_training_view_button=show_training,
+        l1_range_slider=l1_range,
+    )
+    inspector = training_viewer_module.TrainingViewInspector(
+        config=TrainingViewInspectorConfig(),
+        controls=controls,
+        elements={
+            training_viewer_module._INSPECTOR_VALIDATION_VIEW_KEY: validation,
+            training_viewer_module._INSPECTOR_SHOW_VALIDATION_KEY: show_validation,
+            training_viewer_module._INSPECTOR_TRAINING_VIEW_KEY: training,
+            training_viewer_module._INSPECTOR_SHOW_TRAINING_KEY: show_training,
+            training_viewer_module._INSPECTOR_L1_RANGE_KEY: l1_range,
+        },
+    )
+
+    catalog = SimpleNamespace(view_ref_by_key=lambda key: key)
+
+    assert inspector.selected_view_ref(catalog) == "val:0:0"
+    assert inspector.l1_value_range() == (0.0, 0.25)
+    assert validation.registered_parent is inspector
+
+    inspector._convert_value(
+        {
+            training_viewer_module._INSPECTOR_SHOW_TRAINING_KEY: 1,
+        }
+    )
+
+    assert inspector.selected_view_ref(catalog) == "train:0:0"
+
+
+def test_training_preparation_status_uses_marimo_spinner() -> None:
+    status_view = training_viewer_module.render_training_preparation_status(
+        TrainingPreparationSnapshot(
+            status="loading_scene",
+            elapsed_seconds=12.5,
+        )
+    )
+
+    assert status_view.__class__.__name__ == "spinner"
+    assert status_view.title == "Preparing training inspector"
+    assert status_view.subtitle == "Loading scene... elapsed 12s"
+
+
+def test_training_preparation_status_uses_progress_bar_for_progress() -> None:
+    status_view = training_viewer_module.render_training_preparation_status(
+        TrainingPreparationSnapshot(
+            status="preparing_views",
+            elapsed_seconds=12.5,
+            progress_label="Materializing prepared dataset",
+            progress_current=2,
+            progress_total=4,
+        )
+    )
+
+    assert status_view.__class__.__name__ == "ProgressBar"
+    assert status_view.title == "Preparing training inspector"
+    assert (
+        status_view.subtitle
+        == "Materializing prepared dataset: 2/4 | elapsed 12s"
+    )
+    assert status_view.current == 2
+    assert status_view.total == 4
+
+
+def test_training_preparation_handle_runs_inline_and_publishes_snapshot() -> (
+    None
+):
+    scene_record = object()
+    frame_dataset = object()
+    frame_view_catalog = SimpleNamespace(training_dataset=frame_dataset)
+    handle, snapshot = create_training_preparation(
+        load_scene=lambda: scene_record,
+        prepare_frame_view_catalog=lambda scene: frame_view_catalog,
+    )
+
+    assert handle.start(wait=True) is True
+    assert handle.start(wait=True) is False
+
+    published = snapshot()
+    assert published.status == "ready"
+    assert published.scene_record is scene_record
+    assert published.frame_view_catalog is frame_view_catalog
+    assert published.frame_dataset is frame_dataset
+    assert published.elapsed_seconds is not None
+
+
+def test_training_preparation_handle_publishes_materialization_progress() -> (
+    None
+):
+    scene_record = object()
+    frame_dataset = object()
+    frame_view_catalog = SimpleNamespace(training_dataset=frame_dataset)
+
+    def prepare_frame_view_catalog(scene: object) -> object:
+        assert scene is scene_record
+        data_adapters._report_materialization_progress(
+            label="Materializing prepared dataset",
+            current=1,
+            total=2,
+        )
+        return frame_view_catalog
+
+    handle, snapshot = create_training_preparation(
+        load_scene=lambda: scene_record,
+        prepare_frame_view_catalog=prepare_frame_view_catalog,
+    )
+
+    assert handle.start(wait=True) is True
+
+    published = snapshot()
+    assert published.status == "ready"
+    assert published.progress_label == "Materializing prepared dataset"
+    assert published.progress_current == 1
+    assert published.progress_total == 2
+
+
+def test_training_preparation_outputs_route_load_errors() -> None:
+    snapshot = TrainingPreparationSnapshot(
+        status="failed",
+        error_text="load exploded",
+        error_phase="loading_scene",
+    )
+
+    scene_error, scene_record, frame_dataset, dataset_error, catalog = (
+        training_preparation_outputs(snapshot)
+    )
+
+    assert isinstance(scene_error, RuntimeError)
+    assert "load exploded" in str(scene_error)
+    assert scene_record is None
+    assert frame_dataset is None
+    assert dataset_error is None
+    assert catalog is None
+
+
+def test_training_preparation_outputs_route_view_errors() -> None:
+    scene_record = object()
+    snapshot = TrainingPreparationSnapshot(
+        status="failed",
+        scene_record=scene_record,
+        error_text="views exploded",
+        error_phase="preparing_views",
+    )
+
+    scene_error, returned_scene, frame_dataset, dataset_error, catalog = (
+        training_preparation_outputs(snapshot)
+    )
+
+    assert scene_error is None
+    assert returned_scene is scene_record
+    assert frame_dataset is None
+    assert isinstance(dataset_error, RuntimeError)
+    assert "views exploded" in str(dataset_error)
+    assert catalog is None
+
+
+def test_training_view_inspector_groups_images_in_two_columns() -> None:
+    assert training_viewer_module._two_column_rows([1, 2, 3, 4, 5]) == [
+        (1, 2),
+        (3, 4),
+        (5,),
+    ]
 
 
 class _FakeTrainingViewerHandle:
@@ -1254,6 +1482,31 @@ def test_training_viewer_rerender_can_wait_when_configured() -> None:
     assert viewer.wait_values == [True]
 
 
+def test_training_viewer_snaps_to_prepared_camera() -> None:
+    class CameraRecordingViewer:
+        def __init__(self) -> None:
+            self.camera = None
+            self.wait = None
+
+        def set_camera_state(self, camera, *, wait: bool = False) -> None:
+            self.camera = camera
+            self.wait = wait
+
+    viewer = CameraRecordingViewer()
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(wait_for_render=True),
+        viewer=viewer,
+    )
+
+    snapped = handle.snap_to_camera(_viewer_test_camera(320, 180))
+
+    assert snapped is True
+    assert viewer.camera is not None
+    assert viewer.camera.width == 320
+    assert viewer.camera.height == 180
+    assert viewer.wait is True
+
+
 def test_training_viewer_is_noop_outside_notebook(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -1268,6 +1521,28 @@ def test_training_viewer_is_noop_outside_notebook(
     assert handle.viewer is None
     assert handle.runtime_hooks() == ()
     assert handle.start_training(object(), object()) is False
+
+
+def test_training_run_creates_noninteractive_notebook_handle(
+    monkeypatch,
+) -> None:
+    training_viewer_module._ACTIVE_TRAINING_VIEWERS.clear()
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.launch_viewer",
+        lambda *args, **kwargs: pytest.fail("viewer should not launch"),
+    )
+
+    handle = create_training_run(object(), _training_config_stub())
+
+    try:
+        assert handle.viewer is None
+        assert len(handle.runtime_hooks()) == 1
+    finally:
+        handle.close(join_timeout=0.0)
 
 
 def test_training_viewer_uses_prepared_dataset_camera(monkeypatch) -> None:
@@ -1291,9 +1566,15 @@ def test_training_viewer_uses_prepared_dataset_camera(monkeypatch) -> None:
         def close(self) -> None:
             self.closed = True
 
-    def fake_launch_viewer(render_fn, *, state):
+    def fake_launch_viewer(
+        render_fn,
+        *,
+        state,
+        marimo_3dv_config=None,
+    ):
         del render_fn
         captured["state"] = state
+        captured["marimo_3dv_config"] = marimo_3dv_config
         return FakeViewer()
 
     monkeypatch.setattr(
@@ -1310,6 +1591,10 @@ def test_training_viewer_uses_prepared_dataset_camera(monkeypatch) -> None:
     initial_camera = captured["state"].camera
     assert int(initial_camera.width[0]) == 128
     assert int(initial_camera.height[0]) == 96
+    assert isinstance(
+        captured["marimo_3dv_config"],
+        Marimo3DVViewerConfig,
+    )
     assert frame_dataset.len_count == 1
     assert frame_dataset.prepared_camera_count == 1
     assert frame_dataset.getitem_count == 0
@@ -1330,9 +1615,15 @@ def test_training_viewer_initial_camera_overrides_dataset(monkeypatch) -> None:
         def close(self) -> None:
             pass
 
-    def fake_launch_viewer(render_fn, *, state):
+    def fake_launch_viewer(
+        render_fn,
+        *,
+        state,
+        marimo_3dv_config=None,
+    ):
         del render_fn
         captured["state"] = state
+        captured["marimo_3dv_config"] = marimo_3dv_config
         return FakeViewer()
 
     monkeypatch.setattr(
@@ -1347,12 +1638,104 @@ def test_training_viewer_initial_camera_overrides_dataset(monkeypatch) -> None:
     handle = create_training_viewer(
         frame_dataset,
         _training_config_stub(),
+        config=TrainingViewerConfig(
+            marimo_3dv=Marimo3DVViewerConfig(
+                interactive_quality=30,
+                interactive_max_side=640,
+                interactive_max_fps=4.0,
+            )
+        ),
         initial_camera=explicit_camera,
     )
 
     initial_camera = captured["state"].camera
     assert int(initial_camera.width[0]) == 320
     assert int(initial_camera.height[0]) == 180
+    assert isinstance(
+        captured["marimo_3dv_config"],
+        Marimo3DVViewerConfig,
+    )
+    assert captured["marimo_3dv_config"].interactive_quality == 30
+    assert captured["marimo_3dv_config"].interactive_max_side == 640
+    assert captured["marimo_3dv_config"].interactive_max_fps == 4.0
+    handle.close()
+
+
+def test_training_viewer_reuses_running_notebook_handle(monkeypatch) -> None:
+    class FakeViewer:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    training_viewer_module._ACTIVE_TRAINING_VIEWERS.clear()
+    viewer = FakeViewer()
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(),
+        viewer=viewer,
+        _running_in_notebook=True,
+        _training_config=_training_config_stub(),
+    )
+    handle._status = "running"
+    training_viewer_module._register_training_viewer(handle)
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.launch_viewer",
+        lambda *args, **kwargs: pytest.fail(
+            "running notebook handles should be reused"
+        ),
+    )
+
+    reused = create_training_viewer(object(), _training_config_stub())
+
+    assert reused is handle
+    assert viewer.closed is False
+    handle.close()
+
+
+def test_training_viewer_replaces_idle_notebook_handle(monkeypatch) -> None:
+    class FakeViewer:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def rerender(self, *, wait: bool = False) -> None:
+            del wait
+
+        def close(self) -> None:
+            self.closed = True
+
+    training_viewer_module._ACTIVE_TRAINING_VIEWERS.clear()
+    idle_viewer = FakeViewer()
+    idle_handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(),
+        viewer=idle_viewer,
+        _running_in_notebook=True,
+        _training_config=_training_config_stub(),
+    )
+    training_viewer_module._register_training_viewer(idle_handle)
+    launched_viewer = FakeViewer()
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.mo.running_in_notebook",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "ember_splatting_training.training_viewer.launch_viewer",
+        lambda *args, **kwargs: launched_viewer,
+    )
+
+    handle = create_training_viewer(
+        _NonIndexableFrameDataset(),
+        _training_config_stub(),
+        initial_camera=_viewer_test_camera(320, 180),
+    )
+
+    assert handle is not idle_handle
+    assert idle_viewer.closed is True
+    assert handle.viewer is launched_viewer
     handle.close()
 
 
@@ -1741,6 +2124,39 @@ def test_training_viewer_rerender_cadence_respects_step_and_time() -> None:
     assert viewer.wait_values == [False]
 
 
+def test_training_run_publishes_render_snapshots_without_viewer() -> None:
+    scene = GaussianScene3D(
+        center_position=torch.zeros((1, 3)),
+        log_scales=torch.zeros((1, 3)),
+        quaternion_orientation=torch.zeros((1, 4)),
+        logit_opacity=torch.zeros((1,)),
+        feature=torch.ones((1, 1, 3)),
+        sh_degree=0,
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=scene,
+            modules={},
+            parameters={},
+        ),
+        step=2,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    handle = TrainingViewerHandle(
+        config=TrainingViewerConfig(
+            update_every_steps=2,
+            min_update_seconds=1000.0,
+        ),
+        _training_config=SimpleNamespace(runtime=SimpleNamespace(max_steps=2)),
+        _running_in_notebook=True,
+    )
+
+    handle.maybe_rerender_after_step(state)
+
+    assert handle.snapshot().render_step == 2
+
+
 class _ViewerCamera:
     height = torch.tensor([2])
     width = torch.tensor([2])
@@ -1820,6 +2236,197 @@ def test_training_viewer_render_falls_back_to_dc_features_for_black_frame() -> (
         rendered,
         torch.tensor([0.8, 0.4, 0.2]).expand(2, 2, 3),
     )
+
+
+def test_training_viewer_error_map_uses_latest_render_snapshot() -> None:
+    scene = GaussianScene3D(
+        center_position=torch.zeros((1, 3)),
+        log_scales=torch.zeros((1, 3)),
+        quaternion_orientation=torch.zeros((1, 4)),
+        logit_opacity=torch.zeros((1,)),
+        feature=torch.ones((1, 1, 3)),
+        sh_degree=0,
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=scene,
+            modules={},
+            parameters={},
+        ),
+        step=1,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    sample = PreparedFrameSample(
+        frame=DatasetFrame(
+            frame_id="frame_0",
+            sensor_id="camera",
+            camera_index=0,
+            width=2,
+            height=2,
+            timestamp_us=0,
+        ),
+        image=torch.tensor(
+            [
+                [[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]],
+                [[0.5, 0.5, 0.5], [1.0, 1.0, 1.0]],
+            ],
+            dtype=torch.float32,
+        ),
+        camera=_viewer_test_camera(2, 2),
+    )
+    handle = TrainingViewerHandle(config=TrainingViewerConfig())
+    handle._render_fn = lambda model, camera: model.scene.feature[0, 0].expand(
+        2,
+        2,
+        3,
+    )
+
+    handle.update_render_snapshot(state)
+    state.model.scene.feature.data.zero_()
+    error_map = handle.render_view_error_map(
+        sample,
+        quantile=1.0,
+        value_range=(0.0, 1.0),
+    )
+
+    assert isinstance(error_map, TrainingViewerErrorMap)
+    assert error_map.available is True
+    assert error_map.image.shape == (2, 2, 3)
+    assert error_map.image.dtype == torch.uint8
+    torch.testing.assert_close(
+        error_map.error,
+        torch.tensor([[1.0, 0.75], [0.5, 0.0]]),
+    )
+    assert error_map.max_error == pytest.approx(1.0)
+    assert error_map.mean_error == pytest.approx(0.5625)
+
+
+def test_training_view_inspection_uses_one_render_for_builtin_and_custom_maps() -> (
+    None
+):
+    scene = GaussianScene3D(
+        center_position=torch.zeros((1, 3)),
+        log_scales=torch.zeros((1, 3)),
+        quaternion_orientation=torch.zeros((1, 4)),
+        logit_opacity=torch.zeros((1,)),
+        feature=torch.ones((1, 1, 3)),
+        sh_degree=0,
+    )
+    state = TrainState(
+        model=InitializedModel(
+            scene=scene,
+            modules={},
+            parameters={},
+        ),
+        step=5,
+        seed=0,
+        device=torch.device("cpu"),
+    )
+    sample = PreparedFrameSample(
+        frame=DatasetFrame(
+            frame_id="frame_0",
+            sensor_id="camera",
+            camera_index=0,
+            width=2,
+            height=2,
+            timestamp_us=0,
+        ),
+        image=torch.zeros((2, 2, 3), dtype=torch.float32),
+        camera=_viewer_test_camera(2, 2),
+    )
+    render_count = 0
+
+    def render_once(model, camera):
+        nonlocal render_count
+        del camera
+        render_count += 1
+        return model.scene.feature[0, 0].expand(2, 2, 3)
+
+    handle = TrainingViewerHandle(config=TrainingViewerConfig())
+    handle._render_fn = render_once
+    handle.update_render_snapshot(state)
+    l1_doubled = TrainingViewMapSpec(
+        key="l1x2",
+        label="L1 x2",
+        fn=lambda context: context.l1_error * 2.0,
+        value_range=(0.0, 2.0),
+    )
+    prediction_rgb = TrainingViewMapSpec(
+        key="prediction_rgb",
+        label="Prediction RGB",
+        fn=lambda context: context.prediction,
+        color="rgb",
+    )
+
+    inspection = handle.inspect_view(
+        sample,
+        value_range=(0.0, 1.0),
+        map_specs=(l1_doubled, prediction_rgb),
+    )
+    cached = handle.inspect_view(
+        sample,
+        value_range=(0.0, 1.0),
+        map_specs=(l1_doubled, prediction_rgb),
+    )
+
+    assert render_count == 1
+    assert cached is inspection
+    assert inspection.available is True
+    assert inspection.render_step == 5
+    assert inspection.target_image.shape == (2, 2, 3)
+    assert inspection.prediction_image.dtype == torch.uint8
+    torch.testing.assert_close(inspection.l1_error, torch.ones((2, 2)))
+    assert inspection.l1_mean == pytest.approx(1.0)
+    assert [result.key for result in inspection.maps] == [
+        "l1x2",
+        "prediction_rgb",
+    ]
+    assert inspection.maps[0].mean_value == pytest.approx(2.0)
+    assert inspection.maps[1].values is None
+
+
+def test_viridis_error_map_clips_to_explicit_range() -> None:
+    colors = viridis_error_map(
+        torch.tensor([[0.0, 0.5, 1.0]], dtype=torch.float32),
+        value_range=(0.25, 0.75),
+    )
+    endpoints = viridis_error_map(
+        torch.tensor([[0.25, 0.75]], dtype=torch.float32),
+        value_range=(0.25, 0.75),
+    )
+
+    assert torch.equal(colors[0, 0], endpoints[0, 0])
+    assert torch.equal(colors[0, 2], endpoints[0, 1])
+    assert colors.dtype == torch.uint8
+
+
+def test_training_viewer_error_map_returns_placeholder_before_snapshot() -> (
+    None
+):
+    sample = PreparedFrameSample(
+        frame=DatasetFrame(
+            frame_id="frame_0",
+            sensor_id="camera",
+            camera_index=0,
+            width=2,
+            height=2,
+            timestamp_us=0,
+        ),
+        image=torch.zeros((2, 2, 3), dtype=torch.float32),
+        camera=_viewer_test_camera(2, 2),
+    )
+    handle = TrainingViewerHandle(config=TrainingViewerConfig())
+
+    error_map = handle.render_view_error_map(sample)
+
+    assert error_map.available is False
+    assert error_map.image.shape == (2, 2, 3)
+    assert torch.equal(
+        error_map.image,
+        torch.full((2, 2, 3), 245, dtype=torch.uint8),
+    )
+    assert torch.equal(error_map.error, torch.zeros((2, 2)))
 
 
 def test_training_viewer_interaction_boost_uses_boost_cadence() -> None:

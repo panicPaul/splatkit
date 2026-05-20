@@ -19,7 +19,17 @@ __all__ = [
     "GaussianMCMC",
     "GaussianMipSplatting3DFilter",
     "GaussianMortonOrdering",
+    "TrainingPreparationHandle",
+    "TrainingPreparationSnapshot",
+    "TrainingViewInspection",
+    "TrainingViewInspector",
+    "TrainingViewInspectorConfig",
+    "TrainingViewInspectorControls",
+    "TrainingViewMapContext",
+    "TrainingViewMapResult",
+    "TrainingViewMapSpec",
     "TrainingViewerConfig",
+    "TrainingViewerErrorMap",
     "TrainingViewerHandle",
     "TrainingViewerHook",
     "TrainingViewerSnapshot",
@@ -27,6 +37,9 @@ __all__ = [
     "active_sh_bases_for_step",
     "add_noise",
     "checkpoint_logs_dir",
+    "create_training_preparation",
+    "create_training_run",
+    "create_training_view_inspector",
     "create_training_viewer",
     "dssim_loss",
     "empty_scalar_frame",
@@ -42,10 +55,15 @@ __all__ = [
     "read_scalar_records",
     "read_scalars",
     "relocation_adjustment",
+    "render_training_preparation_status",
+    "render_training_view_inspector",
     "rgb_l1_dssim_loss",
     "scalar_line_chart",
     "scalar_tags",
     "ssim_score",
+    "training_inspector_spinner",
+    "training_preparation_outputs",
+    "viridis_error_map",
 ]
 
 
@@ -81,11 +99,29 @@ def __getattr__(name: str) -> object:
             return getattr(losses, name)
         case (
             "TrainingViewerConfig"
+            | "TrainingPreparationHandle"
+            | "TrainingPreparationSnapshot"
+            | "TrainingViewInspection"
+            | "TrainingViewInspector"
+            | "TrainingViewInspectorConfig"
+            | "TrainingViewInspectorControls"
+            | "TrainingViewMapContext"
+            | "TrainingViewMapResult"
+            | "TrainingViewMapSpec"
+            | "TrainingViewerErrorMap"
             | "TrainingViewerHandle"
             | "TrainingViewerHook"
             | "TrainingViewerSnapshot"
             | "TrainingViserViewerConfig"
+            | "create_training_preparation"
+            | "create_training_run"
+            | "create_training_view_inspector"
             | "create_training_viewer"
+            | "render_training_view_inspector"
+            | "render_training_preparation_status"
+            | "training_inspector_spinner"
+            | "training_preparation_outputs"
+            | "viridis_error_map"
         ):
             from ember_splatting_training import training_viewer
 

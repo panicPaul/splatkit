@@ -13,10 +13,14 @@ def register() -> None:
     from ember_native_faster_gs.gaussian_pop import (
         register as register_gaussian_pop,
     )
+    from ember_native_faster_gs.gaussian_wrapping import (
+        register as register_gaussian_wrapping,
+    )
 
     register_core()
     register_depth()
     register_gaussian_pop()
+    register_gaussian_wrapping()
     register_fastgs()
 
 

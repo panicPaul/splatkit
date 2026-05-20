@@ -36,7 +36,7 @@ def parse_intersection_outputs(
 
 
 def parse_feature_rasterization_outputs(
-    outputs: tuple[Tensor, Tensor],
+    outputs: tuple[Tensor, Tensor, Tensor],
 ) -> FeatureRasterizationResult:
     """Convert raw feature rasterization outputs into a structured result."""
     return FeatureRasterizationResult.from_tensors(*outputs)

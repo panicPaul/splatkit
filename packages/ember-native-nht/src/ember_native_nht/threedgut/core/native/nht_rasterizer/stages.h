@@ -172,6 +172,7 @@ inline auto rasterize_features_bwd(
     const at::Tensor& render_alphas,
     const at::Tensor& last_ids,
     const at::Tensor& grad_rendered_features,
+    const at::Tensor& grad_feature_square_sums,
     const at::Tensor& grad_rendered_alphas) {
     return gsplat::rasterize_to_pixels_from_world_nht_3dgs_bwd(
         means,
@@ -199,6 +200,7 @@ inline auto rasterize_features_bwd(
         render_alphas,
         last_ids,
         grad_rendered_features,
+        grad_feature_square_sums,
         grad_rendered_alphas);
 }
 

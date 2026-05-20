@@ -8,6 +8,10 @@ from typing import Literal
 import torch
 from beartype import beartype
 from ember_core.core.capabilities import HasAlpha, HasDepth
+from ember_core.core.compaction import (
+    RayCompactionLossMaps,
+    RayCompactionTargets,
+)
 from ember_core.core.contracts import (
     CameraState,
     GaussianScene3D,
@@ -17,6 +21,12 @@ from ember_core.core.contracts import (
 from jaxtyping import Float
 from torch import Tensor
 
+from ember_native_nht.threedgut.core.runtime.ops.rasterize import (
+    rasterize_depth,
+)
+from ember_native_nht.threedgut.core.runtime.ops.render import (
+    render as render_nht_core,
+)
 from ember_native_nht.threedgut.runtime import rasterization_nht
 
 
@@ -173,6 +183,137 @@ def _render_native_features(
     return features, render_alphas.squeeze(-1), depth, visibility, weights
 
 
+def _apply_loss_mask(loss: Tensor, mask: Tensor | None) -> Tensor:
+    if mask is None:
+        return loss
+    return loss * mask.to(device=loss.device, dtype=loss.dtype)
+
+
+@beartype
+def render_nht_3dgut_compaction_losses(
+    scene: GaussianScene3D,
+    camera: CameraState,
+    targets: RayCompactionTargets,
+    *,
+    options: NHT3DGUTRenderOptions | None = None,
+) -> RayCompactionLossMaps:
+    """Render self-supervised NHT feature and optional depth compaction maps."""
+    if targets.rgb is not None:
+        raise ValueError(
+            "nht.3dgut compaction exposes feature_l2, not decoded RGB "
+            "compaction; decoded color is produced after deferred shading."
+        )
+    _validate_inputs(scene, camera)
+    resolved_options = options or NHT3DGUTRenderOptions()
+
+    quaternions = torch.nn.functional.normalize(
+        scene.quaternion_orientation, dim=-1
+    ).contiguous()
+    scales = torch.exp(scene.log_scales).contiguous()
+    opacities = torch.sigmoid(scene.logit_opacity).contiguous()
+    viewmats = torch.linalg.inv(camera.cam_to_world).contiguous()
+    intrinsics = camera.get_intrinsics().contiguous()
+    image_width = int(camera.width[0].item())
+    image_height = int(camera.height[0].item())
+
+    render_result = render_nht_core(
+        center_positions=scene.center_position.contiguous(),
+        quaternions=quaternions,
+        scales=scales,
+        opacities=opacities,
+        features=scene.feature.contiguous(),
+        world_to_camera_matrices=viewmats,
+        camera_intrinsics=intrinsics,
+        image_width=image_width,
+        image_height=image_height,
+        tile_size=resolved_options.tile_size,
+        mip_splatting_screen_filter=(
+            resolved_options.mip_splatting_screen_filter
+        ),
+        render_mode="RGB",
+        near_plane=resolved_options.near_plane,
+        far_plane=resolved_options.far_plane,
+        radius_clip=resolved_options.radius_clip,
+        eps2d=resolved_options.eps2d,
+        camera_model=resolved_options.camera_model,
+        center_ray_mode=resolved_options.center_ray_mode,
+        ray_direction_scale=resolved_options.ray_dir_scale,
+    )
+
+    alpha = render_result.alphas.squeeze(-1).contiguous()
+    feature_sums = render_result.renders[..., :-3].contiguous()
+    feature_square_sums = render_result.feature_square_sums.contiguous()
+    feature_targets = (
+        feature_sums / alpha[..., None].clamp_min(1.0e-10)
+    ).detach()
+    feature_l2 = (
+        feature_square_sums.sum(dim=-1)
+        - 2.0 * (feature_targets * feature_sums).sum(dim=-1)
+        + feature_targets.square().sum(dim=-1) * alpha
+    ).clamp_min(0.0)
+    if targets.mask is not None:
+        feature_l2 = _apply_loss_mask(feature_l2, targets.mask)
+
+    depth_l2 = None
+    if targets.depth is not None:
+        tiled_opacities = opacities.unsqueeze(0).expand(
+            camera.cam_to_world.shape[0], -1
+        ).contiguous()
+        compensations = (
+            render_result.projection.mip_splatting_screen_filter_compensations
+        )
+        if (
+            resolved_options.mip_splatting_screen_filter
+            and compensations is not None
+        ):
+            tiled_opacities = tiled_opacities * compensations
+        primitive_depth = render_result.projection.primitive_depth
+        depth_features = torch.stack(
+            (primitive_depth, primitive_depth.square()),
+            dim=-1,
+        ).contiguous()
+        depth_result = rasterize_depth(
+            center_positions=scene.center_position.contiguous(),
+            quaternions=quaternions,
+            scales=scales,
+            depth_features=depth_features,
+            opacities=tiled_opacities,
+            world_to_camera_matrices=viewmats,
+            camera_intrinsics=intrinsics,
+            image_width=image_width,
+            image_height=image_height,
+            tile_size=resolved_options.tile_size,
+            tile_offsets=render_result.intersections.tile_offsets,
+            instance_primitive_indices=(
+                render_result.intersections.instance_primitive_indices
+            ),
+            camera_model=resolved_options.camera_model,
+        )
+        depth_sum = depth_result.depths[..., 0]
+        depth_square = depth_result.depths[..., 1]
+        target_depth = targets.depth.to(
+            device=depth_sum.device,
+            dtype=depth_sum.dtype,
+        )
+        depth_l2 = (
+            depth_square
+            - 2.0 * target_depth * depth_sum
+            + target_depth.square() * alpha
+        ).clamp_min(0.0)
+        if targets.mask is not None:
+            depth_l2 = _apply_loss_mask(depth_l2, targets.mask)
+
+    return RayCompactionLossMaps(
+        depth_l2=depth_l2,
+        feature_l2=feature_l2,
+        weight_sum=alpha,
+        metadata={
+            "backend": "nht.3dgut",
+            "feature_target": "detached_foreground_mean",
+        },
+    )
+
+
 @beartype
 def render_nht_3dgut(
     scene: GaussianScene3D,
@@ -220,5 +361,6 @@ __all__ = [
     "barycentric_weights",
     "harmonic_encode",
     "render_nht_3dgut",
+    "render_nht_3dgut_compaction_losses",
     "tetrahedron_vertices",
 ]

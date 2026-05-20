@@ -6,6 +6,7 @@ from ember_native_nht.threedgut.renderer import (
     barycentric_weights,
     harmonic_encode,
     render_nht_3dgut,
+    render_nht_3dgut_compaction_losses,
     tetrahedron_vertices,
 )
 
@@ -30,5 +31,6 @@ __all__ = [
     "harmonic_encode",
     "register",
     "render_nht_3dgut",
+    "render_nht_3dgut_compaction_losses",
     "tetrahedron_vertices",
 ]

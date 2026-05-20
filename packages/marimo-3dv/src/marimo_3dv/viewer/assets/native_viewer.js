@@ -12,6 +12,7 @@ export function createInteractiveRevisionScheduler({
   now,
   setTimer,
   clearTimer,
+  clearInteractionActive,
   resetAdaptiveFpsIfStale,
 }) {
   let pendingInteractiveCameraJson = null;
@@ -98,6 +99,7 @@ export function createInteractiveRevisionScheduler({
     ) {
       pendingInteractiveCameraJson = nextJson;
       pendingSettledRender = true;
+      clearInteractionActive();
       return;
     }
     clearInteractiveFlushTimer();
@@ -943,6 +945,11 @@ function render({ model, el }) {
     now: () => performance.now(),
     setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimer: (timerId) => clearTimeout(timerId),
+    clearInteractionActive: () => {
+      model.set("interaction_active", false);
+      model.save_changes();
+      interactionActive = false;
+    },
     resetAdaptiveFpsIfStale,
   });
 
@@ -1578,6 +1585,13 @@ function render({ model, el }) {
     }
     flushAfterInteractiveFrame(revision);
   };
+  const onCompletedRevisionChange = () => {
+    const revision = Number(model.get("_completed_revision"));
+    if (!Number.isFinite(revision) || revision <= 0) {
+      return;
+    }
+    flushAfterInteractiveFrame(revision);
+  };
   const onInteractiveBackpressureConfigChange = () => {
     setEffectiveInteractiveMaxFps(effectiveInteractiveMaxFps);
     interactiveScheduler.onConfigChanged();
@@ -1630,6 +1644,7 @@ function render({ model, el }) {
     model.off("change:frame_packet", onFramePacketChange);
     model.off("change:render_fps", onRenderFpsChange);
     model.off("change:render_revision", onRenderRevisionChange);
+    model.off("change:_completed_revision", onCompletedRevisionChange);
     model.off("change:interactive_backpressure", onInteractiveBackpressureConfigChange);
     model.off("change:interactive_max_fps", onInteractiveBackpressureConfigChange);
     model.off("change:interactive_min_fps", onInteractiveBackpressureConfigChange);
@@ -1664,6 +1679,7 @@ function render({ model, el }) {
   model.on("change:frame_packet", onFramePacketChange);
   model.on("change:render_fps", onRenderFpsChange);
   model.on("change:render_revision", onRenderRevisionChange);
+  model.on("change:_completed_revision", onCompletedRevisionChange);
   model.on("change:interactive_backpressure", onInteractiveBackpressureConfigChange);
   model.on("change:interactive_max_fps", onInteractiveBackpressureConfigChange);
   model.on("change:interactive_min_fps", onInteractiveBackpressureConfigChange);

@@ -35,7 +35,8 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
     const at::Tensor tile_offsets, const at::Tensor flatten_ids,
     bool center_ray_mode, const at::Tensor center_ray_dirs,
     float ray_dir_scale,
-    at::Tensor renders, at::Tensor alphas, at::Tensor last_ids
+    at::Tensor renders, at::Tensor alphas, at::Tensor feature_squares,
+    at::Tensor last_ids
 );
 
 // Backward: gradient math in FP32, color fetches templated for FP16 vectorized loads.
@@ -55,7 +56,9 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
     FThetaCameraDistortionParameters ftheta_coeffs,
     const at::Tensor tile_offsets, const at::Tensor flatten_ids,
     const at::Tensor render_alphas, const at::Tensor last_ids,
-    const at::Tensor v_render_colors, const at::Tensor v_render_alphas,
+    const at::Tensor v_render_colors,
+    const at::Tensor v_render_feature_squares,
+    const at::Tensor v_render_alphas,
     at::Tensor v_means, at::Tensor v_quats, at::Tensor v_scales,
     at::Tensor v_colors, at::Tensor v_opacities
 );

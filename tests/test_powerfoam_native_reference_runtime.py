@@ -353,6 +353,27 @@ def test_powerfoam_rasterize_forward_backward_matches_reference() -> None:
         torch.testing.assert_close(native_output, reference_output)
     torch.testing.assert_close(native_outputs[8], reference_outputs[8])
 
+    noncontiguous_grad_color = torch.randn(
+        (3, height, width),
+        dtype=torch.float32,
+        device=device,
+    ).permute(1, 2, 0)
+    assert noncontiguous_grad_color.shape == native_outputs[0].shape
+    assert not noncontiguous_grad_color.is_contiguous()
+    assert noncontiguous_grad_color.stride(-1) != 1
+    native_outputs[0].backward(noncontiguous_grad_color, retain_graph=True)
+    torch.cuda.synchronize()
+    for native_parameter in (
+        native_points,
+        native_radii,
+        native_density,
+        native_normals,
+        native_texel_sites,
+        native_texel_rgb,
+        native_texel_height,
+    ):
+        native_parameter.grad = None
+
     reference_loss = (
         reference_outputs[0].square().mean()
         + reference_outputs[1].mean()

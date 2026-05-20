@@ -68,6 +68,7 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
     const float *__restrict__ render_alphas,
     const int32_t *__restrict__ last_ids,
     const float *__restrict__ v_render_colors,
+    const float *__restrict__ v_render_feature_squares,
     const float *__restrict__ v_render_alphas,
     vec3 *__restrict__ v_means,
     vec4 *__restrict__ v_quats,
@@ -89,6 +90,7 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
     render_alphas += iid * image_height * image_width;
     last_ids += iid * image_height * image_width;
     v_render_colors += iid * image_height * image_width * OUT_CHANNELS;
+    v_render_feature_squares += iid * image_height * image_width * OUT_CHANNELS;
     v_render_alphas += iid * image_height * image_width;
     if (backgrounds != nullptr) backgrounds += iid * OUT_CHANNELS;
     if (masks != nullptr) masks += iid * tile_height * tile_width;
@@ -168,12 +170,15 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
     float T_final = 1.0f - render_alphas[pix_id];
     float T = T_final;
     float buffer[OUT_DIM] = {0.f};
+    float square_buffer[OUT_DIM] = {0.f};
     const int32_t bin_final = done ? last_ids[pix_id] : 0;
 
     float v_render_c[OUT_DIM];
+    float v_render_square[OUT_DIM];
     #pragma unroll
     for (uint32_t k = 0; k < OUT_DIM; ++k) {
         v_render_c[k] = v_render_colors[pix_id * OUT_DIM + k];
+        v_render_square[k] = v_render_feature_squares[pix_id * OUT_DIM + k];
     }
     const float v_render_a = v_render_alphas[pix_id];
 
@@ -302,8 +307,14 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
                     for (uint32_t freq = 0; freq < NUM_ENCODING_FREQUENCIES; ++freq) {
                         float d_sin, d_cos;
                         harmonic_encoding_bwd(bv, freq, d_sin, d_cos);
-                        v_f_interp_local[k] = fmaf(fac * d_sin, v_render_c[FREQ_IDX(k, 2 * freq)], v_f_interp_local[k]);
-                        v_f_interp_local[k] = fmaf(fac * d_cos, v_render_c[FREQ_IDX(k, 2 * freq + 1)], v_f_interp_local[k]);
+                        float s, c;
+                        harmonic_encoding_fwd(bv, freq, s, c);
+                        const uint32_t s_idx = FREQ_IDX(k, 2 * freq);
+                        const uint32_t c_idx = FREQ_IDX(k, 2 * freq + 1);
+                        const float v_s = fmaf(2.f * s, v_render_square[s_idx], v_render_c[s_idx]);
+                        const float v_c = fmaf(2.f * c, v_render_square[c_idx], v_render_c[c_idx]);
+                        v_f_interp_local[k] = fmaf(fac * d_sin, v_s, v_f_interp_local[k]);
+                        v_f_interp_local[k] = fmaf(fac * d_cos, v_c, v_f_interp_local[k]);
                     }
                 }
 
@@ -331,8 +342,12 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
                     for (uint32_t freq = 0; freq < NUM_ENCODING_FREQUENCIES; ++freq) {
                         float s, c;
                         harmonic_encoding_fwd(bv, freq, s, c);
-                        v_alpha = fmaf(fmaf(s, T, -buffer[FREQ_IDX(k, 2 * freq)] * ra), v_render_c[FREQ_IDX(k, 2 * freq)], v_alpha);
-                        v_alpha = fmaf(fmaf(c, T, -buffer[FREQ_IDX(k, 2 * freq + 1)] * ra), v_render_c[FREQ_IDX(k, 2 * freq + 1)], v_alpha);
+                        const uint32_t s_idx = FREQ_IDX(k, 2 * freq);
+                        const uint32_t c_idx = FREQ_IDX(k, 2 * freq + 1);
+                        v_alpha = fmaf(fmaf(s, T, -buffer[s_idx] * ra), v_render_c[s_idx], v_alpha);
+                        v_alpha = fmaf(fmaf(c, T, -buffer[c_idx] * ra), v_render_c[c_idx], v_alpha);
+                        v_alpha = fmaf(fmaf(s * s, T, -square_buffer[s_idx] * ra), v_render_square[s_idx], v_alpha);
+                        v_alpha = fmaf(fmaf(c * c, T, -square_buffer[c_idx] * ra), v_render_square[c_idx], v_alpha);
                     }
                 }
                 v_alpha = fmaf(T_final * ra, v_render_a, v_alpha);
@@ -380,8 +395,12 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
                     for (uint32_t freq = 0; freq < NUM_ENCODING_FREQUENCIES; ++freq) {
                         float s, c;
                         harmonic_encoding_fwd(bv, freq, s, c);
-                        buffer[FREQ_IDX(k, 2 * freq)] = fmaf(s, fac, buffer[FREQ_IDX(k, 2 * freq)]);
-                        buffer[FREQ_IDX(k, 2 * freq + 1)] = fmaf(c, fac, buffer[FREQ_IDX(k, 2 * freq + 1)]);
+                        const uint32_t s_idx = FREQ_IDX(k, 2 * freq);
+                        const uint32_t c_idx = FREQ_IDX(k, 2 * freq + 1);
+                        buffer[s_idx] = fmaf(s, fac, buffer[s_idx]);
+                        buffer[c_idx] = fmaf(c, fac, buffer[c_idx]);
+                        square_buffer[s_idx] = fmaf(s * s, fac, square_buffer[s_idx]);
+                        square_buffer[c_idx] = fmaf(c * c, fac, square_buffer[c_idx]);
                     }
                 }
             }
@@ -450,6 +469,7 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
     const at::Tensor render_alphas,
     const at::Tensor last_ids,
     const at::Tensor v_render_colors,
+    const at::Tensor v_render_feature_squares,
     const at::Tensor v_render_alphas,
     at::Tensor v_means,
     at::Tensor v_quats,
@@ -519,6 +539,7 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
             render_alphas.data_ptr<float>(),
             last_ids.data_ptr<int32_t>(),
             v_render_colors.data_ptr<float>(),
+            v_render_feature_squares.data_ptr<float>(),
             v_render_alphas.data_ptr<float>(),
             reinterpret_cast<vec3 *>(v_means.data_ptr<float>()),
             reinterpret_cast<vec4 *>(v_quats.data_ptr<float>()),
@@ -539,7 +560,7 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_bwd_kernel(
         const at::optional<at::Tensor>, FThetaCameraDistortionParameters,      \
         const at::Tensor, const at::Tensor,                                    \
         const at::Tensor, const at::Tensor,                                    \
-        const at::Tensor, const at::Tensor,                                    \
+        const at::Tensor, const at::Tensor, const at::Tensor,                  \
         at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor);
 
 __INS__(4, at::Half) __INS__(8, at::Half) __INS__(12, at::Half)

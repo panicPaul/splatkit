@@ -159,6 +159,7 @@ def render(
     return RenderResult(
         renders=rendered_features,
         alphas=feature_result.alphas,
+        feature_square_sums=feature_result.feature_square_sums,
         projection=projection,
         intersections=intersections,
     )

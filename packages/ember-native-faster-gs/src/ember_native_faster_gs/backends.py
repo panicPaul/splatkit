@@ -24,6 +24,10 @@ from ember_native_faster_gs.gaussian_pop.renderer import (
     GaussianPopNativeRenderOptions,
     GaussianPopNativeRenderOutput,
 )
+from ember_native_faster_gs.gaussian_wrapping.renderer import (
+    GaussianWrappingNativeRenderOptions,
+    GaussianWrappingNativeRenderOutput,
+)
 
 FASTER_GS_CORE: Final[
     BackendRef[
@@ -75,4 +79,17 @@ FASTER_GS_GAUSSIAN_POP: Final[
     scene_type=GaussianScene3D,
     options_type=GaussianPopNativeRenderOptions,
     output_type=GaussianPopNativeRenderOutput,
+)
+
+FASTER_GS_GAUSSIAN_WRAPPING: Final[
+    BackendRef[
+        GaussianScene3D,
+        GaussianWrappingNativeRenderOptions,
+        GaussianWrappingNativeRenderOutput,
+    ]
+] = BackendRef(
+    id=BackendId("faster_gs", "gaussian_wrapping"),
+    scene_type=GaussianScene3D,
+    options_type=GaussianWrappingNativeRenderOptions,
+    output_type=GaussianWrappingNativeRenderOutput,
 )

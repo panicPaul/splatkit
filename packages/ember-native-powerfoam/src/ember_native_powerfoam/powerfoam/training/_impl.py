@@ -367,6 +367,17 @@ def _empty_topology(
     )
 
 
+def _resolve_powerfoam_attr_dtype(
+    attr_dtype: torch.dtype | Literal["float", "half"],
+) -> torch.dtype:
+    """Resolve serializable PowerFoam attribute dtype config."""
+    if attr_dtype == "float":
+        return torch.float32
+    if attr_dtype == "half":
+        return torch.float16
+    return attr_dtype
+
+
 def initialize_powerfoam_scene_from_scene_record(
     scene_record: SceneRecord,
     *,
@@ -376,11 +387,12 @@ def initialize_powerfoam_scene_from_scene_record(
     render_objective: Literal["volume", "surface"] = "volume",
     sv_dof: int = 8,
     num_texel_sites: int = 8,
-    attr_dtype: torch.dtype = torch.float32,
+    attr_dtype: torch.dtype | Literal["float", "half"] = torch.float32,
     seed: int | None = 0,
 ) -> PowerFoamScene:
     """Build a PowerFoamScene from an Ember scene record."""
     target_device = torch.device(device)
+    resolved_attr_dtype = _resolve_powerfoam_attr_dtype(attr_dtype)
     camera = scene_record.camera.to(target_device)
     generator = _make_generator(target_device, seed)
     if init_type == "sfm":
@@ -407,40 +419,40 @@ def initialize_powerfoam_scene_from_scene_record(
     else:
         raise ValueError(f"Unknown PowerFoam init_type {init_type!r}.")
 
-    points = init_points_tensor.to(dtype=attr_dtype)
-    radii = _initial_radii(points.float(), camera).to(dtype=attr_dtype)
+    points = init_points_tensor.to(dtype=resolved_attr_dtype)
+    radii = _initial_radii(points.float(), camera).to(dtype=resolved_attr_dtype)
     quaternions = torch.randn(
         (points.shape[0], 4),
-        dtype=attr_dtype,
+        dtype=resolved_attr_dtype,
         device=target_device,
         generator=generator,
     )
     quaternions = quaternions / quaternions.norm(dim=-1, keepdim=True)
     density = torch.ones(
         points.shape[0],
-        dtype=attr_dtype,
+        dtype=resolved_attr_dtype,
         device=target_device,
     ) * 1e-1
     texel_sites = torch.randn(
         (points.shape[0], num_texel_sites, 2),
-        dtype=attr_dtype,
+        dtype=resolved_attr_dtype,
         device=target_device,
         generator=generator,
     ) * 0.1
     texel_sv_axis = torch.randn(
         (points.shape[0], num_texel_sites, 3 * sv_dof),
-        dtype=attr_dtype,
+        dtype=resolved_attr_dtype,
         device=target_device,
         generator=generator,
     ) * 2.0
     texel_sv_rgb = torch.zeros(
         (points.shape[0], num_texel_sites, 3 * sv_dof),
-        dtype=attr_dtype,
+        dtype=resolved_attr_dtype,
         device=target_device,
     )
     texel_height = torch.zeros(
         (points.shape[0], num_texel_sites),
-        dtype=attr_dtype,
+        dtype=resolved_attr_dtype,
         device=target_device,
     )
     topology = (
@@ -462,7 +474,7 @@ def initialize_powerfoam_scene_from_scene_record(
         sv_dof=sv_dof,
         num_texel_sites=num_texel_sites,
         render_objective=render_objective,
-        attr_dtype="half" if attr_dtype == torch.float16 else "float",
+        attr_dtype="half" if resolved_attr_dtype == torch.float16 else "float",
     )
 
 
@@ -488,6 +500,26 @@ def initialize_powerfoam_model_from_scene_record(
     )
 
 
+def _powerfoam_scheduled_loss_weight(
+    initial_weight: float,
+    *,
+    step: int,
+    max_steps: int | None,
+    final_scale: float,
+) -> float:
+    """Return PowerFoam's upstream exponential regularizer schedule."""
+    if initial_weight <= 0.0:
+        return 0.0
+    if max_steps is None or max_steps <= 0:
+        return initial_weight
+    bounded_step = min(max(step, 0), max_steps)
+    t = bounded_step / float(max_steps)
+    final_weight = initial_weight * final_scale
+    return math.exp(
+        math.log(initial_weight) * (1.0 - t) + math.log(final_weight) * t
+    )
+
+
 def powerfoam_training_loss(
     state: Any,
     batch: Any,
@@ -499,9 +531,27 @@ def powerfoam_training_loss(
     weights = dict(weights or {})
     rgb_weight = float(weights.get("rgb", 1.0))
     ssim_weight = float(weights.get("ssim", 0.2))
-    normal_weight = float(weights.get("normal", 0.0))
-    contribution_weight = float(weights.get("contribution", 0.0))
-    interpenetration_weight = float(weights.get("interpenetration", 0.0))
+    max_steps_value = weights.get("max_steps")
+    max_steps = int(max_steps_value) if max_steps_value is not None else None
+    step = int(getattr(state, "step", 0))
+    normal_weight = _powerfoam_scheduled_loss_weight(
+        float(weights.get("normal", 0.0)),
+        step=step,
+        max_steps=max_steps,
+        final_scale=1e-1,
+    )
+    contribution_weight = _powerfoam_scheduled_loss_weight(
+        float(weights.get("contribution", 0.0)),
+        step=step,
+        max_steps=max_steps,
+        final_scale=1e-3,
+    )
+    interpenetration_weight = _powerfoam_scheduled_loss_weight(
+        float(weights.get("interpenetration", 0.0)),
+        step=step,
+        max_steps=max_steps,
+        final_scale=1e-3,
+    )
     predicted = render_output.render
     target = batch.images.to(device=predicted.device, dtype=predicted.dtype)
     rgb_loss = F.mse_loss(predicted, target, reduction="none").sum(dim=-1).mean()
@@ -523,6 +573,7 @@ def powerfoam_training_loss(
         loss = loss + normal_weight * normal_loss
         metrics["loss"] = loss
         metrics["normal_loss"] = float(normal_loss.detach().item())
+        metrics["normal_weight"] = normal_weight
     if contribution_weight and render_output.contrib is not None:
         contribution_loss = render_output.contrib.sum()
         loss = loss + contribution_weight * contribution_loss
@@ -530,6 +581,7 @@ def powerfoam_training_loss(
         metrics["contribution_loss"] = float(
             contribution_loss.detach().item()
         )
+        metrics["contribution_weight"] = contribution_weight
     if interpenetration_weight:
         scene = state.model.scene
         if isinstance(scene, PowerFoamScene):
@@ -539,6 +591,7 @@ def powerfoam_training_loss(
             metrics["interpenetration_loss"] = float(
                 interpenetration_loss.detach().item()
             )
+            metrics["interpenetration_weight"] = interpenetration_weight
     return metrics
 
 

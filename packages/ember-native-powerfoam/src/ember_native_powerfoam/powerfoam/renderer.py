@@ -143,6 +143,7 @@ def _render_single_powerfoam(
         camera,
         camera_index,
         device=device,
+        build_ray_maps=not args.is_pinhole,
     )
     radii = powerfoam_radii(scene, beta=options.radii_beta)
     density = powerfoam_density(scene, beta=options.density_beta)

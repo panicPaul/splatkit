@@ -10,7 +10,12 @@ import numpy as np
 import torch
 
 from ember_core.core.contracts import CameraState
-from ember_core.viewer.contracts import ViewerBackend, ViewerMode, ViewerState
+from ember_core.viewer.contracts import (
+    Marimo3DVViewerConfig,
+    ViewerBackend,
+    ViewerMode,
+    ViewerState,
+)
 
 
 @dataclass(frozen=True)
@@ -108,17 +113,55 @@ def _to_native_camera(camera: CameraState) -> Any:
     )
 
 
-def _to_native_viewer_state(state: ViewerState) -> Any:
+def _to_native_viewer_state(
+    state: ViewerState,
+    *,
+    config: Marimo3DVViewerConfig | None = None,
+) -> Any:
     """Build a marimo-3dv viewer state lazily."""
     from marimo_3dv.viewer.widget import ViewerState as NativeViewerState
 
     payload = camera_to_viewer_payload(state.camera)
     aspect_ratio = payload.width / payload.height
-    return NativeViewerState(
-        camera_state=_to_native_camera(state.camera),
-        camera_convention=payload.camera_convention,
-        aspect_ratio=aspect_ratio,
-    )
+    kwargs: dict[str, Any] = {
+        "camera_state": _to_native_camera(state.camera),
+        "camera_convention": payload.camera_convention,
+        "aspect_ratio": aspect_ratio,
+    }
+    if config is not None:
+        if config.interactive_quality is not None:
+            kwargs["interactive_quality"] = config.interactive_quality
+        if config.settled_quality is not None:
+            kwargs["settled_quality"] = config.settled_quality
+        if config.internal_render_max_side is not None:
+            kwargs["internal_render_max_side"] = (
+                config.internal_render_max_side
+            )
+        if config.interactive_max_side is not None:
+            kwargs["interactive_max_side"] = config.interactive_max_side
+        if config.interactive_backpressure is not None:
+            kwargs["interactive_backpressure"] = (
+                config.interactive_backpressure
+            )
+        if config.interactive_max_fps is not None:
+            kwargs["interactive_max_fps"] = config.interactive_max_fps
+        if config.interactive_min_fps is not None:
+            kwargs["interactive_min_fps"] = config.interactive_min_fps
+        if config.interactive_latency_target_ms is not None:
+            kwargs["interactive_latency_target_ms"] = (
+                config.interactive_latency_target_ms
+            )
+        if config.interactive_probe_interval_s is not None:
+            kwargs["interactive_probe_interval_s"] = (
+                config.interactive_probe_interval_s
+            )
+        if config.interactive_reset_interval_s is not None:
+            kwargs["interactive_reset_interval_s"] = (
+                config.interactive_reset_interval_s
+            )
+        if config.transport_mode is not None:
+            kwargs["transport_mode"] = config.transport_mode
+    return NativeViewerState(**kwargs)
 
 
 def launch_viewer(
@@ -127,6 +170,7 @@ def launch_viewer(
     state: ViewerState,
     controls: Any | None = None,
     backend: ViewerBackend = "marimo_3dv",
+    marimo_3dv_config: Marimo3DVViewerConfig | None = None,
     viser_server_config: Any | None = None,
     viser_render_config: Any | None = None,
 ) -> Any:
@@ -169,7 +213,10 @@ def launch_viewer(
 
     from marimo_3dv.viewer import Viewer as NativeViewer
 
-    native_state = _to_native_viewer_state(state)
+    native_state = _to_native_viewer_state(
+        state,
+        config=marimo_3dv_config,
+    )
 
     def native_render_fn(native_camera: Any) -> Any:
         payload = ViewerCameraPayload(

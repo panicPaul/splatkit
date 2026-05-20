@@ -53,6 +53,7 @@ def powerfoam_camera_from_camera_state(
     *,
     device: torch.device | None = None,
     fov_cos_cutoff: float | None = None,
+    build_ray_maps: bool = True,
 ) -> TorchCamera:
     """Convert a single Ember camera entry to upstream PowerFoam TorchCamera."""
     if camera.camera_convention != "opencv":
@@ -81,10 +82,18 @@ def powerfoam_camera_from_camera_state(
         up=up,
         width=width,
         height=height,
-        ray_maps=powerfoam_ray_maps(
-            camera,
-            camera_index,
-            device=target_device,
+        ray_maps=(
+            powerfoam_ray_maps(
+                camera,
+                camera_index,
+                device=target_device,
+            )
+            if build_ray_maps
+            else torch.empty(
+                (1, 1, 6),
+                dtype=torch.float32,
+                device=target_device,
+            )
         ),
         fov_cos_cutoff=fov_cos_cutoff,
     )

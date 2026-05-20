@@ -717,6 +717,7 @@ def test_latest_only_renderer_drops_stale_results() -> None:
     started_first = threading.Event()
     release_first = threading.Event()
     published: list[tuple[int, int]] = []
+    completed_without_frame: list[int] = []
 
     def render_fn(camera_state: CameraState) -> np.ndarray:
         if camera_state.width == 10:
@@ -747,6 +748,7 @@ def test_latest_only_renderer_drops_stale_results() -> None:
         publish_frame=publish_frame,
         publish_error=lambda revision, error, message: None,
         complete_revision=lambda revision, error: None,
+        complete_revision_without_frame=completed_without_frame.append,
         set_rendering=lambda value: None,
     )
 
@@ -756,6 +758,7 @@ def test_latest_only_renderer_drops_stale_results() -> None:
     release_first.set()
 
     _wait_until(lambda: published == [(2, 20)])
+    assert 1 in completed_without_frame
 
 
 def test_latest_only_renderer_unsets_rendering_after_error() -> None:
@@ -773,6 +776,7 @@ def test_latest_only_renderer_unsets_rendering_after_error() -> None:
             (revision, message)
         ),
         complete_revision=lambda revision, error: None,
+        complete_revision_without_frame=lambda revision: None,
         set_rendering=lambda value: rendering_states.append(value),
     )
 
@@ -783,6 +787,17 @@ def test_latest_only_renderer_unsets_rendering_after_error() -> None:
     assert errors[0][0] == 1
     assert "RuntimeError: boom" in errors[0][1]
     assert rendering_states[-1] is False
+
+
+def test_marimo_viewer_publishes_no_frame_revision_completion() -> None:
+    viewer = marimo_viewer(
+        lambda state: np.zeros((state.height, state.width, 3), dtype=np.uint8)
+    )
+
+    viewer._complete_revision_without_frame(7)
+
+    assert viewer.anywidget()._completed_revision == 7
+    assert viewer._completed_revisions[7] is None
 
 
 def test_marimo_viewer_set_camera_state_updates_widget_state() -> None:
@@ -1132,6 +1147,7 @@ def test_latest_only_renderer_close_stops_worker() -> None:
         publish_frame=lambda *args: None,
         publish_error=lambda revision, error, message: None,
         complete_revision=lambda revision, error: None,
+        complete_revision_without_frame=lambda revision: None,
         set_rendering=lambda value: None,
     )
 

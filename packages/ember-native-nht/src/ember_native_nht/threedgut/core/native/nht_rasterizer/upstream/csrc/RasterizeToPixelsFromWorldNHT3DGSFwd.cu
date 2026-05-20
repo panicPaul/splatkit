@@ -72,6 +72,7 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
     const float ray_dir_scale,                 // tcnn mapping: (v*scale+1)/2
     float *__restrict__ render_colors,
     float *__restrict__ render_alphas,
+    float *__restrict__ render_feature_squares,
     int32_t *__restrict__ last_ids
 ) {
     const auto block      = cg::this_thread_block();
@@ -86,6 +87,7 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
 
     tile_offsets  += iid * tile_height * tile_width;
     render_colors += iid * image_height * image_width * PIXEL_STRIDE;
+    render_feature_squares += iid * image_height * image_width * FEAT_OUT;
     render_alphas += iid * image_height * image_width;
     last_ids += iid * image_height * image_width;
     if (backgrounds != nullptr) backgrounds += iid * FEAT_OUT;
@@ -151,6 +153,7 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
         for (uint32_t k = 0; k < FEAT_OUT; ++k) {
             render_colors[pix_id * PIXEL_STRIDE + k] =
                 (backgrounds == nullptr) ? 0.0f : static_cast<float>(backgrounds[k]);
+            render_feature_squares[pix_id * FEAT_OUT + k] = 0.0f;
         }
         render_colors[pix_id * PIXEL_STRIDE + FEAT_OUT + 0] = 0.0f;
         render_colors[pix_id * PIXEL_STRIDE + FEAT_OUT + 1] = 0.0f;
@@ -175,7 +178,9 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
 
     constexpr uint32_t OUT_DIM = constexpr_max(1U, CDIM * ENCF / 4);
     float pix_out[OUT_DIM] = {0.f};
+    float pix_square_out[OUT_DIM] = {0.f};
 #define ACC_ADD(idx, val, vis) do { acc_add_float(pix_out[idx], val, vis); } while(0)
+#define ACC_SQUARE_ADD(idx, val, vis) do { acc_add_float(pix_square_out[idx], (val) * (val), vis); } while(0)
 
     for (uint32_t b = 0; b < num_batches; ++b) {
         if (__syncthreads_count(done) >= block_size) break;
@@ -256,6 +261,8 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
                                 harmonic_encoding_fwd(acc[ii], freq, s, c);
                                 ACC_ADD(FREQ_IDX(k + ii, 2 * freq),     s, vis);
                                 ACC_ADD(FREQ_IDX(k + ii, 2 * freq + 1), c, vis);
+                                ACC_SQUARE_ADD(FREQ_IDX(k + ii, 2 * freq),     s, vis);
+                                ACC_SQUARE_ADD(FREQ_IDX(k + ii, 2 * freq + 1), c, vis);
                             }
                         }
                     }
@@ -278,6 +285,8 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
                                 harmonic_encoding_fwd(acc[ii], freq, s, c);
                                 ACC_ADD(FREQ_IDX(k + ii, 2 * freq),     s, vis);
                                 ACC_ADD(FREQ_IDX(k + ii, 2 * freq + 1), c, vis);
+                                ACC_SQUARE_ADD(FREQ_IDX(k + ii, 2 * freq),     s, vis);
+                                ACC_SQUARE_ADD(FREQ_IDX(k + ii, 2 * freq + 1), c, vis);
                             }
                         }
                     }
@@ -294,6 +303,8 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
                             harmonic_encoding_fwd(bv, freq, s, c);
                             ACC_ADD(FREQ_IDX(k, 2 * freq),     s, vis);
                             ACC_ADD(FREQ_IDX(k, 2 * freq + 1), c, vis);
+                            ACC_SQUARE_ADD(FREQ_IDX(k, 2 * freq),     s, vis);
+                            ACC_SQUARE_ADD(FREQ_IDX(k, 2 * freq + 1), c, vis);
                         }
                     }
                 }
@@ -304,6 +315,7 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
         }
     }
 #undef ACC_ADD
+#undef ACC_SQUARE_ADD
 
     if (inside) {
         render_alphas[pix_id] = 1.0f - T;
@@ -317,6 +329,7 @@ __global__ void rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
                 const uint32_t ii = k * ENCF + f;
                 render_colors[pix_base + ii] = (backgrounds != nullptr)
                     ? fmaf(T, static_cast<float>(backgrounds[ii]), pix_out[ii]) : pix_out[ii];
+                render_feature_squares[pix_id * FEAT_OUT + ii] = pix_square_out[ii];
             }
         }
 
@@ -371,6 +384,7 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
     float ray_dir_scale,
     at::Tensor renders,
     at::Tensor alphas,
+    at::Tensor feature_squares,
     at::Tensor last_ids
 ) {
     bool packed = opacities.dim() == 1;
@@ -435,6 +449,7 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
             ray_dir_scale,
             renders.data_ptr<float>(),
             alphas.data_ptr<float>(),
+            feature_squares.data_ptr<float>(),
             last_ids.data_ptr<int32_t>());
 }
 
@@ -451,7 +466,7 @@ void launch_rasterize_to_pixels_from_world_nht_3dgs_fwd_kernel(
         const at::optional<at::Tensor>, FThetaCameraDistortionParameters,      \
         const at::Tensor, const at::Tensor,                                    \
         bool, const at::Tensor, float,                                         \
-        at::Tensor, at::Tensor, at::Tensor);                                    \
+        at::Tensor, at::Tensor, at::Tensor, at::Tensor);                       \
 
 __INS__(4, at::Half) __INS__(8, at::Half) __INS__(12, at::Half)
 __INS__(16, at::Half) __INS__(20, at::Half) __INS__(24, at::Half)

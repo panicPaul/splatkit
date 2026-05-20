@@ -205,7 +205,7 @@ class _RasterizeFeatures(torch.autograd.Function):
         camera_model: CameraModelName,
         center_ray_mode: bool,
         ray_direction_scale: float,
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         native_camera_model = camera_model_type(camera_model)
         native_unscented_transform_parameters = (
             default_unscented_transform_parameters()
@@ -213,7 +213,7 @@ class _RasterizeFeatures(torch.autograd.Function):
         native_shutter_type = global_shutter_type()
         native_ftheta_parameters = default_ftheta_distortion_parameters()
 
-        rendered_features, rendered_alphas, last_gaussian_ids = (
+        rendered_features, rendered_alphas, feature_square_sums, last_gaussian_ids = (
             backend().rasterize_features_fwd(
                 center_positions,
                 quaternions,
@@ -266,13 +266,14 @@ class _RasterizeFeatures(torch.autograd.Function):
         )
         context.native_shutter_type = native_shutter_type
         context.native_ftheta_parameters = native_ftheta_parameters
-        return rendered_features, rendered_alphas
+        return rendered_features, rendered_alphas, feature_square_sums
 
     @staticmethod
     def backward(
         context: Any,
         grad_rendered_features: Tensor,
         grad_rendered_alphas: Tensor,
+        grad_feature_square_sums: Tensor,
     ) -> tuple[Any, ...]:
         (
             center_positions,
@@ -295,6 +296,11 @@ class _RasterizeFeatures(torch.autograd.Function):
         grad_feature_channels = (
             grad_rendered_features[..., :-3].contiguous().float()
         )
+        if grad_feature_square_sums is None:
+            grad_feature_square_sums = torch.zeros_like(
+                grad_rendered_features[..., :-3]
+            )
+        grad_feature_square_sums = grad_feature_square_sums.contiguous().float()
         (
             grad_center_positions,
             grad_quaternions,
@@ -327,6 +333,7 @@ class _RasterizeFeatures(torch.autograd.Function):
             rendered_alphas,
             last_gaussian_ids,
             grad_feature_channels,
+            grad_feature_square_sums,
             grad_rendered_alphas.contiguous(),
         )
 
@@ -556,26 +563,28 @@ def rasterize_features(
     padded_features, padded_backgrounds, original_output_channel_count, _ = (
         _pad_nht_feature_channels(features, backgrounds)
     )
-    rendered_features, rendered_alphas = _RasterizeFeatures.apply(
-        center_positions.contiguous(),
-        quaternions.contiguous(),
-        scales.contiguous(),
-        padded_features.contiguous(),
-        opacities.contiguous(),
-        padded_backgrounds.contiguous()
-        if padded_backgrounds is not None
-        else None,
-        masks.contiguous() if masks is not None else None,
-        world_to_camera_matrices.contiguous(),
-        camera_intrinsics.contiguous(),
-        image_width,
-        image_height,
-        tile_size,
-        tile_offsets.contiguous(),
-        instance_primitive_indices.contiguous(),
-        camera_model,
-        center_ray_mode,
-        ray_direction_scale,
+    rendered_features, rendered_alphas, feature_square_sums = (
+        _RasterizeFeatures.apply(
+            center_positions.contiguous(),
+            quaternions.contiguous(),
+            scales.contiguous(),
+            padded_features.contiguous(),
+            opacities.contiguous(),
+            padded_backgrounds.contiguous()
+            if padded_backgrounds is not None
+            else None,
+            masks.contiguous() if masks is not None else None,
+            world_to_camera_matrices.contiguous(),
+            camera_intrinsics.contiguous(),
+            image_width,
+            image_height,
+            tile_size,
+            tile_offsets.contiguous(),
+            instance_primitive_indices.contiguous(),
+            camera_model,
+            center_ray_mode,
+            ray_direction_scale,
+        )
     )
 
     ray_direction_features = rendered_features[..., -3:]
@@ -584,12 +593,15 @@ def rasterize_features(
         rendered_vertex_features = rendered_vertex_features[
             ..., :original_output_channel_count
         ]
+        feature_square_sums = feature_square_sums[
+            ..., :original_output_channel_count
+        ]
     rendered_features = torch.cat(
         [rendered_vertex_features, ray_direction_features],
         dim=-1,
     )
     return parse_feature_rasterization_outputs(
-        (rendered_features, rendered_alphas)
+        (rendered_features, rendered_alphas, feature_square_sums)
     )
 
 

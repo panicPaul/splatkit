@@ -3,9 +3,12 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import ember_core as ember
+import numpy as np
+import torch
 from marimo_config_gui.api import load_script_config
 from marimo_config_gui.presets import load_preset_config
 
@@ -52,6 +55,60 @@ def load_svraster_config_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@dataclass(frozen=True)
+class _MemoryImageSource:
+    images: dict[str, np.ndarray]
+
+    def load_rgb(self, frame: ember.DatasetFrame) -> np.ndarray:
+        return self.images[frame.frame_id]
+
+
+def _build_svraster_test_scene_record() -> ember.SceneRecord:
+    frames = tuple(
+        ember.DatasetFrame(
+            frame_id=f"frame_{index}",
+            sensor_id="camera",
+            camera_index=index,
+            width=4,
+            height=3,
+            timestamp_us=index,
+        )
+        for index in range(4)
+    )
+    images = {
+        frame.frame_id: np.full((3, 4, 3), index * 16, dtype=np.uint8)
+        for index, frame in enumerate(frames)
+    }
+    return ember.SceneRecord(
+        sensors=(
+            ember.CameraSensorDataset(
+                sensor_id="camera",
+                kind="camera",
+                frames=frames,
+                timestamps_us=tuple(range(4)),
+                camera=ember.CameraState(
+                    width=torch.full((4,), 4, dtype=torch.int64),
+                    height=torch.full((4,), 3, dtype=torch.int64),
+                    fov_degrees=torch.full((4,), 60.0, dtype=torch.float32),
+                    cam_to_world=torch.eye(4, dtype=torch.float32).repeat(
+                        4,
+                        1,
+                        1,
+                    ),
+                    intrinsics=torch.tensor(
+                        [[[2.0, 0.0, 2.0], [0.0, 2.0, 1.5], [0.0, 0.0, 1.0]]]
+                        * 4,
+                        dtype=torch.float32,
+                    ),
+                ),
+                image_source=_MemoryImageSource(images),
+            ),
+        ),
+        source_format="ncore",
+        default_camera_sensor_id="camera",
+    )
 
 
 def test_svraster_training_package_recipe_targets_native_sparse_adam() -> None:
@@ -478,6 +535,41 @@ def test_svraster_prepared_frame_dataset_config_uses_resized_cache() -> None:
     assert dataset_config.materialization.num_workers == 8
 
 
+def test_svraster_view_catalog_preserves_selected_training_split() -> None:
+    module = load_svraster_config_module()
+    config = load_svraster_preset(module, "garden_debug_val")
+    config.data.cache_resized_images = False
+    config.data.image_scale_factor = 1.0
+    config.data.split_target = "val"
+    config.data.split_every_n = 2
+    config.data.materialization_mode = "lazy"
+    config.data.materialization_num_workers = 0
+    scene_record = _build_svraster_test_scene_record()
+
+    catalog = module.build_svraster_frame_view_catalog(config, scene_record)
+
+    assert catalog.training_split == "val"
+    assert catalog.training_dataset.indices == (0, 2)
+    assert [view.source_index for view in catalog.views("train")] == [1, 3]
+    assert [view.source_index for view in catalog.views("val")] == [0, 2]
+    options = module.svraster_view_dropdown_options(catalog, "train")
+    first_view_key = next(iter(options.values()))
+
+    assert module.svraster_view_ref_from_key(catalog, first_view_key) == (
+        catalog.views("train")[0]
+    )
+
+
+def test_svraster_error_range_normalizes_slider_value() -> None:
+    module = load_svraster_config_module()
+
+    assert module.svraster_error_range((0.75, 0.25)) == (0.25, 0.75)
+    lower, upper = module.svraster_error_range((0.5, 0.5))
+
+    assert lower == 0.5
+    assert upper > lower
+
+
 def test_svraster_defaults_include_current_notebook_runtime_fields() -> None:
     module = load_svraster_config_module()
     debug = load_svraster_preset(module, "garden_debug_val")
@@ -496,6 +588,7 @@ def test_svraster_defaults_include_current_notebook_runtime_fields() -> None:
     assert debug.training.batching.persistent_workers is True
     assert debug.training.batching.pin_memory is True
     assert debug.training.viewer.enabled is True
+    assert debug.training.viewer.update_every_steps == 50
 
 
 def test_svraster_training_config_retargets_default_checkpoint_dir() -> None:

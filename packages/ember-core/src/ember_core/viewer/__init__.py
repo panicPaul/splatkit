@@ -8,7 +8,12 @@ from ember_core.viewer.bridge import (
     resolve_viewer_mode,
     select_viewer_camera,
 )
-from ember_core.viewer.contracts import ViewerBackend, ViewerMode, ViewerState
+from ember_core.viewer.contracts import (
+    Marimo3DVViewerConfig,
+    ViewerBackend,
+    ViewerMode,
+    ViewerState,
+)
 from ember_core.viewer.prep import (
     ViewerPrepCache,
     ViewerRenderResult,
@@ -27,6 +32,7 @@ from ember_core.viewer.stats import (
 )
 
 __all__ = [
+    "Marimo3DVViewerConfig",
     "ViewerBackend",
     "ViewerCameraPayload",
     "ViewerMode",

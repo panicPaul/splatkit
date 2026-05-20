@@ -32,6 +32,12 @@
     license/provenance clear and rewrite imports to package-local
     `ember_native_*` modules. Tests may still compare against `third_party`
     reference implementations.
+  - Paper implementations must not port upstream CUDA, OptiX, Mojo, or C++
+    kernel behavior into Python/Torch. If upstream behavior is implemented as a
+    native kernel, Ember should either port it as native staged runtime code or
+    leave that behavior unsupported until a native port exists. Python/Torch
+    paper code may orchestrate, validate, pack tensors, and call custom ops, but
+    must not become a replacement implementation for native kernels.
   - Native backend runtime code must be stage based. Follow the FasterGS and
     Stoch3DGS pattern: package-local typed runtime stage wrappers, thin
     `torch.library.custom_op` registration, explicit forward/backward stage

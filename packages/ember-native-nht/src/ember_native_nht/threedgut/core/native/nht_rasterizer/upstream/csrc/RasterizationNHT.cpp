@@ -19,7 +19,7 @@ namespace gsplat {
 
 #if GSPLAT_BUILD_3DGS
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor>
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 rasterize_to_pixels_from_world_nht_3dgs_fwd(
     const at::Tensor means, const at::Tensor quats, const at::Tensor scales,
     const at::Tensor colors, const at::Tensor opacities,
@@ -75,6 +75,10 @@ rasterize_to_pixels_from_world_nht_3dgs_fwd(
     alphas_shape.append({C, image_height, image_width, 1});
     at::Tensor alphas = at::empty(alphas_shape, opt);
 
+    at::DimVector feature_squares_shape(batch_dims);
+    feature_squares_shape.append({C, image_height, image_width, feat_output_channels});
+    at::Tensor feature_squares = at::zeros(feature_squares_shape, opt);
+
     at::DimVector last_ids_shape(batch_dims);
     last_ids_shape.append({C, image_height, image_width});
     at::Tensor last_ids = at::empty(last_ids_shape, opt.dtype(at::kInt));
@@ -89,7 +93,7 @@ rasterize_to_pixels_from_world_nht_3dgs_fwd(
         radial_coeffs, tangential_coeffs, thin_prism_coeffs, ftheta_coeffs, \
         tile_offsets, flatten_ids, \
         center_ray_mode, center_ray_dirs, ray_dir_scale, \
-        renders, alphas, last_ids)
+        renders, alphas, feature_squares, last_ids)
 
     switch (channels) {
         case 4:   __NHT_FWD_LAUNCH__(4, at::Half); break;
@@ -112,7 +116,7 @@ rasterize_to_pixels_from_world_nht_3dgs_fwd(
     }
 #undef __NHT_FWD_LAUNCH__
 
-    return std::make_tuple(renders, alphas, last_ids);
+    return std::make_tuple(renders, alphas, feature_squares, last_ids);
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -131,7 +135,9 @@ rasterize_to_pixels_from_world_nht_3dgs_bwd(
     FThetaCameraDistortionParameters ftheta_coeffs,
     const at::Tensor tile_offsets, const at::Tensor flatten_ids,
     const at::Tensor render_alphas, const at::Tensor last_ids,
-    const at::Tensor v_render_colors, const at::Tensor v_render_alphas
+    const at::Tensor v_render_colors,
+    const at::Tensor v_render_feature_squares,
+    const at::Tensor v_render_alphas
 ) {
     DEVICE_GUARD(means);
 
@@ -145,6 +151,7 @@ rasterize_to_pixels_from_world_nht_3dgs_bwd(
     at::Tensor v_opacities = at::zeros_like(opacities);
 
     at::Tensor v_render_colors_bwd = v_render_colors.to(at::kFloat);
+    at::Tensor v_render_feature_squares_bwd = v_render_feature_squares.to(at::kFloat);
     at::optional<at::Tensor> backgrounds_bwd = backgrounds;
     if (backgrounds.has_value()) {
         backgrounds_bwd = backgrounds.value().to(at::kFloat);
@@ -159,7 +166,7 @@ rasterize_to_pixels_from_world_nht_3dgs_bwd(
         viewmats0, viewmats1, Ks, camera_model, ut_params, rs_type, \
         radial_coeffs, tangential_coeffs, thin_prism_coeffs, ftheta_coeffs, \
         tile_offsets, flatten_ids, render_alphas, last_ids, \
-        v_render_colors_bwd, v_render_alphas, \
+        v_render_colors_bwd, v_render_feature_squares_bwd, v_render_alphas, \
         v_means, v_quats, v_scales, v_colors_bwd, v_opacities)
 
     switch (channels) {

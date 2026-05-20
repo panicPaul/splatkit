@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +10,11 @@ import ember_core as ember
 import pytest
 import torch
 from ember_core.densification import DensificationContext
-from marimo_config_gui.presets import load_preset_config
+from marimo_config_gui.presets import (
+    ConfigPreset,
+    ConfigPresetCatalog,
+    load_preset_config,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK_PATH = REPO_ROOT / "papers" / "powerfoam" / "notebook.py"
@@ -106,6 +111,60 @@ def test_powerfoam_upstream_imports_without_optional_packages() -> None:
     assert powerfoam.scene.PowerfoamScene is not None
 
 
+def test_powerfoam_default_preset_is_base(powerfoam_config_module) -> None:
+    catalog = powerfoam_config_module.powerfoam_preset_catalog()
+    config = load_preset_config(catalog)
+
+    assert catalog.default == "garden_base"
+    assert config.preset == "garden_base"
+
+
+def test_powerfoam_preset_uses_sibling_path_defaults(
+    powerfoam_config_module,
+    tmp_path: Path,
+) -> None:
+    defaults_dir = tmp_path / "defaults"
+    scene_root = tmp_path / "scenes"
+    defaults_dir.mkdir()
+    scene_root.mkdir()
+    preset_path = defaults_dir / "garden_debug.json"
+    preset_path.write_text(
+        json.dumps(
+            {
+                "preset": "garden_debug",
+                "scene": {"path": "dataset/mipnerf360/garden"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (defaults_dir / ".path_defaults.json").write_text(
+        json.dumps(
+            {
+                "path_prefixes": {
+                    "dataset/mipnerf360": str(scene_root),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalog = ConfigPresetCatalog(
+        model_cls=powerfoam_config_module.PowerFoamExperimentConfig,
+        presets={
+            "garden_debug": ConfigPreset(
+                name="garden_debug",
+                path=preset_path,
+                label="Garden debug",
+                base_dir=REPO_ROOT,
+            )
+        },
+        default="garden_debug",
+    )
+
+    config = load_preset_config(catalog)
+
+    assert config.scene.path == scene_root / "garden"
+
+
 def test_powerfoam_notebook_resolves_training_config(
     powerfoam_config_module,
 ) -> None:
@@ -133,6 +192,7 @@ def test_powerfoam_notebook_resolves_training_config(
         training_config.initialization.initializer.target
         == "ember_native_powerfoam.initialize_powerfoam_model_from_scene_record"
     )
+    assert training_config.initialization.initializer.kwargs["attr_dtype"] == "float"
     assert [
         group.target.name
         for group in training_config.optimization.parameter_groups
@@ -150,6 +210,7 @@ def test_powerfoam_notebook_resolves_training_config(
         training_config.loss.target.target
         == "ember_native_powerfoam.powerfoam_training_loss"
     )
+    assert training_config.loss.weights["max_steps"] == 100
     assert training_config.densification is not None
     assert (
         training_config.densification.builders[0].target
@@ -162,6 +223,34 @@ def test_powerfoam_notebook_resolves_training_config(
     assert densification_kwargs["densify_from"] == 10
     assert densification_kwargs["densify_until"] == 80
     assert densification_kwargs["final_points"] == 4096
+    assert training_config.model_dump_json(indent=2)
+
+
+def test_powerfoam_notebook_builds_scene_and_dataset_configs(
+    powerfoam_config_module,
+) -> None:
+    config = load_powerfoam_preset(powerfoam_config_module, "garden_debug")
+    config.data.cache_resized_images = False
+
+    scene_config = powerfoam_config_module.build_scene_load_config(config)
+    dataset_config = (
+        powerfoam_config_module.build_prepared_frame_dataset_config(config)
+    )
+
+    assert scene_config.path == config.scene.path
+    assert scene_config.image_root is None
+    assert len(scene_config.source_pipes) == 1
+    assert dataset_config.camera_sensor_id is None
+    assert dataset_config.split is not None
+    assert dataset_config.split.target == "train"
+    assert dataset_config.split.every_n == 8
+    assert dataset_config.materialization is not None
+    assert dataset_config.materialization.stage == "prepared"
+    assert dataset_config.materialization.mode == "eager"
+    assert dataset_config.image_preparation is not None
+    assert dataset_config.image_preparation.resize_width_scale == 0.125
+    assert dataset_config.image_preparation.interpolation == "bicubic"
+    assert config.training.viewer.enabled is True
 
 
 def test_powerfoam_target_points_matches_upstream_schedule() -> None:
@@ -178,6 +267,43 @@ def test_powerfoam_target_points_matches_upstream_schedule() -> None:
     assert powerfoam.powerfoam_target_points(10, **kwargs) == 100
     assert powerfoam.powerfoam_target_points(17, **kwargs) == 800
     assert powerfoam.powerfoam_target_points(30, **kwargs) == 800
+
+
+def test_powerfoam_training_loss_decays_regularizer_weights() -> None:
+    import ember_native_powerfoam as powerfoam
+
+    batch = SimpleNamespace(images=torch.zeros((1, 2, 2, 3)))
+    render_output = SimpleNamespace(
+        render=torch.zeros((1, 2, 2, 3)),
+        normal_error=torch.ones((1, 2, 2)),
+        contrib=torch.ones((1, 4)),
+    )
+    weights = {
+        "rgb": 1.0,
+        "ssim": 0.0,
+        "normal": 0.1,
+        "contribution": 0.1,
+        "interpenetration": 0.0,
+        "max_steps": 100.0,
+    }
+
+    initial_metrics = powerfoam.powerfoam_training_loss(
+        SimpleNamespace(step=0),
+        batch,
+        render_output,
+        weights=weights,
+    )
+    final_metrics = powerfoam.powerfoam_training_loss(
+        SimpleNamespace(step=100),
+        batch,
+        render_output,
+        weights=weights,
+    )
+
+    assert initial_metrics["normal_weight"] == pytest.approx(0.1)
+    assert initial_metrics["contribution_weight"] == pytest.approx(0.1)
+    assert final_metrics["normal_weight"] == pytest.approx(0.01)
+    assert final_metrics["contribution_weight"] == pytest.approx(0.0001)
 
 
 def _make_powerfoam_optimizer_bindings(scene: ember.PowerFoamScene):
@@ -271,6 +397,33 @@ def _make_powerfoam_test_camera(device: torch.device) -> ember.CameraState:
         cam_to_world=torch.eye(4).reshape(1, 4, 4),
         camera_convention="opencv",
     ).to(device)
+
+
+def test_powerfoam_camera_from_camera_state_can_skip_full_ray_maps() -> None:
+    from ember_native_powerfoam.powerfoam.runtime.camera import (
+        powerfoam_camera_from_camera_state,
+    )
+
+    camera = _make_powerfoam_test_camera(torch.device("cpu"))
+
+    full_camera = powerfoam_camera_from_camera_state(
+        camera,
+        build_ray_maps=True,
+    )
+    placeholder_camera = powerfoam_camera_from_camera_state(
+        camera,
+        build_ray_maps=False,
+    )
+
+    assert tuple(full_camera.ray_maps.shape) == (16, 16, 6)
+    assert tuple(placeholder_camera.ray_maps.shape) == (1, 1, 6)
+    assert placeholder_camera.ray_maps.dtype == torch.float32
+    assert placeholder_camera.ray_maps.device.type == "cpu"
+    assert placeholder_camera.width == full_camera.width
+    assert placeholder_camera.height == full_camera.height
+    assert torch.equal(placeholder_camera.eye, full_camera.eye)
+    assert torch.equal(placeholder_camera.right, full_camera.right)
+    assert torch.equal(placeholder_camera.up, full_camera.up)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")

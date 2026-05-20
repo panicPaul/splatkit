@@ -87,15 +87,16 @@ class FeatureRasterizationResult:
 
     features: Float[Tensor, " num_cams height width feature_dim"]
     alphas: Float[Tensor, " num_cams height width 1"]
+    feature_square_sums: Float[Tensor, " num_cams height width feature_dim"]
 
     @classmethod
     def from_tensors(cls, *tensors: Tensor) -> Self:
         """Build a feature rasterization result from raw native outputs."""
         return cls(*tensors)
 
-    def as_tensors(self) -> tuple[Tensor, Tensor]:
+    def as_tensors(self) -> tuple[Tensor, Tensor, Tensor]:
         """Return the raw tensor tuple for stage composition."""
-        return (self.features, self.alphas)
+        return (self.features, self.alphas, self.feature_square_sums)
 
 
 @dataclass(frozen=True)
@@ -121,5 +122,6 @@ class RenderResult:
 
     renders: Float[Tensor, " num_cams height width channels"]
     alphas: Float[Tensor, " num_cams height width 1"]
+    feature_square_sums: Float[Tensor, " num_cams height width feature_dim"]
     projection: ProjectionResult
     intersections: IntersectionResult

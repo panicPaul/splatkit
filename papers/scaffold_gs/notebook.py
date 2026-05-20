@@ -18,7 +18,11 @@ with app.setup:
     import ember_splatting_training as ember_splatting
     import marimo as mo
     import torch
-    from ember_core.training import TrainingProfilerConfig, TrainingResult
+    from ember_core.training import (
+        LossResult,
+        TrainingProfilerConfig,
+        TrainingResult,
+    )
     from jaxtyping import Float
     from marimo_config_gui import (
         ConfigPreset,
@@ -32,7 +36,9 @@ with app.setup:
     NOTEBOOK_DIR = NOTEBOOK_PATH.parent
     REPO_ROOT = NOTEBOOK_DIR.parents[1]
     DEFAULTS_DIR = NOTEBOOK_DIR / "defaults"
-    DEFAULT_CHECKPOINT_ROOT = REPO_ROOT / "checkpoints" / "papers" / "scaffold_gs"
+    DEFAULT_CHECKPOINT_ROOT = (
+        REPO_ROOT / "checkpoints" / "papers" / "scaffold_gs"
+    )
     ScaffoldGSBackendName = Literal["faster_gs.core"]
     ScaffoldGSDefaultName = Literal["garden_scaffold_gs", "garden_debug_val"]
     sys.modules.setdefault("papers.scaffold_gs.notebook", sys.modules[__name__])
@@ -269,10 +275,14 @@ class ScaffoldGSTrainingConfig(ScaffoldGSConfigBase):
     """Typed user-facing Scaffold-GS training config."""
 
     runtime: ember.RuntimeConfig = Field(default_factory=ember.RuntimeConfig)
-    profiler: TrainingProfilerConfig = Field(default_factory=TrainingProfilerConfig)
+    profiler: TrainingProfilerConfig = Field(
+        default_factory=TrainingProfilerConfig
+    )
     batching: ember.BatchingConfig = Field(default_factory=ember.BatchingConfig)
     model: ScaffoldGSModelConfig = Field(default_factory=ScaffoldGSModelConfig)
-    render: ScaffoldGSRenderConfig = Field(default_factory=ScaffoldGSRenderConfig)
+    render: ScaffoldGSRenderConfig = Field(
+        default_factory=ScaffoldGSRenderConfig
+    )
     optimization: ScaffoldGSOptimizationConfig = Field(
         default_factory=ScaffoldGSOptimizationConfig
     )
@@ -332,6 +342,12 @@ def _():
 @app.cell(hide_code=True)
 def _(training_controls):
     training_controls
+    return
+
+
+@app.cell(hide_code=True)
+def _(training_preparation_status):
+    training_preparation_status
     return
 
 
@@ -395,7 +411,7 @@ def _():
 @app.cell
 def _():
     prepare_button = mo.ui.run_button(
-        label="Prepare training viewer",
+        label="Prepare training inspector",
         full_width=True,
     )
     train_button = mo.ui.run_button(label="Start training", full_width=True)
@@ -405,8 +421,19 @@ def _():
         default_interval="1s",
         label="Training status",
     )
+    training_inspector_refresh = mo.ui.refresh(
+        options=["5s", "10s", "30s", "1m"],
+        default_interval="10s",
+        label="Image refresh",
+    )
     training_controls = mo.vstack(
-        [prepare_button, train_button, stop_button, training_status_refresh],
+        [
+            prepare_button,
+            train_button,
+            stop_button,
+            training_status_refresh,
+            training_inspector_refresh,
+        ],
         gap=0.5,
     )
     return (
@@ -414,6 +441,7 @@ def _():
         stop_button,
         train_button,
         training_controls,
+        training_inspector_refresh,
         training_status_refresh,
     )
 
@@ -425,27 +453,80 @@ def _():
 
 
 @app.cell
-def _(current_config, is_script_mode, prepare_button):
-    should_prepare = is_script_mode or bool(prepare_button.value)
-    scene_record = (
-        ember.load_scene_record(build_scene_load_config(current_config))
-        if should_prepare and current_config is not None
-        else None
-    )
-    return (scene_record,)
+def _(current_config):
+    training_preparation_handle = None
+    training_preparation_snapshot = None
+    if current_config is not None:
+        training_preparation_handle, training_preparation_snapshot = (
+            ember_splatting.create_training_preparation(
+                load_scene=lambda: ember.load_scene_record(
+                    build_scene_load_config(current_config)
+                ),
+                prepare_frame_view_catalog=lambda scene_record: (
+                    ember.build_prepared_frame_view_catalog(
+                        scene_record,
+                        build_prepared_frame_dataset_config(current_config),
+                    )
+                ),
+            )
+        )
+    return training_preparation_handle, training_preparation_snapshot
 
 
 @app.cell
-def _(current_config, scene_record):
-    frame_dataset = (
-        ember.prepare_frame_dataset(
-            scene_record,
-            build_prepared_frame_dataset_config(current_config),
-        )
-        if current_config is not None and scene_record is not None
+def _(
+    current_config,
+    is_script_mode,
+    prepare_button,
+    train_button,
+    training_preparation_handle,
+):
+    should_prepare = (
+        is_script_mode or bool(prepare_button.value) or bool(train_button.value)
+    )
+    if (
+        should_prepare
+        and current_config is not None
+        and training_preparation_handle is not None
+    ):
+        training_preparation_handle.start(wait=is_script_mode)
+    return
+
+
+@app.cell
+def _(ember_splatting, training_preparation_snapshot):
+    _snapshot = (
+        training_preparation_snapshot()
+        if training_preparation_snapshot is not None
         else None
     )
-    return (frame_dataset,)
+    training_preparation_status = (
+        ember_splatting.render_training_preparation_status(_snapshot)
+    )
+    return (training_preparation_status,)
+
+
+@app.cell
+def _(ember_splatting, training_preparation_snapshot):
+    _snapshot = (
+        training_preparation_snapshot()
+        if training_preparation_snapshot is not None
+        else None
+    )
+    (
+        scene_load_error,
+        scene_record,
+        frame_dataset,
+        frame_dataset_error,
+        frame_view_catalog,
+    ) = ember_splatting.training_preparation_outputs(_snapshot)
+    return (
+        scene_load_error,
+        scene_record,
+        frame_dataset,
+        frame_dataset_error,
+        frame_view_catalog,
+    )
 
 
 @app.cell
@@ -461,11 +542,11 @@ def _(current_config, frame_dataset):
 @app.cell
 def _(current_config, frame_dataset, is_script_mode, training_config):
     training_viewer_handle = (
-        ember_splatting.create_training_viewer(
+        ember_splatting.create_training_run(
             frame_dataset,
             training_config,
             config=current_config.training.viewer,
-            title="Scaffold-GS training viewer",
+            title="Scaffold-GS training inspector",
         )
         if not is_script_mode
         and current_config is not None
@@ -505,7 +586,9 @@ def _(
             and training_config is not None
             and training_viewer_handle is not None
         ):
-            training_viewer_handle.start_training(frame_dataset, training_config)
+            training_viewer_handle.start_training(
+                frame_dataset, training_config
+            )
     return (training_result,)
 
 
@@ -518,11 +601,32 @@ def _(stop_button, training_viewer_handle):
 
 
 @app.cell
-def _(training_viewer_handle):
+def _(frame_view_catalog, is_script_mode):
+    training_inspector = (
+        None
+        if is_script_mode or frame_view_catalog is None
+        else ember_splatting.create_training_view_inspector(
+            frame_view_catalog,
+        )
+    )
+    return (training_inspector,)
+
+
+@app.cell
+def _(
+    frame_view_catalog,
+    training_inspector,
+    training_inspector_refresh,
+    training_viewer_handle,
+):
     training_viewer = (
         None
-        if training_viewer_handle is None
-        else training_viewer_handle.viewer
+        if training_inspector is None
+        else training_inspector.panel(
+            training_viewer_handle,
+            frame_view_catalog,
+            refresh=training_inspector_refresh,
+        )
     )
     return (training_viewer,)
 
@@ -536,7 +640,7 @@ def _(training_result, training_status_refresh, training_viewer_handle):
             f"Steps: `{len(training_result.history)}`"
         )
     elif training_viewer_handle is None:
-        training_result_view = mo.md("Prepare the training viewer first.")
+        training_result_view = mo.md("Prepare the training inspector first.")
     else:
         snapshot = training_viewer_handle.snapshot()
         training_result_view = mo.md(
@@ -569,7 +673,9 @@ class ScaffoldGSMLP(nn.Module):
         return self.net(inputs)
 
 
-def scaffold_gs_preset_catalog() -> ConfigPresetCatalog[ScaffoldGSExperimentConfig]:
+def scaffold_gs_preset_catalog() -> ConfigPresetCatalog[
+    ScaffoldGSExperimentConfig
+]:
     """Return the notebook's named JSON preset catalog."""
     return ConfigPresetCatalog(
         model_cls=ScaffoldGSExperimentConfig,
@@ -591,9 +697,13 @@ def scaffold_gs_preset_catalog() -> ConfigPresetCatalog[ScaffoldGSExperimentConf
     )
 
 
-def _require_point_cloud(scene_record: ember.SceneRecord) -> ember.PointCloudState:
+def _require_point_cloud(
+    scene_record: ember.SceneRecord,
+) -> ember.PointCloudState:
     if scene_record.point_cloud is None:
-        raise ValueError("Scaffold-GS initialization requires an SfM point cloud.")
+        raise ValueError(
+            "Scaffold-GS initialization requires an SfM point cloud."
+        )
     return scene_record.point_cloud
 
 
@@ -608,7 +718,9 @@ def _sample_point_cloud(
     indices = torch.linspace(0, num_points - 1, keep_count).long()
     return ember.PointCloudState(
         points=point_cloud.points[indices],
-        colors=None if point_cloud.colors is None else point_cloud.colors[indices],
+        colors=None
+        if point_cloud.colors is None
+        else point_cloud.colors[indices],
         normals=None
         if point_cloud.normals is None
         else point_cloud.normals[indices],
@@ -705,7 +817,9 @@ def initialize_scaffold_gs_model_from_scene_record(
     )
     head_input_dim = anchor_feature_dimension + 3
     opacity_input_dim = head_input_dim + int(include_distance_in_opacity_mlp)
-    covariance_input_dim = head_input_dim + int(include_distance_in_covariance_mlp)
+    covariance_input_dim = head_input_dim + int(
+        include_distance_in_covariance_mlp
+    )
     color_input_dim = (
         head_input_dim
         + int(include_distance_in_color_mlp)
@@ -807,7 +921,9 @@ def scaffold_gs_render_scene(
     )
     appearance_module = model.modules["appearance_embedding"]
     if isinstance(appearance_module, nn.Embedding):
-        appearance = appearance_module.weight[:1].expand(scene.feature.shape[0], -1)
+        appearance = appearance_module.weight[:1].expand(
+            scene.feature.shape[0], -1
+        )
     else:
         appearance = scene.feature.new_empty((scene.feature.shape[0], 0))
     color_inputs = torch.cat(
@@ -821,9 +937,9 @@ def scaffold_gs_render_scene(
         ],
         dim=-1,
     )
-    opacity = torch.sigmoid(model.modules["opacity_mlp"](opacity_inputs)).reshape(
-        -1
-    )
+    opacity = torch.sigmoid(
+        model.modules["opacity_mlp"](opacity_inputs)
+    ).reshape(-1)
     covariance = model.modules["covariance_mlp"](covariance_inputs).reshape(
         -1,
         num_offsets,
@@ -839,12 +955,10 @@ def scaffold_gs_render_scene(
         + offsets * torch.exp(scene.log_scales)[:, None, :]
     ).reshape(-1, 3)
     expanded_scales = (
-        scene.log_scales[:, None, :]
-        + 0.1 * torch.tanh(covariance[..., :3])
+        scene.log_scales[:, None, :] + 0.1 * torch.tanh(covariance[..., :3])
     ).reshape(-1, 3)
     expanded_rotations = (
-        scene.quaternion_orientation[:, None, :]
-        + 0.01 * covariance[..., 3:7]
+        scene.quaternion_orientation[:, None, :] + 0.01 * covariance[..., 3:7]
     ).reshape(-1, 4)
     expanded_rotations = expanded_rotations / expanded_rotations.norm(
         dim=-1,
@@ -869,7 +983,7 @@ def scaffold_gs_rgb_loss(
     weights: dict[str, float] | None = None,
     structural_similarity_weight: float = 0.2,
     scaling_regularization_weight: float = 0.01,
-) -> ember.LossResult:
+) -> LossResult:
     """Scaffold-GS loss: L1/DSSIM plus scale-volume regularization."""
     del weights
     prediction = render_output.render
@@ -887,7 +1001,7 @@ def scaffold_gs_rgb_loss(
         + structural_similarity_weight * dssim
         + scaling_regularization_weight * scaling_regularization
     )
-    return ember.LossResult(
+    return LossResult(
         loss=loss,
         metrics={
             "l1": float(l1.detach().item()),
@@ -991,7 +1105,11 @@ def resolve_checkpoint_output_dir(config: ScaffoldGSExperimentConfig) -> Path:
     default_parent = DEFAULT_CHECKPOINT_ROOT / config.preset
     output_dir = config.training.checkpoint.output_dir.expanduser()
     if output_dir.parent == default_parent:
-        return DEFAULT_CHECKPOINT_ROOT / config.preset / config.training.render.backend
+        return (
+            DEFAULT_CHECKPOINT_ROOT
+            / config.preset
+            / config.training.render.backend
+        )
     return output_dir
 
 

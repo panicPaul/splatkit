@@ -282,7 +282,7 @@ rasterize_to_pixels_3dgs_bwd(
 
 // NHT "from world": full camera model + tetrahedral interpolation
 // NHT always uses world evaluation (with_eval3d + with_ut).
-std::tuple<at::Tensor, at::Tensor, at::Tensor>
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 rasterize_to_pixels_from_world_nht_3dgs_fwd(
     const at::Tensor means, const at::Tensor quats, const at::Tensor scales,
     const at::Tensor colors, const at::Tensor opacities,
@@ -316,7 +316,9 @@ rasterize_to_pixels_from_world_nht_3dgs_bwd(
     FThetaCameraDistortionParameters ftheta_coeffs,
     const at::Tensor tile_offsets, const at::Tensor flatten_ids,
     const at::Tensor render_alphas, const at::Tensor last_ids,
-    const at::Tensor v_render_colors, const at::Tensor v_render_alphas
+    const at::Tensor v_render_colors,
+    const at::Tensor v_render_feature_squares,
+    const at::Tensor v_render_alphas
 );
 
 // Rasterize 3D Gaussian, but only return the indices of gaussians and pixels.

@@ -116,7 +116,7 @@
     },
     "viewer": {
       "enabled": true,
-      "update_every_steps": 500,
+      "update_every_steps": 100,
       "min_update_seconds": 2.0,
       "pause_on_interaction": true,
       "pause_poll_seconds": 0.05,

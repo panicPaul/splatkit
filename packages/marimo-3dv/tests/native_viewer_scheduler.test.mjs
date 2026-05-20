@@ -13,6 +13,7 @@ function makeSchedulerHarness({
   const sent = [];
   const timers = [];
   const adaptiveResetSamples = [];
+  let clearedInteractionCount = 0;
 
   const scheduler = createInteractiveRevisionScheduler({
     currentCameraStateJson: () => cameraJson,
@@ -42,6 +43,9 @@ function makeSchedulerHarness({
     clearTimer: (timer) => {
       timer.cleared = true;
     },
+    clearInteractionActive: () => {
+      clearedInteractionCount += 1;
+    },
     resetAdaptiveFpsIfStale: (sampleNowMs) => {
       adaptiveResetSamples.push(sampleNowMs);
     },
@@ -52,6 +56,9 @@ function makeSchedulerHarness({
     scheduler,
     sent,
     timers,
+    get clearedInteractionCount() {
+      return clearedInteractionCount;
+    },
     get cameraJson() {
       return cameraJson;
     },
@@ -99,6 +106,32 @@ test("queued settled render waits for the interactive revision", () => {
   );
 });
 
+test("queued settled render clears interaction before completion", () => {
+  const harness = makeSchedulerHarness();
+
+  harness.cameraJson = "drag-camera";
+  harness.scheduler.requestInteractiveCameraState();
+  harness.cameraJson = "settled-camera";
+  harness.scheduler.requestSettledRender();
+
+  assert.deepEqual(harness.sent, [
+    { kind: "interactive", revision: 1, cameraJson: "drag-camera" },
+  ]);
+  assert.equal(harness.clearedInteractionCount, 1);
+  assert.equal(
+    harness.scheduler.stateForTesting().pendingSettledRender,
+    true,
+  );
+
+  harness.scheduler.completeRevision(1);
+
+  assert.deepEqual(harness.sent, [
+    { kind: "interactive", revision: 1, cameraJson: "drag-camera" },
+    { kind: "settled", revision: 2, cameraJson: "settled-camera" },
+  ]);
+  assert.equal(harness.clearedInteractionCount, 1);
+});
+
 test("revision completion drains a pending interactive camera", () => {
   const harness = makeSchedulerHarness();
 
@@ -141,4 +174,24 @@ test("error revision completion unblocks a pending settled render", () => {
     { kind: "interactive", revision: 1, cameraJson: "drag-before-error" },
     { kind: "settled", revision: 2, cameraJson: "settled-after-error" },
   ]);
+});
+
+test("no-frame revision completion unblocks a pending settled render", () => {
+  const harness = makeSchedulerHarness();
+
+  harness.cameraJson = "drag-before-drop";
+  harness.scheduler.requestInteractiveCameraState();
+  harness.cameraJson = "settled-after-drop";
+  harness.scheduler.requestSettledRender();
+
+  harness.scheduler.completeRevision(1);
+
+  assert.deepEqual(harness.sent, [
+    { kind: "interactive", revision: 1, cameraJson: "drag-before-drop" },
+    { kind: "settled", revision: 2, cameraJson: "settled-after-drop" },
+  ]);
+  assert.equal(
+    harness.scheduler.stateForTesting().interactiveInFlightRevision,
+    null,
+  );
 });

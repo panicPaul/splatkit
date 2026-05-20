@@ -33,6 +33,10 @@ from ember_core.core.capabilities import (
     RenderWithNormals,
     RenderWithProjectiveIntersectionTransforms,
 )
+from ember_core.core.compaction import (
+    RayCompactionLossMaps,
+    RayCompactionTargets,
+)
 from ember_core.core.contracts import (
     CameraConvention,
     CameraParams,
@@ -172,10 +176,12 @@ __all__ = [
     "OutputName",
     "OutputSet",
     "ParameterScope",
+    "PowerFoamScene",
     "ProductKey",
     "ProviderKey",
-    "PowerFoamScene",
     "RadFoamScene",
+    "RayCompactionLossMaps",
+    "RayCompactionTargets",
     "RegisteredBackend",
     "RenderMode",
     "RenderOptions",

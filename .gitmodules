@@ -22,3 +22,6 @@
 [submodule "third_party/powerfoam"]
 	path = third_party/powerfoam
 	url = https://github.com/panicPaul/powerfoam.git
+[submodule "third_party/GaussianWrapping"]
+	path = third_party/GaussianWrapping
+	url = https://github.com/diego1401/GaussianWrapping.git

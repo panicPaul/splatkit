@@ -54,6 +54,19 @@ def _detach_saved_tensor(tensor: Tensor | None) -> Tensor | None:
     return None if tensor is None else tensor.detach()
 
 
+def _contiguous_grad_or_zeros(
+    grad: Tensor | None,
+    reference: Tensor,
+) -> Tensor:
+    """Return a Warp-compatible gradient tensor."""
+    return torch.zeros_like(reference) if grad is None else grad.contiguous()
+
+
+def _optional_contiguous_grad(grad: Tensor | None) -> Tensor | None:
+    """Return a contiguous optional gradient for native Warp launches."""
+    return None if grad is None else grad.contiguous()
+
+
 def _rasterizer_args(
     *,
     render_objective: str,
@@ -419,13 +432,15 @@ def _rasterize_backward(
     )
     capture.rasterizer = rasterizer
     grad_quantile_depths_arg = (
-        grad_quantile_depths if ctx.has_depth_quantiles else None
+        _optional_contiguous_grad(grad_quantile_depths)
+        if ctx.has_depth_quantiles
+        else None
     )
-    grad_err_arg = grad_err if ctx.has_ray_gt else None
+    grad_err_arg = _optional_contiguous_grad(grad_err) if ctx.has_ray_gt else None
     grad_contrib_arg = (
         torch.zeros_like(all_spheres[:, 0])
         if grad_contrib is None
-        else grad_contrib
+        else grad_contrib.contiguous()
     )
     (
         _grad_self,
@@ -444,19 +459,15 @@ def _rasterize_backward(
         _grad_return_point_err,
     ) = rasterizer._backward(
         capture,
-        torch.zeros_like(saved_color) if grad_color is None else grad_color,
-        torch.zeros_like(log_t) if grad_opacity is None else grad_opacity,
-        (
-            torch.zeros_like(log_t)
-            if grad_normal_distance is None
-            else grad_normal_distance
-        ),
-        torch.zeros_like(saved_color) if grad_normal is None else grad_normal,
+        _contiguous_grad_or_zeros(grad_color, saved_color),
+        _contiguous_grad_or_zeros(grad_opacity, log_t),
+        _contiguous_grad_or_zeros(grad_normal_distance, log_t),
+        _contiguous_grad_or_zeros(grad_normal, saved_color),
         grad_quantile_depths_arg,
         grad_err_arg,
         grad_contrib_arg,
-        grad_point_err,
-        grad_prim_visible_mask,
+        _optional_contiguous_grad(grad_point_err),
+        _optional_contiguous_grad(grad_prim_visible_mask),
     )
     return (
         None,

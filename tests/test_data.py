@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 import struct
 import types
 from dataclasses import dataclass
@@ -19,12 +20,14 @@ from ember_core.data import (
     HorizonAlignPipeConfig,
     ImagePreparationSpec,
     MaterializationConfig,
+    MaterializationProgress,
     MipNerf360IndoorPreparedFrameDatasetConfig,
     MipNerf360OutdoorPreparedFrameDatasetConfig,
     NCoreSceneConfig,
     PathCameraImageSource,
     PreparedFrameDataset,
     PreparedFrameDatasetConfig,
+    PreparedFrameViewCatalog,
     ResizeSpec,
     SceneRecord,
     SplitConfig,
@@ -34,11 +37,15 @@ from ember_core.data import (
     load_must3r_scene_record,
     load_ncore_scene_record,
     load_scene_record,
+    materialization_progress_callback,
     prepare_frame_dataset,
     resolve_must3r_checkpoints,
     run_must3r_scene_record,
 )
-from ember_core.data.adapters import _resolve_materialization_num_workers
+from ember_core.data.adapters import (
+    _disable_materialization_progress,
+    _resolve_materialization_num_workers,
+)
 from PIL import Image
 from torch.utils.data import DataLoader
 
@@ -494,6 +501,181 @@ def test_prepared_frame_dataset_prepared_camera_matches_sample_without_rgb() -> 
     )
 
 
+def test_prepared_frame_view_catalog_reuses_prepared_sample_cache() -> None:
+    class CountingImageSource:
+        def __init__(self) -> None:
+            self.load_count_by_frame_id: dict[str, int] = {}
+            self.images = {
+                f"frame_{index}": np.full(
+                    (4, 6, 3),
+                    index * 20,
+                    dtype=np.uint8,
+                )
+                for index in range(6)
+            }
+
+        def load_rgb(self, frame: DatasetFrame) -> np.ndarray:
+            self.load_count_by_frame_id[frame.frame_id] = (
+                self.load_count_by_frame_id.get(frame.frame_id, 0) + 1
+            )
+            return self.images[frame.frame_id]
+
+    frames = tuple(
+        DatasetFrame(
+            frame_id=f"frame_{index}",
+            sensor_id="camera",
+            camera_index=index,
+            width=6,
+            height=4,
+            timestamp_us=index,
+        )
+        for index in range(6)
+    )
+    transforms = torch.eye(4, dtype=torch.float32).repeat(6, 1, 1)
+    transforms[:, 0, 3] = torch.arange(6, dtype=torch.float32)
+    image_source = CountingImageSource()
+    scene_record = SceneRecord(
+        sensors=(
+            CameraSensorDataset(
+                sensor_id="camera",
+                kind="camera",
+                frames=frames,
+                timestamps_us=tuple(range(6)),
+                camera=CameraState(
+                    width=torch.full((6,), 6, dtype=torch.int64),
+                    height=torch.full((6,), 4, dtype=torch.int64),
+                    fov_degrees=torch.full((6,), 55.0, dtype=torch.float32),
+                    cam_to_world=transforms,
+                    intrinsics=torch.tensor(
+                        [[[3.0, 0.0, 3.0], [0.0, 3.0, 2.0], [0.0, 0.0, 1.0]]]
+                        * 6,
+                        dtype=torch.float32,
+                    ),
+                ),
+                image_source=image_source,
+            ),
+        ),
+        source_format="ncore",
+        default_camera_sensor_id="camera",
+    )
+    catalog = PreparedFrameViewCatalog(
+        scene_record,
+        config=PreparedFrameDatasetConfig(
+            split=SplitConfig(target="train", every_n=3, train_ratio=None),
+            materialization=MaterializationConfig(
+                stage="prepared",
+                mode="lazy",
+                num_workers=0,
+            ),
+        ),
+    )
+
+    assert [view.source_index for view in catalog.views("val")] == [0, 3]
+    assert [view.source_index for view in catalog.views("train")] == [
+        1,
+        2,
+        4,
+        5,
+    ]
+    assert (
+        catalog.view_options("val")[
+            "val 0001 | source 0003 | frame_3"
+        ].source_index
+        == 3
+    )
+    assert (
+        catalog.view_key_options("val")["val 0001 | source 0003 | frame_3"]
+        == "val:1:3"
+    )
+    assert catalog.view_ref_by_key("val:1:3") == catalog.views("val")[1]
+    assert catalog.view_ref_by_key("val:1:4") is None
+
+    train_view = catalog.views("train")[0]
+    train_camera = catalog.camera(train_view)
+
+    assert image_source.load_count_by_frame_id == {}
+    assert float(train_camera.cam_to_world[0, 0, 3]) == 1.0
+
+    first_sample = catalog.training_dataset[0]
+    second_sample = catalog.sample(train_view)
+    validation_sample = catalog.sample(catalog.views("val")[1])
+    repeated_validation_sample = catalog.sample(catalog.views("val")[1])
+
+    assert first_sample is second_sample
+    assert validation_sample is repeated_validation_sample
+    assert image_source.load_count_by_frame_id == {
+        "frame_1": 1,
+        "frame_3": 1,
+    }
+
+
+def test_prepared_frame_view_catalog_dataset_is_multiprocessing_picklable(
+    tmp_path: Path,
+) -> None:
+    camera_sensor = _build_camera_sensor(
+        sensor_id="camera",
+        frame_colors=((255, 0, 0), (0, 255, 0), (0, 0, 255)),
+        root=tmp_path,
+    )
+    scene_record = SceneRecord(
+        sensors=(camera_sensor,),
+        source_format="ncore",
+        default_camera_sensor_id="camera",
+    )
+    catalog = PreparedFrameViewCatalog(
+        scene_record,
+        config=PreparedFrameDatasetConfig(
+            split=SplitConfig(target="train", every_n=2, train_ratio=None),
+            materialization=MaterializationConfig(
+                stage="prepared",
+                mode="lazy",
+                num_workers=0,
+            ),
+        ),
+    )
+
+    restored_dataset = pickle.loads(pickle.dumps(catalog.training_dataset))
+    sample = restored_dataset[0]
+
+    assert sample.frame.frame_id == "camera_1"
+    assert sample.image.shape == (3, 4, 3)
+
+
+def test_prepared_frame_view_catalog_eager_training_dataset_drops_worker_cache(
+    tmp_path: Path,
+) -> None:
+    camera_sensor = _build_camera_sensor(
+        sensor_id="camera",
+        frame_colors=((255, 0, 0), (0, 255, 0), (0, 0, 255)),
+        root=tmp_path,
+    )
+    scene_record = SceneRecord(
+        sensors=(camera_sensor,),
+        source_format="ncore",
+        default_camera_sensor_id="camera",
+    )
+    catalog = PreparedFrameViewCatalog(
+        scene_record,
+        config=PreparedFrameDatasetConfig(
+            split=SplitConfig(target="train", every_n=2, train_ratio=None),
+            materialization=MaterializationConfig(
+                stage="prepared",
+                mode="eager",
+                num_workers=0,
+            ),
+        ),
+    )
+
+    assert catalog.training_dataset.sample_cache is None
+
+    restored_dataset = pickle.loads(pickle.dumps(catalog.training_dataset))
+    sample = restored_dataset[0]
+
+    assert restored_dataset.sample_cache is None
+    assert sample.frame.frame_id == "camera_1"
+    assert sample.image.shape == (3, 4, 3)
+
+
 def test_materialization_config_rejects_single_worker() -> None:
     with pytest.raises(ValueError, match="0, None, or >= 2"):
         MaterializationConfig(num_workers=1)
@@ -502,6 +684,68 @@ def test_materialization_config_rejects_single_worker() -> None:
 def test_materialization_num_workers_resolver_rejects_single_worker() -> None:
     with pytest.raises(ValueError, match="0, None, or >= 2"):
         _resolve_materialization_num_workers(1)
+
+
+def test_materialization_progress_is_disabled_in_notebooks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ember_core.data.adapters.mo.running_in_notebook",
+        lambda: True,
+    )
+
+    assert _disable_materialization_progress() is True
+
+
+def test_materialization_progress_is_enabled_outside_notebooks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ember_core.data.adapters.mo.running_in_notebook",
+        lambda: False,
+    )
+
+    assert _disable_materialization_progress() is False
+
+
+def test_prepared_frame_dataset_reports_materialization_progress(
+    tmp_path: Path,
+) -> None:
+    camera_sensor = _build_camera_sensor(
+        sensor_id="camera",
+        frame_colors=((255, 0, 0), (0, 255, 0), (0, 0, 255)),
+        root=tmp_path,
+    )
+    scene_record = SceneRecord(
+        sensors=(camera_sensor,),
+        source_format="ncore",
+        default_camera_sensor_id="camera",
+    )
+    progress_updates: list[MaterializationProgress] = []
+
+    with materialization_progress_callback(progress_updates.append):
+        dataset = PreparedFrameDataset(
+            scene_record,
+            config=PreparedFrameDatasetConfig(
+                split=SplitConfig(
+                    target="all",
+                    every_n=None,
+                    train_ratio=None,
+                ),
+                materialization=MaterializationConfig(
+                    stage="prepared",
+                    mode="eager",
+                    num_workers=0,
+                ),
+            ),
+        )
+
+    assert len(dataset) == 3
+    assert progress_updates[0].label == "Materializing prepared dataset"
+    assert progress_updates[0].current == 0
+    assert progress_updates[0].total == 3
+    assert progress_updates[-1].current == 3
+    assert progress_updates[-1].total == 3
 
 
 def test_horizon_adjustment_applies_consistent_transform(

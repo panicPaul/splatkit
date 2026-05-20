@@ -70,5 +70,6 @@ def rasterization_nht(
         "means2d": render_result.projection.projected_means,
         "depths": render_result.projection.primitive_depth,
         "conics": render_result.projection.conics,
+        "feature_square_sums": render_result.feature_square_sums,
     }
     return render_result.renders, render_result.alphas, metadata

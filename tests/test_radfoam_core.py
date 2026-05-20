@@ -83,6 +83,14 @@ def test_radfoam_package_import_and_register() -> None:
     assert "radfoam.core" in BACKEND_REGISTRY
 
 
+def test_radfoam_default_preset_is_base(radfoam_config_module) -> None:
+    catalog = radfoam_config_module.radfoam_preset_catalog()
+    config = load_preset_config(catalog)
+
+    assert catalog.default == "garden_base"
+    assert config.preset == "garden_base"
+
+
 def test_radfoam_notebook_resolves_training_config(
     radfoam_config_module,
 ) -> None:
@@ -121,3 +129,30 @@ def test_radfoam_notebook_resolves_training_config(
         training_config.densification.builders[0].target
         == "ember_native_radfoam.RadFoamTopologyRefresh"
     )
+
+
+def test_radfoam_notebook_builds_scene_and_dataset_configs(
+    radfoam_config_module,
+) -> None:
+    config = load_radfoam_preset(radfoam_config_module, "garden_debug")
+    config.data.cache_resized_images = False
+
+    scene_config = radfoam_config_module.build_scene_load_config(config)
+    dataset_config = (
+        radfoam_config_module.build_prepared_frame_dataset_config(config)
+    )
+
+    assert scene_config.path == config.scene.path
+    assert scene_config.image_root is None
+    assert len(scene_config.source_pipes) == 1
+    assert dataset_config.camera_sensor_id is None
+    assert dataset_config.split is not None
+    assert dataset_config.split.target == "train"
+    assert dataset_config.split.every_n == 8
+    assert dataset_config.materialization is not None
+    assert dataset_config.materialization.stage == "prepared"
+    assert dataset_config.materialization.mode == "eager"
+    assert dataset_config.image_preparation is not None
+    assert dataset_config.image_preparation.resize_width_scale == 0.25
+    assert dataset_config.image_preparation.interpolation == "bicubic"
+    assert config.training.viewer.enabled is True

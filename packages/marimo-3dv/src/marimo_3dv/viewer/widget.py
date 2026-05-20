@@ -1354,12 +1354,14 @@ class _LatestOnlyRenderer:
         ],
         publish_error: Callable[[int, Exception, str], None],
         complete_revision: Callable[[int, Exception | None], None],
+        complete_revision_without_frame: Callable[[int], None],
         set_rendering: Callable[[bool], None],
     ) -> None:
         self._render_fn = render_fn
         self._publish_frame = publish_frame
         self._publish_error = publish_error
         self._complete_revision = complete_revision
+        self._complete_revision_without_frame = complete_revision_without_frame
         self._set_rendering = set_rendering
         self._condition = threading.Condition()
         self._latest_revision = -1
@@ -1387,7 +1389,7 @@ class _LatestOnlyRenderer:
             self._set_rendering(True)
             self._condition.notify()
         if 0 <= previous_latest_revision < revision:
-            self._complete_revision(previous_latest_revision, None)
+            self._complete_revision_without_frame(previous_latest_revision)
 
     def close(self) -> None:
         """Stop the background render worker."""
@@ -1437,7 +1439,7 @@ class _LatestOnlyRenderer:
                     if not has_pending:
                         self._set_rendering(False)
                 else:
-                    self._complete_revision(revision, None)
+                    self._complete_revision_without_frame(revision)
                     if not has_pending:
                         self._set_rendering(False)
                 continue
@@ -1450,7 +1452,7 @@ class _LatestOnlyRenderer:
                 has_pending = self._pending_state is not None
 
             if not is_latest or superseded_by_interaction:
-                self._complete_revision(revision, None)
+                self._complete_revision_without_frame(revision)
                 if not has_pending:
                     self._set_rendering(False)
                 continue
@@ -1491,6 +1493,7 @@ class _NativeViewerAnyWidget(anywidget.AnyWidget):
     frame_packet = traitlets.Bytes(b"").tag(sync=True)
     _camera_revision = traitlets.Int(0).tag(sync=True)
     render_revision = traitlets.Int(0).tag(sync=True)
+    _completed_revision = traitlets.Int(0).tag(sync=True)
     interaction_active = traitlets.Bool(False).tag(sync=True)
     latency_ms = traitlets.Float(0.0).tag(sync=True)
     latency_sample_ms = traitlets.Float(0.0).tag(sync=True)
@@ -1654,6 +1657,9 @@ class MarimoViewer(_StableMarimoAnyWidget):
             publish_frame=self._publish_frame,
             publish_error=self._publish_error,
             complete_revision=self._complete_revision,
+            complete_revision_without_frame=(
+                self._complete_revision_without_frame
+            ),
             set_rendering=self._set_rendering,
         )
         self._native_widget.observe(
@@ -2121,6 +2127,16 @@ class MarimoViewer(_StableMarimoAnyWidget):
         with self._render_completion_condition:
             self._completed_revisions[revision] = error
             self._render_completion_condition.notify_all()
+
+    def _complete_revision_without_frame(self, revision: int) -> None:
+        """Complete a revision that was superseded before frame delivery."""
+        self._complete_revision(revision)
+
+        def _apply_completion_update() -> None:
+            self._native_widget._completed_revision = revision
+            self._native_widget.send_state("_completed_revision")
+
+        self._run_on_main_loop(_apply_completion_update)
 
     def _wait_for_revision(self, revision: int) -> None:
         """Block until the requested revision completes and re-raise errors."""

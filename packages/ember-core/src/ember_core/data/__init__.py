@@ -5,7 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, overload
 
-from ember_core.data.adapters import PreparedFrameDataset, collate_frame_samples
+from ember_core.data.adapters import (
+    MaterializationProgress,
+    MaterializationProgressCallback,
+    PreparedFrameCache,
+    PreparedFrameDataset,
+    collate_frame_samples,
+    materialization_progress_callback,
+)
 from ember_core.data.config import (
     ColmapSceneConfig,
     MipNerf360IndoorPreparedFrameDatasetConfig,
@@ -65,6 +72,12 @@ from ember_core.data.postprocess import (
 from ember_core.data.samples import (
     get_sample_scene_path,
     resolve_colmap_scene_path,
+)
+from ember_core.data.views import (
+    PreparedFrameViewCatalog,
+    PreparedFrameViewRef,
+    PreparedFrameViewSplit,
+    build_prepared_frame_view_catalog,
 )
 
 SceneSourceFormat = Literal["colmap", "must3r", "ncore"]
@@ -205,6 +218,8 @@ __all__ = [
     "ImagePreparationSpec",
     "MaterializationConfig",
     "MaterializationMode",
+    "MaterializationProgress",
+    "MaterializationProgressCallback",
     "MaterializationStage",
     "MipNerf360IndoorPreparedFrameDatasetConfig",
     "MipNerf360OutdoorPreparedFrameDatasetConfig",
@@ -216,9 +231,13 @@ __all__ = [
     "PathCameraImageSource",
     "PointCloudState",
     "PreparedFrameBatch",
+    "PreparedFrameCache",
     "PreparedFrameDataset",
     "PreparedFrameDatasetConfig",
     "PreparedFrameSample",
+    "PreparedFrameViewCatalog",
+    "PreparedFrameViewRef",
+    "PreparedFrameViewSplit",
     "ResizePipeConfig",
     "ResizeSpec",
     "SceneLoadConfig",
@@ -229,12 +248,14 @@ __all__ = [
     "SplitConfig",
     "SubprocessMust3rSlamRuntime",
     "adjust_scene_record_horizon",
+    "build_prepared_frame_view_catalog",
     "collate_frame_samples",
     "get_sample_scene_path",
     "load_colmap_scene_record",
     "load_must3r_scene_record",
     "load_ncore_scene_record",
     "load_scene_record",
+    "materialization_progress_callback",
     "prepare_frame_dataset",
     "resolve_colmap_scene_path",
     "resolve_must3r_checkpoints",

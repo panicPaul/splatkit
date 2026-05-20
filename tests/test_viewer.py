@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from ember_core.core import CameraState
 from ember_core.viewer import (
+    Marimo3DVViewerConfig,
     ViewerState,
     camera_from_viewer_payload,
     camera_to_viewer_payload,
@@ -97,3 +98,44 @@ def test_launch_viser_backend_passes_ember_camera(monkeypatch) -> None:
     assert isinstance(viewer, FakeViserViewer)
     assert isinstance(captured["rendered"], CameraState)
     assert captured["state"].camera.camera_convention == "opencv"
+
+
+def test_launch_marimo_3dv_backend_applies_typed_config(monkeypatch) -> None:
+    import marimo as mo
+    import marimo_3dv.viewer as viewer_module
+
+    camera = CameraState(
+        width=torch.tensor([80], dtype=torch.int64),
+        height=torch.tensor([60], dtype=torch.int64),
+        fov_degrees=torch.tensor([50.0], dtype=torch.float32),
+        cam_to_world=torch.eye(4, dtype=torch.float32)[None],
+        camera_convention="opencv",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeNativeViewer:
+        def __init__(self, render_fn, *, state, **kwargs) -> None:
+            del kwargs
+            captured["state"] = state
+            captured["rendered"] = render_fn(state.camera_state)
+
+    monkeypatch.setattr(mo, "running_in_notebook", lambda: True)
+    monkeypatch.setattr(viewer_module, "Viewer", FakeNativeViewer)
+
+    viewer = launch_viewer(
+        lambda rendered_camera: rendered_camera,
+        state=ViewerState(camera=camera),
+        marimo_3dv_config=Marimo3DVViewerConfig(
+            interactive_quality=25,
+            interactive_max_side=640,
+            interactive_max_fps=5.0,
+            transport_mode="widget",
+        ),
+    )
+
+    assert isinstance(viewer, FakeNativeViewer)
+    assert isinstance(captured["rendered"], CameraState)
+    assert captured["state"].interactive_quality == 25
+    assert captured["state"].interactive_max_side == 640
+    assert captured["state"].interactive_max_fps == 5.0
+    assert captured["state"].transport_mode == "widget"

@@ -96,6 +96,12 @@ def _(training_controls):
 
 
 @app.cell(hide_code=True)
+def _(training_preparation_status):
+    training_preparation_status
+    return
+
+
+@app.cell(hide_code=True)
 def _():
     mo.md("""
     ## Training output
@@ -922,7 +928,7 @@ def _():
 @app.cell
 def _():
     prepare_button = mo.ui.run_button(
-        label="Prepare training viewer",
+        label="Prepare training inspector",
         full_width=True,
     )
     train_button = mo.ui.run_button(
@@ -938,8 +944,19 @@ def _():
         default_interval="1s",
         label="Training status",
     )
+    training_inspector_refresh = mo.ui.refresh(
+        options=["5s", "10s", "30s", "1m"],
+        default_interval="10s",
+        label="Image refresh",
+    )
     training_controls = mo.vstack(
-        [prepare_button, train_button, stop_button, training_status_refresh],
+        [
+            prepare_button,
+            train_button,
+            stop_button,
+            training_status_refresh,
+            training_inspector_refresh,
+        ],
         gap=0.5,
     )
     return (
@@ -947,6 +964,7 @@ def _():
         stop_button,
         train_button,
         training_controls,
+        training_inspector_refresh,
         training_status_refresh,
     )
 
@@ -997,37 +1015,80 @@ def format_duration(seconds: float) -> str:
 
 
 @app.cell
-def _(current_config, is_script_mode, prepare_button):
-    should_prepare = is_script_mode or bool(prepare_button.value)
-    scene_load_error = None
-    try:
-        scene_record = (
-            ember.load_scene_record(build_scene_load_config(current_config))
-            if should_prepare and current_config is not None
-            else None
+def _(current_config):
+    training_preparation_handle = None
+    training_preparation_snapshot = None
+    if current_config is not None:
+        training_preparation_handle, training_preparation_snapshot = (
+            ember_splatting.create_training_preparation(
+                load_scene=lambda: ember.load_scene_record(
+                    build_scene_load_config(current_config)
+                ),
+                prepare_frame_view_catalog=lambda scene_record: (
+                    ember.build_prepared_frame_view_catalog(
+                        scene_record,
+                        build_prepared_frame_dataset_config(current_config),
+                    )
+                ),
+            )
         )
-    except Exception as error:
-        scene_record = None
-        scene_load_error = error
-    return scene_load_error, scene_record
+    return training_preparation_handle, training_preparation_snapshot
 
 
 @app.cell
-def _(current_config, scene_record):
-    frame_dataset_error = None
-    try:
-        frame_dataset = (
-            ember.PreparedFrameDataset(
-                scene_record,
-                config=build_prepared_frame_dataset_config(current_config),
-            )
-            if scene_record is not None and current_config is not None
-            else None
-        )
-    except Exception as error:
-        frame_dataset = None
-        frame_dataset_error = error
-    return frame_dataset, frame_dataset_error
+def _(
+    current_config,
+    is_script_mode,
+    prepare_button,
+    train_button,
+    training_preparation_handle,
+):
+    should_prepare = (
+        is_script_mode or bool(prepare_button.value) or bool(train_button.value)
+    )
+    if (
+        should_prepare
+        and current_config is not None
+        and training_preparation_handle is not None
+    ):
+        training_preparation_handle.start(wait=is_script_mode)
+    return
+
+
+@app.cell
+def _(ember_splatting, training_preparation_snapshot):
+    _snapshot = (
+        training_preparation_snapshot()
+        if training_preparation_snapshot is not None
+        else None
+    )
+    training_preparation_status = (
+        ember_splatting.render_training_preparation_status(_snapshot)
+    )
+    return (training_preparation_status,)
+
+
+@app.cell
+def _(ember_splatting, training_preparation_snapshot):
+    _snapshot = (
+        training_preparation_snapshot()
+        if training_preparation_snapshot is not None
+        else None
+    )
+    (
+        scene_load_error,
+        scene_record,
+        frame_dataset,
+        frame_dataset_error,
+        frame_view_catalog,
+    ) = ember_splatting.training_preparation_outputs(_snapshot)
+    return (
+        scene_load_error,
+        scene_record,
+        frame_dataset,
+        frame_dataset_error,
+        frame_view_catalog,
+    )
 
 
 @app.cell
@@ -1057,11 +1118,11 @@ def _(
     training_viewer_error = None
     try:
         training_viewer_handle = (
-            ember_splatting.create_training_viewer(
+            ember_splatting.create_training_run(
                 frame_dataset,
                 training_config,
                 config=viewer_config,
-                title="Stoch3DGS training viewer",
+                title="Stoch3DGS training inspector",
             )
             if not is_script_mode
             and current_config is not None
@@ -1076,11 +1137,32 @@ def _(
 
 
 @app.cell
-def _(training_viewer_handle):
+def _(frame_view_catalog, is_script_mode):
+    training_inspector = (
+        None
+        if is_script_mode or frame_view_catalog is None
+        else ember_splatting.create_training_view_inspector(
+            frame_view_catalog,
+        )
+    )
+    return (training_inspector,)
+
+
+@app.cell
+def _(
+    frame_view_catalog,
+    training_inspector,
+    training_inspector_refresh,
+    training_viewer_handle,
+):
     training_viewer = (
         None
-        if training_viewer_handle is None
-        else training_viewer_handle.viewer
+        if training_inspector is None
+        else training_inspector.panel(
+            training_viewer_handle,
+            frame_view_catalog,
+            refresh=training_inspector_refresh,
+        )
     )
     return (training_viewer,)
 
@@ -1151,7 +1233,7 @@ def _(
         )
     elif training_viewer_error is not None:
         training_result_view = mo.callout(
-            f"Training viewer preparation failed.\n\n```text\n{training_viewer_error}\n```",
+            f"Training inspector preparation failed.\n\n```text\n{training_viewer_error}\n```",
             kind="danger",
         )
     elif training_result is not None:
@@ -1160,7 +1242,7 @@ def _(
             f"Steps: `{len(training_result.history)}`"
         )
     elif training_viewer_handle is None:
-        training_result_view = mo.md("Prepare the training viewer first.")
+        training_result_view = mo.md("Prepare the training inspector first.")
     else:
         snapshot = training_viewer_handle.snapshot()
         if snapshot.status == "idle":
